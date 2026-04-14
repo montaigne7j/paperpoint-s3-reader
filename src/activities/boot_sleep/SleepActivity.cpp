@@ -17,6 +17,8 @@
 
 void SleepActivity::onEnter() {
   Activity::onEnter();
+
+  // Show popup with reader orientation only when going to sleep from reader
   if (APP_STATE.lastSleepFromReader) {
     ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
     GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
@@ -83,16 +85,13 @@ void SleepActivity::renderCustomSleepScreen() const {
     }
     const auto numFiles = files.size();
     if (numFiles > 0) {
-      // Pick a random wallpaper, excluding recently shown ones.
-      // Window: up to SLEEP_RECENT_COUNT entries, capped at numFiles-1.
-      const uint16_t fileCount = static_cast<uint16_t>(std::min(numFiles, static_cast<size_t>(UINT16_MAX)));
-      const uint8_t window =
-          static_cast<uint8_t>(std::min(static_cast<size_t>(APP_STATE.recentSleepFill), numFiles - 1));
-      auto randomFileIndex = static_cast<uint16_t>(random(fileCount));
-      for (uint8_t attempt = 0; attempt < 20 && APP_STATE.isRecentSleep(randomFileIndex, window); attempt++) {
-        randomFileIndex = static_cast<uint16_t>(random(fileCount));
+      // Generate a random number between 1 and numFiles
+      auto randomFileIndex = random(numFiles);
+      // If we picked the same image as last time, reroll
+      while (numFiles > 1 && APP_STATE.lastSleepImage != UINT8_MAX && randomFileIndex == APP_STATE.lastSleepImage) {
+        randomFileIndex = random(numFiles);
       }
-      APP_STATE.pushRecentSleep(randomFileIndex);
+      APP_STATE.lastSleepImage = randomFileIndex;
       APP_STATE.saveToFile();
       const auto filename = std::string(sleepDir) + "/" + files[randomFileIndex];
       FsFile file;
@@ -107,7 +106,6 @@ void SleepActivity::renderCustomSleepScreen() const {
       }
     }
   }
-
   // Look for sleep.bmp on the root of the sd card to determine if we should
   // render a custom sleep screen instead of the default.
   FsFile file;
@@ -195,13 +193,20 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 
   if (hasGreyscale) {
-    // Re-render with GRAYSCALE_DIRECT to write gray values (0-3) directly
     bitmap.rewindToData();
-    renderer.clearScreen();
-    renderer.setRenderMode(GfxRenderer::GRAYSCALE_DIRECT);
+    renderer.clearScreen(0x00);
+    renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
     renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
+    renderer.copyGrayscaleLsbBuffers();
+
+    bitmap.rewindToData();
+    renderer.clearScreen(0x00);
+    renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
+    renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
+    renderer.copyGrayscaleMsbBuffers();
+
+    renderer.displayGrayBuffer();
     renderer.setRenderMode(GfxRenderer::BW);
-    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
   }
 }
 
