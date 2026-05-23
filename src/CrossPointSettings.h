@@ -165,6 +165,14 @@ class CrossPointSettings {
   uint8_t statusBarProgressBarThickness = PROGRESS_BAR_NORMAL;
   uint8_t statusBarTitle = CHAPTER_TITLE;
   uint8_t statusBarBattery = 1;
+  // Clock display in status bar (0 = hidden, 1 = visible).
+  // Requires the BM8563 RTC; gated on halClock.isAvailable().
+  uint8_t statusBarClock = 0;
+  // Clock UTC offset in half-hour steps, biased by 24 so it fits in uint8_t.
+  // 24 = UTC+0, 0 = UTC-12:00, 52 = UTC+14:00.
+  uint8_t clockUtcOffset = 24;
+  // 0 = 24-hour, 1 = 12-hour with AM/PM.
+  uint8_t statusBarClockFormat = 0;
   // Text rendering settings
   uint8_t extraParagraphSpacing = 1;
   uint8_t textAntiAliasing = 1;

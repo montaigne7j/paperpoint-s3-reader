@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+
 #include <lgfx/v1/touch/Touch_GT911.hpp>
 
 // Minimal GT911 capacitive touch driver for M5PaperS3

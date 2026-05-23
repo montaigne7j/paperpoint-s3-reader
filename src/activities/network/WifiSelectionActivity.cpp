@@ -1,6 +1,7 @@
 #include "WifiSelectionActivity.h"
 
 #include <GfxRenderer.h>
+#include <HalClock.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <WiFi.h>
@@ -249,6 +250,10 @@ void WifiSelectionActivity::checkConnectionStatus() {
     snprintf(ipStr, sizeof(ipStr), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
     connectedIP = ipStr;
     autoConnecting = false;
+
+    // Best-effort: nudge the RTC into UTC alignment via NTP. Blocks ~2–3s max
+    // and silently no-ops if the BM8563 isn't available.
+    halClock.syncFromNTP();
 
     // Save this as the last connected network - SD card operations need lock as
     // we use SPI for both

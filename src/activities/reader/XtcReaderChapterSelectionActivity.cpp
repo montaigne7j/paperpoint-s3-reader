@@ -57,7 +57,6 @@ void XtcReaderChapterSelectionActivity::onEnter() {
 void XtcReaderChapterSelectionActivity::onExit() { Activity::onExit(); }
 
 void XtcReaderChapterSelectionActivity::loop() {
-  const int pageItems = getPageItems();
   const int totalItems = static_cast<int>(xtc->getChapters().size());
 
 #if CROSSPOINT_PAPERS3
@@ -86,6 +85,7 @@ void XtcReaderChapterSelectionActivity::loop() {
     return;
   }
 #else
+  const int pageItems = getPageItems();
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     const auto& chapters = xtc->getChapters();
     if (!chapters.empty() && selectorIndex >= 0 && selectorIndex < static_cast<int>(chapters.size())) {

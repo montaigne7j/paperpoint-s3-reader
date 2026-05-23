@@ -136,7 +136,7 @@ void LyraTheme::drawBatteryRight(const GfxRenderer& renderer, Rect rect, const b
     renderer.fillRect(rect.x - textWidth - BaseTheme::batteryPercentSpacing, rect.y, textWidth, textHeight, false);
     // Draw text to the left of the icon
     renderer.drawText(SMALL_FONT_ID, rect.x - textWidth - BaseTheme::batteryPercentSpacing, rect.y,
-                     percentageText.c_str());
+                      percentageText.c_str());
   }
 
   // Draw icon at rect.x

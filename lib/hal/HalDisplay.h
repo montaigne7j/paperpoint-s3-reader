@@ -29,6 +29,14 @@ class HalDisplay {
   // For unpacking 1-bit source images only
   static constexpr uint16_t DISPLAY_WIDTH_BYTES = DISPLAY_WIDTH / 8;
 
+  // Runtime accessors — match the X3 HalDisplay surface for shared lib code
+  // (JpegToBmpConverter, GfxRenderer). The Paper S3 panel is fixed-size so
+  // these can return constants directly.
+  uint16_t getDisplayWidth() const { return DISPLAY_WIDTH; }
+  uint16_t getDisplayHeight() const { return DISPLAY_HEIGHT; }
+  uint16_t getDisplayWidthBytes() const { return DISPLAY_WIDTH_BYTES; }
+  uint32_t getBufferSize() const { return BUFFER_SIZE; }
+
   // Frame buffer operations
   void clearScreen(uint8_t color = 0xFF) const;
   void drawImage(const uint8_t* imageData, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
@@ -64,3 +72,6 @@ class HalDisplay {
   uint8_t* grayMsbBuffer = nullptr;
   void freeGrayscaleBuffers();
 };
+
+// Global singleton — defined in src/main.cpp.
+extern HalDisplay display;
