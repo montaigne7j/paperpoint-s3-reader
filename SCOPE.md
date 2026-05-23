@@ -43,8 +43,6 @@ usability over "swiss-army-knife" functionality.
 
 *These features align with CrossPoint's goals but are impractical on the current hardware or produce poor UX.*
 
-* **Clock Display:** The BM8563 RTC on M5PaperS3 drifts during deep sleep; making the clock untrustworthy after extended sleep cycles. NTP sync could help, but CrossPoint doesn't connect to the internet on every boot.
-
 * **PDF Rendering:** PDFs are fixed-layout documents, so rendering them requires displaying pages as images rather than reflowable text — resulting in constant panning and zooming that makes for a poor reading experience on e-ink.
 
 ## 3. Idea Evaluation

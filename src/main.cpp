@@ -4,6 +4,7 @@
 #include <FontDecompressor.h>
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
+#include <HalClock.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
@@ -245,6 +246,7 @@ void setup() {
   HalSystem::begin();
   gpio.begin();
   powerManager.begin();
+  halClock.begin();
 
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
