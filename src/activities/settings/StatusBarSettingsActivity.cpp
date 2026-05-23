@@ -184,7 +184,7 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
         } else if (index == 6) {
           return (halClock.isAvailable() && SETTINGS.statusBarClock) ? tr(STR_SHOW) : tr(STR_HIDE);
         } else if (index == 7) {
-          return tr(SETTINGS.statusBarClockFormat ? STR_CLOCK_12H : STR_CLOCK_24H);
+          return SETTINGS.statusBarClockFormat ? tr(STR_CLOCK_12H) : tr(STR_CLOCK_24H);
         } else if (index == 8) {
           return formatUtcOffset(SETTINGS.clockUtcOffset);
         } else {
