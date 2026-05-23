@@ -44,8 +44,7 @@ class HalClock {
   // use24h:          when false, format as 12h with AM/PM.
   //
   // Returns false if the RTC is unavailable.
-  bool formatTime(char* buf, size_t bufSize, uint8_t utcOffsetBiased = 24,
-                  bool use24h = true) const;
+  bool formatTime(char* buf, size_t bufSize, uint8_t utcOffsetBiased = 24, bool use24h = true) const;
 
   // Sync the RTC from an NTP server. Requires WiFi to be already connected.
   // Blocks briefly (~2-3s) while waiting for the first NTP response.

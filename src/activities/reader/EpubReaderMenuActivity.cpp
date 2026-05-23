@@ -10,9 +10,7 @@
 
 namespace {
 #if CROSSPOINT_PAPERS3
-uint8_t orientationLabelIndex(uint8_t orientation) {
-  return orientation == CrossPointSettings::LANDSCAPE_CCW ? 1 : 0;
-}
+uint8_t orientationLabelIndex(uint8_t orientation) { return orientation == CrossPointSettings::LANDSCAPE_CCW ? 1 : 0; }
 #endif
 }  // namespace
 
@@ -29,10 +27,11 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
 #else
           currentOrientation
 #endif
-      ),
+              ),
       currentPage(currentPage),
       totalPages(totalPages),
-      bookProgressPercent(bookProgressPercent) {}
+      bookProgressPercent(bookProgressPercent) {
+}
 
 std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes) {
   std::vector<MenuItem> items;

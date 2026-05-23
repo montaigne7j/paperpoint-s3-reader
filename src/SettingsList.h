@@ -141,8 +141,8 @@ inline const std::vector<SettingInfo>& getSettingsList() {
       SettingInfo::Enum(StrId::STR_CLOCK_FORMAT, &CrossPointSettings::statusBarClockFormat,
                         {StrId::STR_CLOCK_24H, StrId::STR_CLOCK_12H}, "statusBarClockFormat",
                         StrId::STR_CUSTOMISE_STATUS_BAR),
-      SettingInfo::Value(StrId::STR_CLOCK_UTC_OFFSET, &CrossPointSettings::clockUtcOffset, {0, 52, 1},
-                         "clockUtcOffset", StrId::STR_CUSTOMISE_STATUS_BAR),
+      SettingInfo::Value(StrId::STR_CLOCK_UTC_OFFSET, &CrossPointSettings::clockUtcOffset, {0, 52, 1}, "clockUtcOffset",
+                         StrId::STR_CUSTOMISE_STATUS_BAR),
   };
   return list;
 }

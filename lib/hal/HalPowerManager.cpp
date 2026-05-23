@@ -15,7 +15,7 @@ static constexpr int PWROFF_PULSE_PIN = 44;
 static constexpr int BAT_ADC_PIN = 3;
 static constexpr int BAT_ADC_SAMPLES = 16;         // Number of ADC samples to average
 static constexpr uint16_t BAT_HYSTERESIS_MV = 30;  // Only update if voltage changed by ≥30mV (~3%)
-static uint16_t lastBattMv = 0;                     // Cached smoothed voltage
+static uint16_t lastBattMv = 0;                    // Cached smoothed voltage
 
 HalPowerManager powerManager;  // Singleton instance
 

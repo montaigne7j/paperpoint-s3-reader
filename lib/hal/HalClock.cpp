@@ -58,8 +58,7 @@ bool HalClock::getTime(uint8_t& hour, uint8_t& minute) const {
   return true;
 }
 
-bool HalClock::formatTime(char* buf, size_t bufSize, uint8_t utcOffsetBiased,
-                          bool use24h) const {
+bool HalClock::formatTime(char* buf, size_t bufSize, uint8_t utcOffsetBiased, bool use24h) const {
   if (bufSize < 6) return false;
   uint8_t h, m;
   if (!getTime(h, m)) return false;
@@ -121,8 +120,7 @@ bool HalClock::syncFromNTP() {
       gmtime_r(&now, &timeinfo);
       const bool ok = writeTimeToRTC(timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
       if (ok) {
-        LOG_INF("CLK", "RTC set to %02d:%02d:%02d UTC", timeinfo.tm_hour,
-                timeinfo.tm_min, timeinfo.tm_sec);
+        LOG_INF("CLK", "RTC set to %02d:%02d:%02d UTC", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
       }
       return ok;
     }
