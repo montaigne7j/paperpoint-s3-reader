@@ -556,3 +556,164 @@ bool JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(FsFile& jpegFile, Print
                                                          int targetMaxHeight) {
   return jpegFileToBmpStreamInternal(jpegFile, bmpOut, targetMaxWidth, targetMaxHeight, true, true);
 }
+#if CROSSPOINT_PAPERS3
+#include <JPEGDEC.h>
+#include <esp_heap_caps.h>
+
+namespace {
+struct ThumbDecodeCtx {
+  uint8_t* grayBuf;
+  int bufWidth;
+  int bufHeight;
+};
+
+int thumbDrawCallback(JPEGDRAW* pDraw) {
+  auto* ctx = static_cast<ThumbDecodeCtx*>(pDraw->pUser);
+  for (int y = 0; y < pDraw->iHeight; y++) {
+    const int destY = pDraw->y + y;
+    if (destY >= ctx->bufHeight) break;
+    const int rowOffset = destY * ctx->bufWidth;
+    const int srcRowOffset = y * pDraw->iWidth;
+    for (int x = 0; x < pDraw->iWidth; x++) {
+      const int destX = pDraw->x + x;
+      if (destX >= ctx->bufWidth) break;
+      ctx->grayBuf[rowOffset + destX] = reinterpret_cast<uint8_t*>(pDraw->pPixels)[srcRowOffset + x];
+    }
+  }
+  return 1;
+}
+}  // namespace
+
+bool JpegToBmpConverter::jpegMemTo1BitBmp(const uint8_t* jpegData, size_t jpegSize, Print& bmpOut, int targetWidth,
+                                          int targetHeight) {
+  LOG_DBG("JPG", "JPEGDEC fast path: target %dx%d", targetWidth, targetHeight);
+
+  // Heap-allocate JPEGDEC in PSRAM — the object is ~16KB (file buffer, Huffman
+  // tables, MCU buffers) which overflows the 8KB render task stack.
+  auto* jpegMem = static_cast<JPEGDEC*>(heap_caps_malloc(sizeof(JPEGDEC), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!jpegMem) {
+    LOG_ERR("JPG", "Failed to allocate JPEGDEC (%d bytes)", sizeof(JPEGDEC));
+    return false;
+  }
+  auto* jpeg = new (jpegMem) JPEGDEC();
+
+  if (!jpeg->openRAM(const_cast<uint8_t*>(jpegData), jpegSize, thumbDrawCallback)) {
+    LOG_ERR("JPG", "JPEGDEC: failed to open from RAM");
+    jpeg->~JPEGDEC();
+    heap_caps_free(jpegMem);
+    return false;
+  }
+
+  const int origW = jpeg->getWidth();
+  const int origH = jpeg->getHeight();
+
+  // Choose the smallest JPEGDEC scale that still produces an image >= target size
+  int scale = 0;
+  if (origW >= targetWidth * 8 && origH >= targetHeight * 8)
+    scale = JPEG_SCALE_EIGHTH;
+  else if (origW >= targetWidth * 4 && origH >= targetHeight * 4)
+    scale = JPEG_SCALE_QUARTER;
+  else if (origW >= targetWidth * 2 && origH >= targetHeight * 2)
+    scale = JPEG_SCALE_HALF;
+
+  int scaledW = origW;
+  int scaledH = origH;
+  if (scale == JPEG_SCALE_EIGHTH) {
+    scaledW = (origW + 7) / 8;
+    scaledH = (origH + 7) / 8;
+  } else if (scale == JPEG_SCALE_QUARTER) {
+    scaledW = (origW + 3) / 4;
+    scaledH = (origH + 3) / 4;
+  } else if (scale == JPEG_SCALE_HALF) {
+    scaledW = (origW + 1) / 2;
+    scaledH = (origH + 1) / 2;
+  }
+
+  LOG_DBG("JPG", "JPEGDEC: %dx%d scale=1/%d -> %dx%d", origW, origH,
+          scale == JPEG_SCALE_EIGHTH    ? 8
+          : scale == JPEG_SCALE_QUARTER ? 4
+          : scale == JPEG_SCALE_HALF    ? 2
+                                        : 1,
+          scaledW, scaledH);
+
+  // Allocate grayscale decode buffer in PSRAM
+  auto* grayBuf = static_cast<uint8_t*>(heap_caps_malloc(scaledW * scaledH, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!grayBuf) {
+    LOG_ERR("JPG", "Failed to allocate grayscale buffer (%d bytes)", scaledW * scaledH);
+    jpeg->close();
+    jpeg->~JPEGDEC();
+    heap_caps_free(jpegMem);
+    return false;
+  }
+  memset(grayBuf, 0xFF, scaledW * scaledH);
+
+  ThumbDecodeCtx ctx = {grayBuf, scaledW, scaledH};
+  jpeg->setUserPointer(&ctx);
+  jpeg->setPixelType(EIGHT_BIT_GRAYSCALE);
+
+  const unsigned long t0 = millis();
+  const int rc = jpeg->decode(0, 0, scale);
+  LOG_DBG("JPG", "JPEGDEC decode took %lu ms", millis() - t0);
+
+  // Done with decoder — free before BMP writing
+  jpeg->~JPEGDEC();
+  heap_caps_free(jpegMem);
+
+  if (!rc) {
+    LOG_ERR("JPG", "JPEGDEC: decode failed");
+    free(grayBuf);
+    return false;
+  }
+
+  // Calculate output dimensions maintaining aspect ratio (crop to fill)
+  const float scaleToFitW = static_cast<float>(targetWidth) / scaledW;
+  const float scaleToFitH = static_cast<float>(targetHeight) / scaledH;
+  const float fitScale = (scaleToFitW > scaleToFitH) ? scaleToFitW : scaleToFitH;
+  int outW = static_cast<int>(scaledW * fitScale);
+  int outH = static_cast<int>(scaledH * fitScale);
+  if (outW < 1) outW = 1;
+  if (outH < 1) outH = 1;
+
+  // Write 1-bit BMP header
+  writeBmpHeader1bit(bmpOut, outW, outH);
+  const int bytesPerRow = (outW + 31) / 32 * 4;
+
+  auto* rowBuf = static_cast<uint8_t*>(malloc(bytesPerRow));
+  if (!rowBuf) {
+    LOG_ERR("JPG", "Failed to allocate row buffer");
+    free(grayBuf);
+    return false;
+  }
+
+  Atkinson1BitDitherer ditherer(outW);
+
+  // Fixed-point scale factors (output → source mapping)
+  const uint32_t scaleX_fp = (static_cast<uint32_t>(scaledW) << 16) / outW;
+  const uint32_t scaleY_fp = (static_cast<uint32_t>(scaledH) << 16) / outH;
+
+  for (int y = 0; y < outH; y++) {
+    memset(rowBuf, 0, bytesPerRow);
+    int srcY = (static_cast<uint32_t>(y) * scaleY_fp) >> 16;
+    if (srcY >= scaledH) srcY = scaledH - 1;
+
+    for (int x = 0; x < outW; x++) {
+      int srcX = (static_cast<uint32_t>(x) * scaleX_fp) >> 16;
+      if (srcX >= scaledW) srcX = scaledW - 1;
+
+      const uint8_t gray = grayBuf[srcY * scaledW + srcX];
+      const uint8_t bit = ditherer.processPixel(gray, x);
+      const int byteIdx = x / 8;
+      const int bitOff = 7 - (x % 8);
+      rowBuf[byteIdx] |= (bit << bitOff);
+    }
+    ditherer.nextRow();
+    bmpOut.write(rowBuf, bytesPerRow);
+  }
+
+  free(rowBuf);
+  free(grayBuf);
+
+  LOG_DBG("JPG", "JPEGDEC fast path: thumb BMP generated successfully");
+  return true;
+}
+#endif
