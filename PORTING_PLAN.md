@@ -210,3 +210,39 @@ lib_deps =
 - **SdFat vs SD.h**: crosspoint-reader uses SdFat heavily. May need to keep SdFat but configure for PaperS3 SPI pins.
 - **Memory**: ESP32-S3 with 8MB PSRAM is far more capable. Can remove memory optimization workarounds.
 - **Panic handler**: RISC-V specific code in HalSystem.cpp must be rewritten for Xtensa.
+
+## 8. Syncing from Upstream — Cherry-Pick Conflict Discipline
+
+Upstream commits are pulled in one at a time with `git cherry-pick -x <hash>` and recorded in the commit message as `port upstream <hash>`. Most cherry-picks conflict against the port's HAL replacements and the `#if CROSSPOINT_PAPERS3` device-specific branches sprinkled through `lib/` and `src/`.
+
+### Do NOT use `git checkout --theirs <file>` to resolve a conflict.
+
+This is the single most expensive failure mode discovered during the 1.3.0 sync. `--theirs` takes upstream's complete file verbatim, which silently drops every Paper S3-specific change the port has made. The damage is invisible at conflict-resolution time (the commit lands cleanly) and only surfaces when the build fails several commits later — by which point the regression is buried in the cherry-pick history and hard to attribute.
+
+Concrete regressions caused by `--theirs` during the 1.3.0 sync:
+- `src/activities/boot_sleep/SleepActivity.cpp` — lost the wallpaper-recency rewrite (`recentSleepImages` ring buffer) that an earlier cherry-pick had introduced; left a dangling reference to a removed `lastSleepImage` field.
+- `src/components/themes/BaseTheme.cpp` — lost three `CROSSPOINT_PAPERS3` blocks including the 540-px-wide touch-tuned button-hint positions (`{12, 144, 276, 408}`), replaced with X4's `{25, 130, 245, 350}`.
+- `src/components/themes/lyra/LyraTheme.cpp` — lost two more `CROSSPOINT_PAPERS3` blocks for the same reason.
+- `lib/JpegToBmpConverter/JpegToBmpConverter.cpp` — lost the Paper S3-only `jpegMemTo1BitBmp` fast path that `Epub::generateThumbBmp` depends on. Linker failure several commits later.
+
+### Use this resolution flow instead
+
+1. **Inspect the conflict before resolving.** Run `git diff --name-only --diff-filter=U` and then `git diff` on each conflicted file. Look for `#if CROSSPOINT_PAPERS3` blocks on the `HEAD` side — those are what `--theirs` would drop.
+2. **Hand-merge by default.** Open the file in an editor, keep the port's `#if CROSSPOINT_PAPERS3` blocks intact, integrate upstream's new logic into the `#else` branch (or the shared path).
+3. **`--theirs` is reserved for content the port doesn't customise.** Translation YAML files are the only routine case (e.g. `lib/I18n/translations/ukrainian.yaml`) — the entire file's purpose is to mirror upstream language coverage.
+4. **`--ours` is rare but legal** when upstream changes something the port has intentionally diverged from (e.g. an upstream X3-only feature wired into a shared file that we want to keep Paper-S3-disabled).
+5. **Audit before pushing.** After all cherry-picks land but before opening a PR, run:
+   ```bash
+   git diff <pre-sync-master>..HEAD --stat | grep -E "src/.*\.cpp|lib/.*\.cpp" | \
+     while read line; do
+       file=$(echo "$line" | awk '{print $1}')
+       pre=$(git show <pre-sync-master>:"$file" 2>/dev/null | grep -c "CROSSPOINT_PAPERS3")
+       post=$(grep -c "CROSSPOINT_PAPERS3" "$file" 2>/dev/null || echo 0)
+       [ "$pre" -gt "$post" ] && echo "REGRESSED: $file ($pre → $post)"
+     done
+   ```
+   This catches dropped device-specific blocks before CI does.
+
+### When a cherry-pick is reported as empty
+
+`git cherry-pick` will say `nothing to commit, working tree clean` if upstream's change was already applied (often the case for translation refinements that were independently merged into the port). Use `git cherry-pick --skip` and continue — don't `--abort`.
