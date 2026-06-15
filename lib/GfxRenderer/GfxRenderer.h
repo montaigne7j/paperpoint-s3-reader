@@ -4,6 +4,8 @@
 #include <HalDisplay.h>
 
 class FontCacheManager;
+class ExternalFont;
+struct ExternalGlyphMetrics;
 
 #include <cstring>
 #include <map>
@@ -44,6 +46,26 @@ class GfxRenderer {
   // recording to the (non-const) FontCacheManager. Same pragmatic compromise
   // as before, concentrated in a single pointer instead of four fields.
   mutable FontCacheManager* fontCacheManager_ = nullptr;
+
+  static bool isReaderFont(int fontId);
+
+bool renderExternalReaderGlyph(
+    uint32_t cp,
+    int* x,
+    int baselineY,
+    bool pixelState
+) const;
+
+void renderExternalGlyph(
+    const uint8_t* bitmap,
+    ExternalFont* font,
+    int* x,
+    int baselineY,
+    bool pixelState,
+    const ExternalGlyphMetrics& metrics,
+    int advanceOverride = -1,
+    int cellClipWidth = -1
+) const;
 
   void renderChar(const EpdFontFamily& fontFamily, uint32_t cp, int* x, int* y, bool pixelState,
                   EpdFontFamily::Style style) const;

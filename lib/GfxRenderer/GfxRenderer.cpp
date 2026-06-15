@@ -1,10 +1,72 @@
 #include "GfxRenderer.h"
 
 #include <FontDecompressor.h>
+#include <FontManager.h>
 #include <Logging.h>
 #include <Utf8.h>
 
+#include <algorithm>
+
+#include "ExternalFontHelpers.h"
 #include "FontCacheManager.h"
+
+namespace {
+
+// 目前 Paper S3 版的 UI font IDs。
+// 數值來自 src/fontIds.h。
+// 若之後重新產生 fontIds.h，這裡也要同步檢查。
+constexpr int UI_FONT_IDS[] = {
+    -1246724383,  // UI_10_FONT_ID
+    -359249323,   // UI_12_FONT_ID
+    1073217904,   // SMALL_FONT_ID
+};
+
+constexpr int UI_FONT_COUNT =
+    sizeof(UI_FONT_IDS) / sizeof(UI_FONT_IDS[0]);
+
+bool isCjkCodepoint(const uint32_t cp) {
+  // CJK Unified Ideographs
+  if (cp >= 0x4E00 && cp <= 0x9FFF) return true;
+
+  // CJK Extension A
+  if (cp >= 0x3400 && cp <= 0x4DBF) return true;
+
+  // CJK Extensions B-F / Compatibility supplements
+  if (cp >= 0x20000 && cp <= 0x2FA1F) return true;
+
+  // CJK symbols and punctuation
+  if (cp >= 0x3000 && cp <= 0x303F) return true;
+
+  // Hiragana
+  if (cp >= 0x3040 && cp <= 0x309F) return true;
+
+  // Katakana
+  if (cp >= 0x30A0 && cp <= 0x30FF) return true;
+
+  // Bopomofo
+  if (cp >= 0x3100 && cp <= 0x312F) return true;
+  if (cp >= 0x31A0 && cp <= 0x31BF) return true;
+
+  // CJK compatibility
+  if (cp >= 0x3200 && cp <= 0x33FF) return true;
+
+  // Full-width forms
+  if (cp >= 0xFF00 && cp <= 0xFFEF) return true;
+
+  return false;
+}
+
+}  // namespace
+
+bool GfxRenderer::isReaderFont(const int fontId) {
+  for (int i = 0; i < UI_FONT_COUNT; ++i) {
+    if (fontId == UI_FONT_IDS[i]) {
+      return false;
+    }
+  }
+
+  return true;
+}
 
 const uint8_t* GfxRenderer::getGlyphBitmap(const EpdFontData* fontData, const EpdGlyph* glyph) const {
   if (fontData->groups != nullptr) {
@@ -159,6 +221,156 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
       }
     }
   }
+}
+void GfxRenderer::renderExternalGlyph(
+    const uint8_t* bitmap,
+    ExternalFont* font,
+    int* x,
+    const int baselineY,
+    const bool pixelState,
+    const ExternalGlyphMetrics& metrics,
+    const int advanceOverride,
+    const int cellClipWidth
+) const {
+  if (!bitmap || !font || !x) {
+    return;
+  }
+
+  const uint8_t width =
+      metrics.width > 0 ? metrics.width : font->getCharWidth();
+
+  const uint8_t height =
+      metrics.height > 0 ? metrics.height : font->getCharHeight();
+
+  const uint8_t bytesPerRow = (width + 7) / 8;
+
+  const ExternalGlyphLayout layout =
+      computeExternalGlyphLayout(
+          *x,
+          baselineY,
+          *font,
+          metrics,
+          advanceOverride
+      );
+
+  const int cursorX = *x;
+  const int screenWidth = getScreenWidth();
+  const int screenHeight = getScreenHeight();
+
+  int minGlyphX = std::max(0, -layout.drawX);
+  int maxGlyphX =
+      std::min<int>(width, screenWidth - layout.drawX);
+
+  const int minGlyphY = std::max(0, -layout.drawY);
+  const int maxGlyphY =
+      std::min<int>(height, screenHeight - layout.drawY);
+
+  if (cellClipWidth > 0) {
+    minGlyphX =
+        std::max(minGlyphX, cursorX - layout.drawX);
+
+    maxGlyphX =
+        std::min(
+            maxGlyphX,
+            cursorX + cellClipWidth - layout.drawX
+        );
+  }
+
+  if (minGlyphX >= maxGlyphX || minGlyphY >= maxGlyphY) {
+    *x += layout.advanceX;
+    return;
+  }
+
+  for (int glyphY = minGlyphY;
+       glyphY < maxGlyphY;
+       ++glyphY) {
+
+    const int screenY = layout.drawY + glyphY;
+
+    for (int glyphX = minGlyphX;
+         glyphX < maxGlyphX;
+         ++glyphX) {
+
+      const int byteIndex =
+          glyphY * bytesPerRow + glyphX / 8;
+
+      const int bitIndex = 7 - glyphX % 8;
+
+      if ((bitmap[byteIndex] >> bitIndex) & 1) {
+        drawPixel(
+            layout.drawX + glyphX,
+            screenY,
+            pixelState
+        );
+      }
+    }
+  }
+
+  *x += layout.advanceX;
+}
+
+bool GfxRenderer::renderExternalReaderGlyph(
+    const uint32_t cp,
+    int* x,
+    const int baselineY,
+    const bool pixelState
+) const {
+  if (!isCjkCodepoint(cp)) {
+    return false;
+  }
+
+  FontManager& fontManager = FontManager::getInstance();
+
+  if (!fontManager.isExternalFontEnabled()) {
+    return false;
+  }
+
+  ExternalFont* externalFont =
+      fontManager.getActiveFont();
+
+  if (!externalFont) {
+    return false;
+  }
+
+  const uint8_t* bitmap =
+      externalFont->getGlyph(cp);
+
+  if (!bitmap) {
+    return false;
+  }
+
+  ExternalGlyphMetrics metrics =
+      getDefaultMetrics(*externalFont, cp);
+
+  if (shouldUseCjkSymbolCellMetrics(cp)) {
+    normalizeCjkSymbolMetricsForRendering(
+        metrics,
+        externalFont->getCharWidth(),
+        externalFont->isRichMetricsFormat()
+    );
+  }
+
+  const int advance =
+      getExternalGlyphAdvanceForRendering(
+          metrics,
+          externalFont->getCharWidth(),
+          0,     // 第一版暫時不額外加字距
+          true,  // CJK 使用完整 cell advance
+          shouldUseGlyphBoundsForAdvance(cp)
+      );
+
+  renderExternalGlyph(
+      bitmap,
+      externalFont,
+      x,
+      baselineY,
+      pixelState,
+      metrics,
+      advance,
+      externalFont->getCharWidth()
+  );
+
+  return true;
 }
 
 // IMPORTANT: This function is in critical rendering path and is called for every pixel. Please keep it as simple and
