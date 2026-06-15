@@ -401,17 +401,147 @@ void GfxRenderer::drawPixelGray(const int x, const int y, const uint8_t epdValue
   const uint32_t index = phyY * HalDisplay::DISPLAY_WIDTH + phyX;
   frameBuffer[index] = epdValue;
 }
+int GfxRenderer::getTextWidthExternalReader(
+    const int fontId,
+    const char* text,
+    const EpdFontFamily::Style style
+) const {
+  if (text == nullptr || *text == '\0') {
+    return 0;
+  }
 
-int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontFamily::Style style) const {
   const auto fontIt = fontMap.find(fontId);
+
   if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
 
-  int w = 0, h = 0;
-  fontIt->second.getTextDimensions(text, &w, &h, style);
-  return w;
+  FontManager& fontManager = FontManager::getInstance();
+  ExternalFont* externalFont = fontManager.getActiveFont();
+
+  if (!fontManager.isExternalFontEnabled() || externalFont == nullptr) {
+    int width = 0;
+    int height = 0;
+
+    fontIt->second.getTextDimensions(
+        text,
+        &width,
+        &height,
+        style
+    );
+
+    return width;
+  }
+
+  const auto& builtinFont = fontIt->second;
+
+  int width = 0;
+  uint32_t previousBuiltinCp = 0;
+  uint32_t cp = 0;
+
+  while ((cp = utf8NextCodepoint(
+              reinterpret_cast<const uint8_t**>(&text)))) {
+
+    if (utf8IsCombiningMark(cp)) {
+      continue;
+    }
+
+    const bool isCjk = isCjkCodepoint(cp);
+
+    if (isCjk) {
+      ExternalGlyphMetrics metrics{};
+
+      metrics.width = externalFont->getCharWidth();
+      metrics.height = externalFont->getCharHeight();
+      metrics.advanceX = externalFont->getCharWidth();
+
+      if (externalFont->getGlyphMetrics(cp, &metrics)) {
+        if (shouldUseCjkSymbolCellMetrics(cp)) {
+          normalizeCjkSymbolMetricsForRendering(
+              metrics,
+              externalFont->getCharWidth(),
+              externalFont->isRichMetricsFormat()
+          );
+        }
+
+        width += getExternalGlyphAdvanceForRendering(
+            metrics,
+            externalFont->getCharWidth(),
+            0,
+            true,
+            shouldUseGlyphBoundsForAdvance(cp)
+        );
+
+        // 不讓英文字型 kerning 跨過中文字元
+        previousBuiltinCp = 0;
+        continue;
+      }
+    }
+
+    // 外部字型沒有這個字時，退回內建字型
+    cp = builtinFont.applyLigatures(cp, text, style);
+
+    if (previousBuiltinCp != 0) {
+      width += fp4::toPixel(
+          builtinFont.getKerning(
+              previousBuiltinCp,
+              cp,
+              style
+          )
+      );
+    }
+
+    const EpdGlyph* glyph =
+        builtinFont.getGlyph(cp, style);
+
+    if (glyph != nullptr) {
+      width += fp4::toPixel(glyph->advanceX);
+    }
+
+    previousBuiltinCp = cp;
+  }
+
+  return width;
+}
+
+int GfxRenderer::getTextWidth(
+    const int fontId,
+    const char* text,
+    const EpdFontFamily::Style style
+) const {
+  FontManager& fontManager =
+      FontManager::getInstance();
+
+  if (isReaderFont(fontId) &&
+      fontManager.isExternalFontEnabled() &&
+      fontManager.getActiveFont() != nullptr) {
+
+    return getTextWidthExternalReader(
+        fontId,
+        text,
+        style
+    );
+  }
+
+  const auto fontIt = fontMap.find(fontId);
+
+  if (fontIt == fontMap.end()) {
+    LOG_ERR("GFX", "Font %d not found", fontId);
+    return 0;
+  }
+
+  int width = 0;
+  int height = 0;
+
+  fontIt->second.getTextDimensions(
+      text,
+      &width,
+      &height,
+      style
+  );
+
+  return width;
 }
 
 void GfxRenderer::drawCenteredText(const int fontId, const int y, const char* text, const bool black,
@@ -457,6 +587,36 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
                                                        combiningGlyph->width);
       renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, combiningX, yPos - raiseBy, black, style);
       continue;
+    }
+
+        const bool useExternalReaderFont =
+        isReaderFont(fontId) &&
+        FontManager::getInstance().isExternalFontEnabled();
+
+    if (useExternalReaderFont &&
+        isCjkCodepoint(cp)) {
+
+      // 先把前一個內建字型 glyph 尚未套用的 advance 補上
+      if (prevCp != 0) {
+        lastBaseX += fp4::toPixel(prevAdvanceFP);
+      }
+
+      prevCp = 0;
+      prevAdvanceFP = 0;
+
+      if (renderExternalReaderGlyph(
+              cp,
+              &lastBaseX,
+              yPos,
+              black)) {
+
+        // 外部 glyph 已經自行前進 lastBaseX
+        lastBaseLeft = 0;
+        lastBaseWidth = 0;
+        lastBaseTop = 0;
+
+        continue;
+      }
     }
 
     cp = font.applyLigatures(cp, text, style);

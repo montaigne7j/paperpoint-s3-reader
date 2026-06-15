@@ -49,6 +49,12 @@ class GfxRenderer {
 
   static bool isReaderFont(int fontId);
 
+  int getTextWidthExternalReader(
+    int fontId,
+    const char* text,
+    EpdFontFamily::Style style
+) const;
+
 bool renderExternalReaderGlyph(
     uint32_t cp,
     int* x,
