@@ -456,7 +456,7 @@ int GfxRenderer::getTextWidthExternalReader(
       metrics.height = externalFont->getCharHeight();
       metrics.advanceX = externalFont->getCharWidth();
 
-      if (externalFont->getGlyphMetrics(cp, &metrics)) {
+      if (externalFont->getGlyphMetricsForLayout(cp, &metrics)) {
         if (shouldUseCjkSymbolCellMetrics(cp)) {
           normalizeCjkSymbolMetricsForRendering(
               metrics,

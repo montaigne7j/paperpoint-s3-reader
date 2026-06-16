@@ -2,6 +2,7 @@
 #include <Epub.h>
 #include <FontCacheManager.h>
 #include <FontDecompressor.h>
+#include <FontManager.h>
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <HalDisplay.h>
@@ -195,6 +196,81 @@ void enterDeepSleep() {
 
   powerManager.startDeepSleep(gpio);
 }
+void setupExternalFonts() {
+  // 確保 SD 卡根目錄有 /fonts。
+  // 資料夾已存在時可忽略 mkdir 的回傳值。
+  Storage.mkdir("/fonts");
+
+  FontManager& fontManager = FontManager::getInstance();
+
+  // 必須先掃描，loadSettings() 才能用保存的檔名
+  // 對應到這次掃描出的字型 index。
+  fontManager.scanFonts();
+
+  const int fontCount = fontManager.getFontCount();
+
+  LOG_INF(
+      "MAIN",
+      "External font scan complete: %d font(s)",
+      fontCount
+  );
+
+  if (fontCount <= 0) {
+    LOG_INF(
+        "MAIN",
+        "No external fonts found in /fonts; using built-in fonts"
+    );
+    return;
+  }
+
+  // 嘗試恢復 /.crosspoint/font_settings.bin 中的選擇。
+  fontManager.loadSettings();
+
+  // 第一階段尚未加入字型選單。
+  // 若沒有保存的字型，或保存的字型已不存在，
+  // 暫時自動載入掃描清單中的第 1 套字型。
+  if (!fontManager.isExternalFontEnabled()) {
+    LOG_INF(
+        "MAIN",
+        "No active external reader font; loading font index 0"
+    );
+
+    if (fontManager.previewFont(0)) {
+      // previewFont() 不會自行保存，所以成功後手動保存。
+      fontManager.saveSettings();
+    } else {
+      LOG_ERR(
+          "MAIN",
+          "Failed to load external font index 0"
+      );
+      return;
+    }
+  }
+
+  const int selectedIndex = fontManager.getSelectedIndex();
+  const FontInfo* selectedFont =
+      fontManager.getFontInfo(selectedIndex);
+
+  if (selectedFont != nullptr &&
+      fontManager.isExternalFontEnabled()) {
+
+    LOG_INF(
+        "MAIN",
+        "External reader font active: %s "
+        "(file=%s, size=%u, cell=%ux%u)",
+        selectedFont->name,
+        selectedFont->filename,
+        selectedFont->size,
+        selectedFont->width,
+        selectedFont->height
+    );
+  } else {
+    LOG_ERR(
+        "MAIN",
+        "External font selection exists but font is not active"
+    );
+  }
+}
 
 void setupDisplayAndFonts() {
   display.begin();
@@ -264,6 +340,9 @@ void setup() {
   KOREADER_STORE.loadFromFile();
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
+
+  // SD 卡已完成初始化，現在可以掃描 /fonts。
+  setupExternalFonts();
 
   switch (gpio.getWakeupReason()) {
     case HalGPIO::WakeupReason::PowerButton:
