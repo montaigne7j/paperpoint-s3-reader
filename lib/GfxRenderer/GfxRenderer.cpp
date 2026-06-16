@@ -11,6 +11,8 @@
 #include "ExternalFontHelpers.h"
 #include "FontCacheManager.h"
 
+#include <cstring>
+
 namespace {
 
 // 目前 Paper S3 版的 UI font IDs。
@@ -959,6 +961,98 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
 
     renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, lastBaseX, yPos, black, style);
     prevCp = cp;
+  }
+}
+
+void GfxRenderer::drawVerticalText(
+    const int fontId,
+    const int rightX,
+    const int topY,
+    const char* text,
+    const bool black,
+    const EpdFontFamily::Style style
+) const {
+  if (text == nullptr || *text == '\0') {
+    return;
+  }
+
+  int columnX = rightX;
+  int cursorY = topY;
+
+  // 第一版先使用現有字型行高作為字元向下距離。
+  const int glyphAdvance =
+      std::max(1, getLineHeight(fontId));
+
+  // 第一版欄距也先使用相同數值。
+  const int columnAdvance = glyphAdvance;
+
+  const int bottomMargin = 20;
+  const int bottomLimit =
+      getScreenHeight() - bottomMargin;
+
+  const uint8_t* cursor =
+      reinterpret_cast<const uint8_t*>(text);
+
+  while (*cursor != 0) {
+    const uint8_t* codepointStart = cursor;
+
+    const uint32_t cp =
+        utf8NextCodepoint(&cursor);
+
+    if (cp == 0) {
+      break;
+    }
+
+    // Windows CRLF 中的 CR 直接略過。
+    if (cp == '\r') {
+      continue;
+    }
+
+    // 換行符號代表開始左邊的新欄。
+    if (cp == '\n') {
+      cursorY = topY;
+      columnX -= columnAdvance;
+      continue;
+    }
+
+    // 欄底已滿，自動換到左邊下一欄。
+    if (cursorY + glyphAdvance > bottomLimit) {
+      cursorY = topY;
+      columnX -= columnAdvance;
+    }
+
+    // 已超過畫面左側。
+    if (columnX < 0) {
+      break;
+    }
+
+    const size_t utf8Length =
+        static_cast<size_t>(cursor - codepointStart);
+
+    if (utf8Length == 0 || utf8Length > 4) {
+      continue;
+    }
+
+    char glyphText[5] = {0};
+
+    std::memcpy(
+        glyphText,
+        codepointStart,
+        utf8Length
+    );
+
+    // 每次只畫一個 Unicode 字元。
+    // 因此字元本身保持正立，不是整行旋轉。
+    drawText(
+        fontId,
+        columnX,
+        cursorY,
+        glyphText,
+        black,
+        style
+    );
+
+    cursorY += glyphAdvance;
   }
 }
 

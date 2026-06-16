@@ -746,12 +746,35 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   // directly into the 8bpp framebuffer in a single pass. No LSB/MSB bitplane
   // conversion needed — EPD_Painter accepts 0-3 natively.
   if (SETTINGS.textAntiAliasing) {
-    renderer.setRenderMode(GfxRenderer::GRAYSCALE_DIRECT);
+    renderer.setRenderMode(
+        GfxRenderer::GRAYSCALE_DIRECT
+    );
   }
 
-  page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
+  page->render(
+      renderer,
+      SETTINGS.getReaderFontId(),
+      orientedMarginLeft,
+      orientedMarginTop
+  );
+
   renderer.setRenderMode(GfxRenderer::BW);
+
+  // V0：固定中文字串直排測試。
+  // 第一欄從右邊開始，換行後向左移動一欄。
+  renderer.drawVerticalText(
+      SETTINGS.getReaderFontId(),
+      renderer.getScreenWidth() -
+          orientedMarginRight -
+          60,
+      orientedMarginTop + 20,
+      "天地玄黃\n宇宙洪荒\n日月盈昃",
+      true,
+      EpdFontFamily::REGULAR
+  );
+
   renderStatusBar();
+
   fcm->logStats("bw_render");
   const auto tBwRender = millis();
 

@@ -174,6 +174,17 @@ void renderExternalGlyph(
                         EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   void drawText(int fontId, int x, int y, const char* text, bool black = true,
                 EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+
+  void drawVerticalText(
+      int fontId,
+      int rightX,
+      int topY,
+      const char* text,
+      bool black = true,
+      EpdFontFamily::Style style =
+          EpdFontFamily::REGULAR
+  ) const;
+
   int getSpaceWidth(int fontId, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   /// Returns the total inter-word advance: fp4::toPixel(spaceAdvance + kern(leftCp,' ') + kern(' ',rightCp)).
   /// Using a single snap avoids the +/-1 px rounding error that arises when space advance and kern are
