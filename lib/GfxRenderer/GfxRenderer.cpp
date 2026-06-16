@@ -450,34 +450,48 @@ int GfxRenderer::getTextWidthExternalReader(
     const bool isCjk = isCjkCodepoint(cp);
 
     if (isCjk) {
-      ExternalGlyphMetrics metrics{};
+    // CJK 前後不能延續內建英文字型 kerning。
+    previousBuiltinCp = 0;
 
-      metrics.width = externalFont->getCharWidth();
-      metrics.height = externalFont->getCharHeight();
-      metrics.advanceX = externalFont->getCharWidth();
+    // Legacy .bin 是固定格字型。
+    // 排版只需要 cell width，不需要逐字讀取 SD metrics。
+    if (!externalFont->isRichMetricsFormat()) {
+      width += externalFont->getCharWidth();
+      continue;
+    }
 
-      if (externalFont->getGlyphMetricsForLayout(cp, &metrics)) {
-        if (shouldUseCjkSymbolCellMetrics(cp)) {
-          normalizeCjkSymbolMetricsForRendering(
-              metrics,
-              externalFont->getCharWidth(),
-              externalFont->isRichMetricsFormat()
-          );
-        }
+    // .epdf rich-metrics 字型才需要查每個 glyph 的 metrics。
+    ExternalGlyphMetrics metrics{};
 
-        width += getExternalGlyphAdvanceForRendering(
+    metrics.width = externalFont->getCharWidth();
+    metrics.height = externalFont->getCharHeight();
+    metrics.advanceX = externalFont->getCharWidth();
+
+    if (externalFont->getGlyphMetricsForLayout(cp, &metrics)) {
+      if (shouldUseCjkSymbolCellMetrics(cp)) {
+        normalizeCjkSymbolMetricsForRendering(
             metrics,
             externalFont->getCharWidth(),
-            0,
-            true,
-            shouldUseGlyphBoundsForAdvance(cp)
+            externalFont->isRichMetricsFormat()
         );
-
-        // 不讓英文字型 kerning 跨過中文字元
-        previousBuiltinCp = 0;
-        continue;
       }
+
+      width += getExternalGlyphAdvanceForRendering(
+          metrics,
+          externalFont->getCharWidth(),
+          0,
+          true,
+          shouldUseGlyphBoundsForAdvance(cp)
+      );
+
+      continue;
     }
+
+    // rich-metrics 查不到時也使用預設 cell width，
+    // 避免排版寬度變成 0。
+    width += externalFont->getCharWidth();
+    continue;
+  }
 
     // 外部字型沒有這個字時，退回內建字型
     cp = builtinFont.applyLigatures(cp, text, style);

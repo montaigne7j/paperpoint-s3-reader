@@ -51,6 +51,39 @@ void stripSoftHyphensInPlace(std::string& word) {
   }
 }
 
+bool isCjkLayoutCodepoint(const uint32_t cp) {
+  if (cp >= 0x3400 && cp <= 0x4DBF) return true;
+  if (cp >= 0x4E00 && cp <= 0x9FFF) return true;
+  if (cp >= 0x20000 && cp <= 0x2FA1F) return true;
+
+  if (cp >= 0x3000 && cp <= 0x303F) return true;
+  if (cp >= 0x3040 && cp <= 0x309F) return true;
+  if (cp >= 0x30A0 && cp <= 0x30FF) return true;
+
+  if (cp >= 0x3100 && cp <= 0x312F) return true;
+  if (cp >= 0x31A0 && cp <= 0x31BF) return true;
+
+  if (cp >= 0x3200 && cp <= 0x33FF) return true;
+  if (cp >= 0xFF00 && cp <= 0xFFEF) return true;
+
+  return false;
+}
+
+bool containsCjkLayoutText(const std::string& text) {
+  const uint8_t* ptr =
+      reinterpret_cast<const uint8_t*>(text.c_str());
+
+  uint32_t cp = 0;
+
+  while ((cp = utf8NextCodepoint(&ptr)) != 0) {
+    if (isCjkLayoutCodepoint(cp)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 // Returns the advance width for a word while ignoring soft hyphen glyphs and optionally appending a visible hyphen.
 // Uses advance width (sum of glyph advances + kerning) rather than bounding box width so that italic glyph overhangs
 // don't inflate inter-word spacing.
@@ -369,27 +402,90 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
   }
 
   size_t chosenOffset = 0;
-  int chosenWidth = -1;
-  bool chosenNeedsHyphen = true;
+int chosenWidth = -1;
+bool chosenNeedsHyphen = true;
 
-  // Iterate over each legal breakpoint and retain the widest prefix that still fits.
-  for (const auto& info : breakInfos) {
-    const size_t offset = info.byteOffset;
-    if (offset == 0 || offset >= word.size()) {
-      continue;
+// CJK 的斷點按 byte offset 遞增，而且不需要插入連字號。
+// 使用二分搜尋，避免逐一量測所有前綴。
+const bool useFastCjkSearch =
+    containsCjkLayoutText(word) &&
+    std::all_of(
+        breakInfos.begin(),
+        breakInfos.end(),
+        [](const Hyphenator::BreakInfo& info) {
+          return !info.requiresInsertedHyphen;
+        }
+    );
+
+  if (useFastCjkSearch) {
+    size_t low = 0;
+    size_t high = breakInfos.size();
+
+    while (low < high) {
+      const size_t mid = low + (high - low) / 2;
+      const auto& info = breakInfos[mid];
+      const size_t offset = info.byteOffset;
+
+      if (offset == 0 || offset >= word.size()) {
+        // 正常的 CJK break offset 不應進入這裡。
+        high = mid;
+        continue;
+      }
+
+      const int prefixWidth =
+          measureWordWidth(
+              renderer,
+              fontId,
+              word.substr(0, offset),
+              style,
+              false
+          );
+
+      if (prefixWidth <= availableWidth) {
+        chosenWidth = prefixWidth;
+        chosenOffset = offset;
+        chosenNeedsHyphen = false;
+
+        // 再嘗試更後面的斷點。
+        low = mid + 1;
+      } else {
+        // 前綴太寬，往前半部搜尋。
+        high = mid;
+      }
     }
+  } else {
+    // 英文與其他語言維持原本逐一檢查，
+    // 避免改變既有的連字與 soft-hyphen 行為。
+    for (const auto& info : breakInfos) {
+      const size_t offset = info.byteOffset;
 
-    const bool needsHyphen = info.requiresInsertedHyphen;
-    const int prefixWidth = measureWordWidth(renderer, fontId, word.substr(0, offset), style, needsHyphen);
-    if (prefixWidth > availableWidth || prefixWidth <= chosenWidth) {
-      continue;  // Skip if too wide or not an improvement
+      if (offset == 0 || offset >= word.size()) {
+        continue;
+      }
+
+      const bool needsHyphen =
+          info.requiresInsertedHyphen;
+
+      const int prefixWidth =
+          measureWordWidth(
+              renderer,
+              fontId,
+              word.substr(0, offset),
+              style,
+              needsHyphen
+          );
+
+      if (prefixWidth > availableWidth ||
+          prefixWidth <= chosenWidth) {
+        continue;
+      }
+
+      chosenWidth = prefixWidth;
+      chosenOffset = offset;
+      chosenNeedsHyphen = needsHyphen;
     }
-
-    chosenWidth = prefixWidth;
-    chosenOffset = offset;
-    chosenNeedsHyphen = needsHyphen;
   }
-
+  
   if (chosenWidth < 0) {
     // No hyphenation point produced a prefix that fits in the remaining space.
     return false;
