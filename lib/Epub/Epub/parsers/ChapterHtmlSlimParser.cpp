@@ -120,14 +120,23 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
 
   // flush the buffer
   partWordBuffer[partWordBufferIndex] = '\0';
-  currentTextBlock->addWord(partWordBuffer, fontStyle, false, nextWordContinues);
+  currentTextBlock->addWord(
+    partWordBuffer,
+    fontStyle,
+    false,
+    nextWordContinues,
+    nextWordNoSpace
+  );
+
   partWordBufferIndex = 0;
   nextWordContinues = false;
+  nextWordNoSpace = false;
 }
 
 // start a new text block if needed
 void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
-  nextWordContinues = false;  // New block = new paragraph, no continuation
+  nextWordContinues = false;
+  nextWordNoSpace = false;
   if (currentTextBlock) {
     // already have a text block running and it is empty - just reuse it
     if (currentTextBlock->isEmpty()) {
@@ -703,6 +712,7 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       }
       // Whitespace is a real word boundary — reset continuation state
       self->nextWordContinues = false;
+      self->nextWordNoSpace = false;
       // Skip the whitespace char
       continue;
     }
@@ -781,23 +791,48 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
     // otherwise the trailing bytes become orphaned continuation bytes that the
     // decoder can't interpret.
     if (self->partWordBufferIndex >= MAX_WORD_SIZE) {
-      int safeLen = utf8SafeTruncateBuffer(self->partWordBuffer, self->partWordBufferIndex);
+      int safeLen =
+          utf8SafeTruncateBuffer(
+              self->partWordBuffer,
+              self->partWordBufferIndex
+          );
 
-      if (safeLen < self->partWordBufferIndex && safeLen > 0) {
-        // Incomplete UTF-8 sequence at the end — save it before flushing
-        int overflow = self->partWordBufferIndex - safeLen;
+      if (safeLen < self->partWordBufferIndex &&
+          safeLen > 0) {
+
+        const int overflow =
+            self->partWordBufferIndex - safeLen;
+
         char saved[4];
-        for (int j = 0; j < overflow; j++) {
-          saved[j] = self->partWordBuffer[safeLen + j];
+
+        for (int j = 0; j < overflow; ++j) {
+          saved[j] =
+              self->partWordBuffer[safeLen + j];
         }
+
         self->partWordBufferIndex = safeLen;
         self->flushPartWordBuffer();
-        for (int j = 0; j < overflow; j++) {
+        // 這只是內部 buffer 分段：
+        // 不插入空格，但仍允許排版器在這裡換行。
+        self->nextWordNoSpace = true;
+
+        // 這只是 buffer 容量切割，不是實際空白。
+        // 下一個 token 必須緊接前一個 token。
+        // self->nextWordContinues = true;
+
+        for (int j = 0; j < overflow; ++j) {
           self->partWordBuffer[j] = saved[j];
         }
+
         self->partWordBufferIndex = overflow;
       } else {
         self->flushPartWordBuffer();
+        // 這只是內部 buffer 分段：
+        // 不插入空格，但仍允許排版器在這裡換行。
+        self->nextWordNoSpace = true;
+
+        // 不允許在自動 buffer 切割處插入空格。
+        // self->nextWordContinues = true;
       }
     }
 
