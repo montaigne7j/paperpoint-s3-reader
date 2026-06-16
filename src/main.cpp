@@ -226,6 +226,56 @@ void setupExternalFonts() {
   // 嘗試恢復 /.crosspoint/font_settings.bin 中的選擇。
   fontManager.loadSettings();
 
+  // 暫時自動指定 Noto 14x20 為 UI 字型。
+  constexpr const char* UI_FONT_FILENAME =
+      "NotoSansCJKTC_11_14x20.bin";
+
+  bool uiFontFound = false;
+
+  for (int i = 0; i < fontManager.getFontCount(); ++i) {
+    const FontInfo* info = fontManager.getFontInfo(i);
+
+    if (info == nullptr) {
+      continue;
+    }
+
+    if (strcmp(info->filename, UI_FONT_FILENAME) != 0) {
+      continue;
+    }
+
+    uiFontFound = true;
+
+    if (fontManager.previewUiFont(i)) {
+      fontManager.saveSettings();
+
+      LOG_INF(
+          "MAIN",
+          "External UI font active: %s "
+          "(%dpt, %dx%d)",
+          info->filename,
+          info->size,
+          info->width,
+          info->height
+      );
+    } else {
+      LOG_ERR(
+          "MAIN",
+          "Failed to load external UI font: %s",
+          info->filename
+      );
+    }
+
+    break;
+  }
+
+  if (!uiFontFound) {
+    LOG_ERR(
+        "MAIN",
+        "UI font not found: %s",
+        UI_FONT_FILENAME
+    );
+  }
+
   // 第一階段尚未加入字型選單。
   // 若沒有保存的字型，或保存的字型已不存在，
   // 暫時自動載入掃描清單中的第 1 套字型。
