@@ -1417,8 +1417,32 @@ int GfxRenderer::getKerning(const int fontId, const uint32_t leftCp, const uint3
   return fp4::toPixel(kernFP);                                           // snap 4.4 fixed-point to nearest pixel
 }
 
-int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFamily::Style style) const {
+int GfxRenderer::getTextAdvanceX(
+    const int fontId,
+    const char* text,
+    EpdFontFamily::Style style
+) const {
+  if (text == nullptr || *text == '\0') {
+    return 0;
+  }
+
+  FontManager& fontManager = FontManager::getInstance();
+
+  // EPUB 排版使用 getTextAdvanceX()，因此這裡也必須使用
+  // 與 drawText() 相同的外部中文字型 metrics。
+  if (isReaderFont(fontId) &&
+      fontManager.isExternalFontEnabled() &&
+      fontManager.getActiveFont() != nullptr) {
+    return getTextWidthExternalReader(
+        fontId,
+        text,
+        style
+    );
+  }
+
+  // 以下保留原本程式
   const auto fontIt = fontMap.find(fontId);
+
   if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
@@ -1426,21 +1450,31 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
 
   uint32_t cp;
   uint32_t prevCp = 0;
-  int32_t widthFP = 0;  // 12.4 fixed-point accumulator
+  int32_t widthFP = 0;
   const auto& font = fontIt->second;
-  while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
+
+  while ((cp = utf8NextCodepoint(
+              reinterpret_cast<const uint8_t**>(&text)))) {
     if (utf8IsCombiningMark(cp)) {
       continue;
     }
+
     cp = font.applyLigatures(cp, text, style);
+
     if (prevCp != 0) {
-      widthFP += font.getKerning(prevCp, cp, style);  // 4.4 fixed-point kern
+      widthFP += font.getKerning(prevCp, cp, style);
     }
+
     const EpdGlyph* glyph = font.getGlyph(cp, style);
-    if (glyph) widthFP += glyph->advanceX;  // 12.4 fixed-point advance
+
+    if (glyph) {
+      widthFP += glyph->advanceX;
+    }
+
     prevCp = cp;
   }
-  return fp4::toPixel(widthFP);  // snap 12.4 fixed-point to nearest pixel
+
+  return fp4::toPixel(widthFP);
 }
 
 int GfxRenderer::getFontAscenderSize(const int fontId) const {
