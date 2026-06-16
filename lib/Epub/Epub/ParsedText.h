@@ -79,4 +79,21 @@ class ParsedText {
   void layoutAndExtractLines(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,
                              const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
                              bool includeLastLine = true);
+
+    // 將 ParsedText 內容拆成直排欄。
+    //
+    // 每一欄：
+    //   字元由上往下排列。
+    //
+    // 欄的位置：
+    //   由 ChapterHtmlSlimParser::addColumnToPage()
+    //   負責從右往左排列。
+    void layoutAndExtractColumns(
+        const GfxRenderer& renderer,
+        int fontId,
+        uint16_t viewportHeight,
+        const std::function<void(
+            std::shared_ptr<TextBlock>
+        )>& processColumn
+    );
 };

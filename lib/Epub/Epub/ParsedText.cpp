@@ -793,3 +793,250 @@ void ParsedText::extractLine(
   processLine(
       std::make_shared<TextBlock>(std::move(lineWords), std::move(lineXPos), std::move(lineWordStyles), blockStyle));
 }
+
+void ParsedText::layoutAndExtractColumns(
+    const GfxRenderer& renderer,
+    const int fontId,
+    const uint16_t viewportHeight,
+    const std::function<void(
+        std::shared_ptr<TextBlock>
+    )>& processColumn
+) {
+  if (words.empty()) {
+    return;
+  }
+
+  /*
+   * 沿用原本段首縮排處理。
+   *
+   * applyParagraphIndent() 可能會在第一個 word 前加入
+   * em-space；下方會把 em-space 當成一個空白直排 cell。
+   */
+  applyParagraphIndent();
+
+  const int glyphAdvance =
+      std::max(
+          1,
+          renderer.getLineHeight(fontId)
+      );
+
+  const int maxCellsPerColumn =
+      std::max(
+          1,
+          static_cast<int>(viewportHeight) /
+              glyphAdvance
+      );
+
+  std::vector<std::string> columnGlyphs;
+  std::vector<int16_t> columnXPos;
+  std::vector<int16_t> columnYPos;
+  std::vector<EpdFontFamily::Style>
+      columnStyles;
+
+  columnGlyphs.reserve(maxCellsPerColumn);
+  columnXPos.reserve(maxCellsPerColumn);
+  columnYPos.reserve(maxCellsPerColumn);
+  columnStyles.reserve(maxCellsPerColumn);
+
+  int currentCell = 0;
+
+  /*
+   * 此欄包含多少個原始 ParsedText word。
+   *
+   * 直排時 words 會拆成 glyph，但 footnote tracking
+   * 仍然需要原始 word 數量。
+   */
+  uint16_t logicalWordsInColumn = 0;
+
+  const auto flushColumn = [&]() {
+    if (!columnGlyphs.empty()) {
+      processColumn(
+          std::make_shared<TextBlock>(
+              std::move(columnGlyphs),
+              std::move(columnXPos),
+              std::move(columnYPos),
+              std::move(columnStyles),
+              blockStyle,
+              TextLayoutMode::Vertical,
+              logicalWordsInColumn
+          )
+      );
+    }
+
+    columnGlyphs.clear();
+    columnXPos.clear();
+    columnYPos.clear();
+    columnStyles.clear();
+
+    columnGlyphs.reserve(maxCellsPerColumn);
+    columnXPos.reserve(maxCellsPerColumn);
+    columnYPos.reserve(maxCellsPerColumn);
+    columnStyles.reserve(maxCellsPerColumn);
+
+    currentCell = 0;
+    logicalWordsInColumn = 0;
+  };
+
+  /*
+   * 往下移動一個空白 cell。
+   *
+   * 用於：
+   * - 英文 word 之間的空格
+   * - 段首 em-space
+   * - 全形空白
+   */
+  const auto advanceBlankCell = [&]() {
+    if (currentCell >= maxCellsPerColumn) {
+      flushColumn();
+    }
+
+    ++currentCell;
+  };
+
+  for (size_t wordIndex = 0;
+       wordIndex < words.size();
+       ++wordIndex) {
+    /*
+     * 一般 word 邊界需要保留一格空白。
+     *
+     * wordContinues：
+     *   不加空格，也不可視為普通 word 邊界。
+     *
+     * wordNoSpace：
+     *   parser buffer 的人工切割，不加空格。
+     */
+    if (wordIndex > 0 &&
+        !wordContinues[wordIndex] &&
+        !wordNoSpace[wordIndex]) {
+      advanceBlankCell();
+    }
+
+    const std::string& word =
+        words[wordIndex];
+
+    const EpdFontFamily::Style style =
+        wordStyles[wordIndex];
+
+    const uint8_t* cursor =
+        reinterpret_cast<const uint8_t*>(
+            word.c_str()
+        );
+
+    bool logicalWordCounted = false;
+
+    while (*cursor != 0) {
+      const uint8_t* glyphStart = cursor;
+
+      const uint32_t codepoint =
+          utf8NextCodepoint(&cursor);
+
+      if (codepoint == 0) {
+        break;
+      }
+
+      const size_t glyphByteLength =
+          static_cast<size_t>(
+              cursor - glyphStart
+          );
+
+      if (glyphByteLength == 0 ||
+          glyphByteLength > 4) {
+        continue;
+      }
+
+      // CR 不處理。
+      if (codepoint == '\r') {
+        continue;
+      }
+
+      // 文字中的換行符號強制開始下一欄。
+      if (codepoint == '\n') {
+        flushColumn();
+        continue;
+      }
+
+      // Soft hyphen 在直排 MVP 中不顯示。
+      if (codepoint == 0x00AD) {
+        continue;
+      }
+
+      /*
+       * 空白字元只佔一格，不建立可見 glyph。
+       *
+       * U+0020：一般空格
+       * U+00A0：NBSP
+       * U+2003：em-space
+       * U+3000：全形空格
+       */
+      if (codepoint == 0x0020 ||
+          codepoint == 0x00A0 ||
+          codepoint == 0x2003 ||
+          codepoint == 0x3000) {
+        advanceBlankCell();
+        continue;
+      }
+
+      /*
+       * Combining mark 優先附加到前一個 glyph，
+       * 不額外占用一格。
+       */
+      if (utf8IsCombiningMark(codepoint) &&
+          !columnGlyphs.empty()) {
+        columnGlyphs.back().append(
+            reinterpret_cast<const char*>(
+                glyphStart
+            ),
+            glyphByteLength
+        );
+        continue;
+      }
+
+      if (currentCell >= maxCellsPerColumn) {
+        flushColumn();
+      }
+
+      /*
+       * 原始 word 只計數一次。
+       *
+       * 若一個很長的中文 chunk 跨越多欄，
+       * logical word count 只會記在第一欄。
+       */
+      if (!logicalWordCounted) {
+        ++logicalWordsInColumn;
+        logicalWordCounted = true;
+      }
+
+      columnGlyphs.emplace_back(
+          reinterpret_cast<const char*>(
+              glyphStart
+          ),
+          glyphByteLength
+      );
+
+      // 一個 TextBlock 代表一欄，所以欄內 X 都是 0。
+      columnXPos.push_back(0);
+
+      columnYPos.push_back(
+          static_cast<int16_t>(
+              currentCell * glyphAdvance
+          )
+      );
+
+      columnStyles.push_back(style);
+
+      ++currentCell;
+    }
+  }
+
+  // 輸出最後尚未滿的欄。
+  flushColumn();
+
+  /*
+   * 所有內容都已轉移到直排 TextBlock。
+   * 清空原始資料，避免下一次重複輸出。
+   */
+  words.clear();
+  wordStyles.clear();
+  wordContinues.clear();
+  wordNoSpace.clear();
+}
