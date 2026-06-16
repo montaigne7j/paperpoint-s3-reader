@@ -109,17 +109,52 @@ uint16_t measureWordWidth(const GfxRenderer& renderer, const int fontId, const s
 
 }  // namespace
 
-void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle, const bool underline,
-                         const bool attachToPrevious) {
-  if (word.empty()) return;
+void ParsedText::addWord(
+    std::string word,
+    const EpdFontFamily::Style fontStyle,
+    const bool underline,
+    const bool attachToPrevious,
+    const bool noSpaceBefore
+) {
+  if (word.empty()) {
+    return;
+  }
+
+  EpdFontFamily::Style combinedStyle = fontStyle;
+
+  if (underline) {
+    combinedStyle =
+        static_cast<EpdFontFamily::Style>(
+            combinedStyle | EpdFontFamily::UNDERLINE
+        );
+  }
+
+  /*
+   * noSpaceBefore 目前是由 MAX_WORD_SIZE 的內部 buffer
+   * 分段產生。它不是 EPUB 中真正的 word boundary。
+   *
+   * 若樣式相同，直接把新 chunk 接回上一個 word，
+   * 不建立新的排版 token，也就不會產生人工換行點。
+   */
+  if (noSpaceBefore &&
+      !words.empty() &&
+      !wordStyles.empty() &&
+      wordStyles.back() == combinedStyle) {
+
+    words.back().append(word);
+
+    // 不 push wordStyles、wordContinues、wordNoSpace，
+    // 因為仍然只是同一個 token。
+    return;
+  }
 
   words.push_back(std::move(word));
-  EpdFontFamily::Style combinedStyle = fontStyle;
-  if (underline) {
-    combinedStyle = static_cast<EpdFontFamily::Style>(combinedStyle | EpdFontFamily::UNDERLINE);
-  }
   wordStyles.push_back(combinedStyle);
   wordContinues.push_back(attachToPrevious);
+
+  wordNoSpace.push_back(
+      noSpaceBefore && !attachToPrevious
+  );
 }
 
 // Consumes data to minimize memory usage
@@ -138,15 +173,40 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
 
   std::vector<size_t> lineBreakIndices;
   if (hyphenationEnabled) {
-    // Use greedy layout that can split words mid-loop when a hyphenated prefix fits.
-    lineBreakIndices = computeHyphenatedLineBreaks(renderer, fontId, pageWidth, wordWidths, wordContinues);
+    lineBreakIndices =
+        computeHyphenatedLineBreaks(
+            renderer,
+            fontId,
+            pageWidth,
+            wordWidths,
+            wordContinues,
+            wordNoSpace
+        );
   } else {
-    lineBreakIndices = computeLineBreaks(renderer, fontId, pageWidth, wordWidths, wordContinues);
+    lineBreakIndices =
+        computeLineBreaks(
+            renderer,
+            fontId,
+            pageWidth,
+            wordWidths,
+            wordContinues,
+            wordNoSpace
+        );
   }
   const size_t lineCount = includeLastLine ? lineBreakIndices.size() : lineBreakIndices.size() - 1;
 
   for (size_t i = 0; i < lineCount; ++i) {
-    extractLine(i, pageWidth, wordWidths, wordContinues, lineBreakIndices, processLine, renderer, fontId);
+    extractLine(
+        i,
+        pageWidth,
+        wordWidths,
+        wordContinues,
+        wordNoSpace,
+        lineBreakIndices,
+        processLine,
+        renderer,
+        fontId
+    );
   }
 
   // Remove consumed words so size() reflects only remaining words
@@ -155,6 +215,11 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
     words.erase(words.begin(), words.begin() + consumed);
     wordStyles.erase(wordStyles.begin(), wordStyles.begin() + consumed);
     wordContinues.erase(wordContinues.begin(), wordContinues.begin() + consumed);
+
+    wordNoSpace.erase(
+    wordNoSpace.begin(),
+    wordNoSpace.begin() + consumed
+);
   }
 }
 
@@ -169,8 +234,14 @@ std::vector<uint16_t> ParsedText::calculateWordWidths(const GfxRenderer& rendere
   return wordWidths;
 }
 
-std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, const int fontId, const int pageWidth,
-                                                  std::vector<uint16_t>& wordWidths, std::vector<bool>& continuesVec) {
+std::vector<size_t> ParsedText::computeLineBreaks(
+    const GfxRenderer& renderer,
+    const int fontId,
+    const int pageWidth,
+    std::vector<uint16_t>& wordWidths,
+    std::vector<bool>& continuesVec,
+    std::vector<bool>& noSpaceVec
+) {
   if (words.empty()) {
     return {};
   }
@@ -217,12 +288,27 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     for (size_t j = i; j < totalWordCount; ++j) {
       // Add space before word j, unless it's the first word on the line or a continuation
       int gap = 0;
-      if (j > static_cast<size_t>(i) && !continuesVec[j]) {
-        gap =
-            renderer.getSpaceAdvance(fontId, lastCodepoint(words[j - 1]), firstCodepoint(words[j]), wordStyles[j - 1]);
-      } else if (j > static_cast<size_t>(i) && continuesVec[j]) {
-        // Cross-boundary kerning for continuation words (e.g. nonbreaking spaces, attached punctuation)
-        gap = renderer.getKerning(fontId, lastCodepoint(words[j - 1]), firstCodepoint(words[j]), wordStyles[j - 1]);
+
+      if (j > static_cast<size_t>(i)) {
+        if (continuesVec[j]) {
+          // 不加空格，也不能在此邊界換行。
+          gap = renderer.getKerning(
+              fontId,
+              lastCodepoint(words[j - 1]),
+              firstCodepoint(words[j]),
+              wordStyles[j - 1]
+          );
+        } else if (noSpaceVec[j]) {
+          // CJK 人工分段：不加空格，但允許換行。
+          gap = 0;
+        } else {
+          gap = renderer.getSpaceAdvance(
+              fontId,
+              lastCodepoint(words[j - 1]),
+              firstCodepoint(words[j]),
+              wordStyles[j - 1]
+          );
+        }
       }
       currlen += wordWidths[j] + gap;
 
@@ -304,9 +390,15 @@ void ParsedText::applyParagraphIndent() {
 }
 
 // Builds break indices while opportunistically splitting the word that would overflow the current line.
-std::vector<size_t> ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& renderer, const int fontId,
-                                                            const int pageWidth, std::vector<uint16_t>& wordWidths,
-                                                            std::vector<bool>& continuesVec) {
+std::vector<size_t>
+ParsedText::computeHyphenatedLineBreaks(
+    const GfxRenderer& renderer,
+    const int fontId,
+    const int pageWidth,
+    std::vector<uint16_t>& wordWidths,
+    std::vector<bool>& continuesVec,
+    std::vector<bool>& noSpaceVec
+) {
   // Calculate first line indent (only for left/justified text).
   // Positive text-indent (paragraph indent) is suppressed when extraParagraphSpacing is on.
   // Negative text-indent (hanging indent, e.g. margin-left:3em; text-indent:-1em) always applies —
@@ -332,13 +424,26 @@ std::vector<size_t> ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& r
     while (currentIndex < wordWidths.size()) {
       const bool isFirstWord = currentIndex == lineStart;
       int spacing = 0;
-      if (!isFirstWord && !continuesVec[currentIndex]) {
-        spacing = renderer.getSpaceAdvance(fontId, lastCodepoint(words[currentIndex - 1]),
-                                           firstCodepoint(words[currentIndex]), wordStyles[currentIndex - 1]);
-      } else if (!isFirstWord && continuesVec[currentIndex]) {
-        // Cross-boundary kerning for continuation words (e.g. nonbreaking spaces, attached punctuation)
-        spacing = renderer.getKerning(fontId, lastCodepoint(words[currentIndex - 1]),
-                                      firstCodepoint(words[currentIndex]), wordStyles[currentIndex - 1]);
+
+      if (!isFirstWord) {
+        if (continuesVec[currentIndex]) {
+          spacing = renderer.getKerning(
+              fontId,
+              lastCodepoint(words[currentIndex - 1]),
+              firstCodepoint(words[currentIndex]),
+              wordStyles[currentIndex - 1]
+          );
+        } else if (noSpaceVec[currentIndex]) {
+          // CJK chunk 邊界沒有空格，但仍是合法換行點。
+          spacing = 0;
+        } else {
+          spacing = renderer.getSpaceAdvance(
+              fontId,
+              lastCodepoint(words[currentIndex - 1]),
+              firstCodepoint(words[currentIndex]),
+              wordStyles[currentIndex - 1]
+          );
+        }
       }
       const int candidateWidth = spacing + wordWidths[currentIndex];
 
@@ -485,7 +590,7 @@ const bool useFastCjkSearch =
       chosenNeedsHyphen = needsHyphen;
     }
   }
-  
+
   if (chosenWidth < 0) {
     // No hyphenation point produced a prefix that fits in the remaining space.
     return false;
@@ -523,6 +628,10 @@ const bool useFastCjkSearch =
   // line, while "kilometer" moves to the next line.
   // wordContinues[wordIndex] is intentionally left unchanged — the prefix keeps its original attachment.
   wordContinues.insert(wordContinues.begin() + wordIndex + 1, false);
+    wordNoSpace.insert(
+      wordNoSpace.begin() + wordIndex + 1,
+      false
+  );
 
   // Update cached widths to reflect the new prefix/remainder pairing.
   wordWidths[wordIndex] = static_cast<uint16_t>(chosenWidth);
@@ -531,10 +640,17 @@ const bool useFastCjkSearch =
   return true;
 }
 
-void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const std::vector<uint16_t>& wordWidths,
-                             const std::vector<bool>& continuesVec, const std::vector<size_t>& lineBreakIndices,
-                             const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
-                             const GfxRenderer& renderer, const int fontId) {
+void ParsedText::extractLine(
+    const size_t breakIndex,
+    const int pageWidth,
+    const std::vector<uint16_t>& wordWidths,
+    const std::vector<bool>& continuesVec,
+    const std::vector<bool>& noSpaceVec,
+    const std::vector<size_t>& lineBreakIndices,
+    const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
+    const GfxRenderer& renderer,
+    const int fontId
+) {
   const size_t lineBreak = lineBreakIndices[breakIndex];
   const size_t lastBreakAt = breakIndex > 0 ? lineBreakIndices[breakIndex - 1] : 0;
   const size_t lineWordCount = lineBreak - lastBreakAt;
@@ -559,16 +675,30 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
   for (size_t wordIdx = 0; wordIdx < lineWordCount; wordIdx++) {
     lineWordWidthSum += wordWidths[lastBreakAt + wordIdx];
     // Count gaps: each word after the first creates a gap, unless it's a continuation
-    if (wordIdx > 0 && !continuesVec[lastBreakAt + wordIdx]) {
-      actualGapCount++;
-      totalNaturalGaps +=
-          renderer.getSpaceAdvance(fontId, lastCodepoint(words[lastBreakAt + wordIdx - 1]),
-                                   firstCodepoint(words[lastBreakAt + wordIdx]), wordStyles[lastBreakAt + wordIdx - 1]);
-    } else if (wordIdx > 0 && continuesVec[lastBreakAt + wordIdx]) {
-      // Cross-boundary kerning for continuation words (e.g. nonbreaking spaces, attached punctuation)
-      totalNaturalGaps +=
-          renderer.getKerning(fontId, lastCodepoint(words[lastBreakAt + wordIdx - 1]),
-                              firstCodepoint(words[lastBreakAt + wordIdx]), wordStyles[lastBreakAt + wordIdx - 1]);
+    if (wordIdx > 0) {
+      const size_t index =
+          lastBreakAt + wordIdx;
+
+      if (continuesVec[index]) {
+        totalNaturalGaps += renderer.getKerning(
+            fontId,
+            lastCodepoint(words[index - 1]),
+            firstCodepoint(words[index]),
+            wordStyles[index - 1]
+        );
+      } else if (noSpaceVec[index]) {
+        // 不加空格，也不參與 justified space 分配。
+      } else {
+        actualGapCount++;
+
+        totalNaturalGaps +=
+            renderer.getSpaceAdvance(
+                fontId,
+                lastCodepoint(words[index - 1]),
+                firstCodepoint(words[index]),
+                wordStyles[index - 1]
+            );
+      }
     }
   }
 
@@ -600,24 +730,52 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
     lineXPos.push_back(xpos);
 
     const bool nextIsContinuation = wordIdx + 1 < lineWordCount && continuesVec[lastBreakAt + wordIdx + 1];
+    const bool nextHasNoSpace =
+      wordIdx + 1 < lineWordCount &&
+      noSpaceVec[lastBreakAt + wordIdx + 1];
+
     if (nextIsContinuation) {
-      int advance = wordWidths[lastBreakAt + wordIdx];
-      // Cross-boundary kerning for continuation words (e.g. nonbreaking spaces, attached punctuation)
-      advance +=
-          renderer.getKerning(fontId, lastCodepoint(words[lastBreakAt + wordIdx]),
-                              firstCodepoint(words[lastBreakAt + wordIdx + 1]), wordStyles[lastBreakAt + wordIdx]);
+      int advance =
+          wordWidths[lastBreakAt + wordIdx];
+
+      advance += renderer.getKerning(
+          fontId,
+          lastCodepoint(words[lastBreakAt + wordIdx]),
+          firstCodepoint(
+              words[lastBreakAt + wordIdx + 1]
+          ),
+          wordStyles[lastBreakAt + wordIdx]
+      );
+
       xpos += advance;
+
+    } else if (nextHasNoSpace) {
+      // CJK chunk 邊界：直接接續，無空白。
+      xpos += wordWidths[lastBreakAt + wordIdx];
+
     } else {
       int gap = 0;
+
       if (wordIdx + 1 < lineWordCount) {
-        gap = renderer.getSpaceAdvance(fontId, lastCodepoint(words[lastBreakAt + wordIdx]),
-                                       firstCodepoint(words[lastBreakAt + wordIdx + 1]),
-                                       wordStyles[lastBreakAt + wordIdx]);
+        gap = renderer.getSpaceAdvance(
+            fontId,
+            lastCodepoint(words[lastBreakAt + wordIdx]),
+            firstCodepoint(
+                words[lastBreakAt + wordIdx + 1]
+            ),
+            wordStyles[lastBreakAt + wordIdx]
+        );
       }
-      if (blockStyle.alignment == CssTextAlign::Justify && !isLastLine) {
+
+      if (blockStyle.alignment ==
+              CssTextAlign::Justify &&
+          !isLastLine) {
         gap += justifyExtra;
       }
-      xpos += wordWidths[lastBreakAt + wordIdx] + gap;
+
+      xpos +=
+          wordWidths[lastBreakAt + wordIdx] +
+          gap;
     }
   }
 
