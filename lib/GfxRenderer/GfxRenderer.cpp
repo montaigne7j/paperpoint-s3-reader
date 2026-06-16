@@ -1799,6 +1799,25 @@ int GfxRenderer::getTextAdvanceX(
 }
 
 int GfxRenderer::getFontAscenderSize(const int fontId) const {
+
+   // UI 字型優先使用外部 Noto 字型的 ascender。
+  FontManager& fontManager =
+      FontManager::getInstance();
+
+  if (isUiFont(fontId) &&
+      fontManager.isUiFontEnabled()) {
+
+    ExternalFont* uiFont =
+        fontManager.getActiveUiFont();
+
+    if (uiFont != nullptr &&
+        uiFont->isLoaded()) {
+      return getExternalFontAscenderForRendering(
+          *uiFont
+      );
+    }
+  }
+
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
@@ -1809,6 +1828,25 @@ int GfxRenderer::getFontAscenderSize(const int fontId) const {
 }
 
 int GfxRenderer::getLineHeight(const int fontId) const {
+
+   // UI 選單行距使用外部 UI 字型高度。
+  FontManager& fontManager =
+      FontManager::getInstance();
+
+  if (isUiFont(fontId) &&
+      fontManager.isUiFontEnabled()) {
+
+    ExternalFont* uiFont =
+        fontManager.getActiveUiFont();
+
+    if (uiFont != nullptr &&
+        uiFont->isLoaded()) {
+      return getExternalFontLineHeightForRendering(
+          *uiFont
+      );
+    }
+  }
+
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
@@ -1819,6 +1857,21 @@ int GfxRenderer::getLineHeight(const int fontId) const {
 }
 
 int GfxRenderer::getTextHeight(const int fontId) const {
+  FontManager& fontManager =
+      FontManager::getInstance();
+
+  if (isUiFont(fontId) &&
+      fontManager.isUiFontEnabled()) {
+
+    ExternalFont* uiFont =
+        fontManager.getActiveUiFont();
+
+    if (uiFont != nullptr &&
+        uiFont->isLoaded()) {
+      return uiFont->getCharHeight();
+    }
+  }
+
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);

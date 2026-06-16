@@ -228,7 +228,7 @@ void setupExternalFonts() {
 
   // 暫時自動指定 Noto 14x20 為 UI 字型。
   constexpr const char* UI_FONT_FILENAME =
-      "NotoSansCJKTC_11_14x20.bin";
+      "NotoSansCJKTC_14_18x26.bin";
 
   bool uiFontFound = false;
 
