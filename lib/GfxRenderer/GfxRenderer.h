@@ -48,6 +48,20 @@ class GfxRenderer {
   mutable FontCacheManager* fontCacheManager_ = nullptr;
 
   static bool isReaderFont(int fontId);
+  static bool isUiFont(int fontId);
+
+  int getTextWidthExternalUi(
+      int fontId,
+      const char* text,
+      EpdFontFamily::Style style
+  ) const;
+
+  bool renderExternalUiGlyph(
+      uint32_t cp,
+      int* x,
+      int baselineY,
+      bool pixelState
+  ) const;
 
   int getTextWidthExternalReader(
     int fontId,

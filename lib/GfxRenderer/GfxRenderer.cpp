@@ -4,6 +4,7 @@
 #include <FontManager.h>
 #include <Logging.h>
 #include <Utf8.h>
+#include "../../src/fontIds.h"
 
 #include <algorithm>
 
@@ -57,6 +58,12 @@ bool isCjkCodepoint(const uint32_t cp) {
 }
 
 }  // namespace
+
+bool GfxRenderer::isUiFont(const int fontId) {
+  return fontId == UI_10_FONT_ID ||
+         fontId == UI_12_FONT_ID ||
+         fontId == SMALL_FONT_ID;
+}
 
 bool GfxRenderer::isReaderFont(const int fontId) {
   for (int i = 0; i < UI_FONT_COUNT; ++i) {
@@ -373,6 +380,84 @@ bool GfxRenderer::renderExternalReaderGlyph(
   return true;
 }
 
+bool GfxRenderer::renderExternalUiGlyph(
+    const uint32_t cp,
+    int* x,
+    const int baselineY,
+    const bool pixelState
+) const {
+  if (x == nullptr) {
+    return false;
+  }
+
+  FontManager& fontManager =
+      FontManager::getInstance();
+
+  if (!fontManager.isUiFontEnabled()) {
+    return false;
+  }
+
+  ExternalFont* uiFont =
+      fontManager.getActiveUiFont();
+
+  if (uiFont == nullptr ||
+      !uiFont->isLoaded()) {
+    return false;
+  }
+
+  const uint8_t* bitmap =
+      uiFont->getGlyph(cp);
+
+  if (bitmap == nullptr) {
+    return false;
+  }
+
+  ExternalGlyphMetrics metrics =
+      getDefaultMetrics(*uiFont, cp);
+
+  int advance = 0;
+
+  if (shouldUseCjkSymbolCellMetrics(cp)) {
+    normalizeCjkSymbolMetricsForRendering(
+        metrics,
+        uiFont->getCharWidth(),
+        uiFont->isRichMetricsFormat()
+    );
+
+    advance =
+        getExternalGlyphAdvanceForRendering(
+            metrics,
+            uiFont->getCharWidth(),
+            0,
+            true,
+            false
+        );
+  } else {
+    advance =
+        adjustNonRichAdvance(
+            metrics,
+            *uiFont
+        );
+  }
+
+  if (advance <= 0) {
+    advance = uiFont->getCharWidth();
+  }
+
+  renderExternalGlyph(
+      bitmap,
+      uiFont,
+      x,
+      baselineY,
+      pixelState,
+      metrics,
+      advance,
+      -1
+  );
+
+  return true;
+}
+
 // IMPORTANT: This function is in critical rendering path and is called for every pixel. Please keep it as simple and
 // efficient as possible.
 void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
@@ -519,6 +604,158 @@ int GfxRenderer::getTextWidthExternalReader(
   return width;
 }
 
+int GfxRenderer::getTextWidthExternalUi(
+    const int fontId,
+    const char* text,
+    const EpdFontFamily::Style style
+) const {
+  if (text == nullptr || *text == '\0') {
+    return 0;
+  }
+
+  const auto fontIt = fontMap.find(fontId);
+
+  if (fontIt == fontMap.end()) {
+    LOG_ERR("GFX", "UI font %d not found", fontId);
+    return 0;
+  }
+
+  FontManager& fontManager =
+      FontManager::getInstance();
+
+  ExternalFont* uiFont =
+      fontManager.getActiveUiFont();
+
+  if (!fontManager.isUiFontEnabled() ||
+      uiFont == nullptr ||
+      !uiFont->isLoaded()) {
+
+    int width = 0;
+    int height = 0;
+
+    fontIt->second.getTextDimensions(
+        text,
+        &width,
+        &height,
+        style
+    );
+
+    return width;
+  }
+
+  const EpdFontFamily& builtinFont =
+      fontIt->second;
+
+  int widthPixels = 0;
+  int32_t builtinWidthFP = 0;
+  uint32_t previousBuiltinCp = 0;
+
+  auto flushBuiltinWidth = [&]() {
+    if (builtinWidthFP != 0) {
+      widthPixels += fp4::toPixel(builtinWidthFP);
+    }
+
+    builtinWidthFP = 0;
+    previousBuiltinCp = 0;
+  };
+
+  const char* ptr = text;
+  uint32_t cp = 0;
+
+  while ((cp = utf8NextCodepoint(
+              reinterpret_cast<const uint8_t**>(&ptr)))) {
+
+    if (utf8IsCombiningMark(cp)) {
+      continue;
+    }
+
+    const EpdGlyph* builtinGlyph =
+        builtinFont.getGlyph(cp, style);
+
+    // 中文、全形符號，或內建 UI 字型沒有的字，
+    // 優先使用外部 UI 字型。
+    const bool tryExternal =
+        isCjkCodepoint(cp) ||
+        builtinGlyph == nullptr;
+
+    if (tryExternal) {
+      ExternalGlyphMetrics metrics{};
+
+      metrics.width = uiFont->getCharWidth();
+      metrics.height = uiFont->getCharHeight();
+      metrics.advanceX = uiFont->getCharWidth();
+
+      if (uiFont->getGlyphMetricsForLayout(
+              cp,
+              &metrics)) {
+
+        flushBuiltinWidth();
+
+        int advance = 0;
+
+        if (shouldUseCjkSymbolCellMetrics(cp)) {
+          normalizeCjkSymbolMetricsForRendering(
+              metrics,
+              uiFont->getCharWidth(),
+              uiFont->isRichMetricsFormat()
+          );
+
+          advance =
+              getExternalGlyphAdvanceForRendering(
+                  metrics,
+                  uiFont->getCharWidth(),
+                  0,
+                  true,
+                  false
+              );
+        } else {
+          advance =
+              adjustNonRichAdvance(
+                  metrics,
+                  *uiFont
+              );
+        }
+
+        widthPixels += std::max(1, advance);
+        continue;
+      }
+    }
+
+    cp = builtinFont.applyLigatures(
+        cp,
+        ptr,
+        style
+    );
+
+    if (previousBuiltinCp != 0) {
+      builtinWidthFP += builtinFont.getKerning(
+          previousBuiltinCp,
+          cp,
+          style
+      );
+    }
+
+    builtinGlyph =
+        builtinFont.getGlyph(cp, style);
+
+    // 外部與內建都沒有時，使用 ? 的寬度。
+    if (builtinGlyph == nullptr) {
+      builtinGlyph =
+          builtinFont.getGlyph('?', style);
+    }
+
+    if (builtinGlyph != nullptr) {
+      builtinWidthFP += builtinGlyph->advanceX;
+    }
+
+    previousBuiltinCp = cp;
+  }
+
+  flushBuiltinWidth();
+
+  return widthPixels;
+}
+
 int GfxRenderer::getTextWidth(
     const int fontId,
     const char* text,
@@ -526,6 +763,18 @@ int GfxRenderer::getTextWidth(
 ) const {
   FontManager& fontManager =
       FontManager::getInstance();
+
+   // UI 外部字型
+  if (isUiFont(fontId) &&
+      fontManager.isUiFontEnabled() &&
+      fontManager.getActiveUiFont() != nullptr) {
+
+    return getTextWidthExternalUi(
+        fontId,
+        text,
+        style
+    );
+  }
 
   if (isReaderFont(fontId) &&
       fontManager.isExternalFontEnabled() &&
@@ -589,6 +838,23 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     return;
   }
   const auto& font = fontIt->second;
+    
+  ExternalFont* activeUiFont = nullptr;
+
+  if (isUiFont(fontId)) {
+    FontManager& fontManager =
+        FontManager::getInstance();
+
+    if (fontManager.isUiFontEnabled()) {
+      activeUiFont =
+          fontManager.getActiveUiFont();
+
+      if (activeUiFont != nullptr &&
+          !activeUiFont->isLoaded()) {
+        activeUiFont = nullptr;
+      }
+    }
+  }
 
   uint32_t cp;
   uint32_t prevCp = 0;
@@ -630,6 +896,47 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
         lastBaseTop = 0;
 
         continue;
+      }
+    }
+
+        if (activeUiFont != nullptr) {
+      const EpdGlyph* builtinGlyph =
+          font.getGlyph(cp, style);
+
+      const bool tryExternalUi =
+          isCjkCodepoint(cp) ||
+          builtinGlyph == nullptr;
+
+      if (tryExternalUi) {
+        // 先結算前一個內建 glyph 尚未套用的 advance。
+        if (prevCp != 0) {
+          lastBaseX +=
+              fp4::toPixel(prevAdvanceFP);
+        }
+
+        prevCp = 0;
+        prevAdvanceFP = 0;
+
+        const int externalBaseline =
+            y +
+            getExternalFontAscenderForRendering(
+                *activeUiFont
+            );
+
+        if (renderExternalUiGlyph(
+                cp,
+                &lastBaseX,
+                externalBaseline,
+                black)) {
+
+          lastBaseLeft = 0;
+          lastBaseWidth = 0;
+          lastBaseTop = 0;
+
+          continue;
+        }
+
+        // 外部 UI 字型缺字時，繼續走原本 EpdFont fallback。
       }
     }
 
