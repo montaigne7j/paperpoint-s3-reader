@@ -45,7 +45,14 @@ class ChapterHtmlSlimParser {
 
   std::unique_ptr<ParsedText> currentTextBlock = nullptr;
   std::unique_ptr<Page> currentPage = nullptr;
+
+  // 橫排：下一行的 Y 座標。
   int16_t currentPageNextY = 0;
+
+  // 直排：下一欄的 X 座標。
+  // -1 代表尚未初始化，或目前頁面由圖片占用。
+  int16_t currentPageNextX = -1;
+
   int fontId;
   float lineCompression;
   bool extraParagraphSpacing;
@@ -131,5 +138,8 @@ class ChapterHtmlSlimParser {
   ~ChapterHtmlSlimParser() = default;
   bool parseAndBuildPages();
   void addLineToPage(std::shared_ptr<TextBlock> line);
+  void addColumnToPage(
+      std::shared_ptr<TextBlock> column
+  );
   const std::vector<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
 };

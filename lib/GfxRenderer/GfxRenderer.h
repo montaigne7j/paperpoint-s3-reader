@@ -94,6 +94,25 @@ void renderExternalGlyph(
   template <Color color>
   void fillArc(int maxRadius, int cx, int cy, int xDir, int yDir) const;
 
+  bool renderExternalReaderGlyphCentered(
+      int fontId,
+      int cellX,
+      int cellY,
+      int cellWidth,
+      int cellHeight,
+      uint32_t codepoint,
+      bool pixelState
+  ) const;
+
+  bool renderExternalReaderGlyphRotated90CW(
+      int fontId,
+      int cellX,
+      int cellY,
+      int cellSize,
+      uint32_t codepoint,
+      bool pixelState
+  ) const;
+
  public:
   explicit GfxRenderer(HalDisplay& halDisplay)
       : display(halDisplay), renderMode(BW), orientation(Portrait), fadingFix(false) {}

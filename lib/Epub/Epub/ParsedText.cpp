@@ -11,6 +11,91 @@
 
 #include "hyphenation/Hyphenator.h"
 
+namespace {
+
+uint32_t toVerticalPresentationCodepoint(
+    const uint32_t codepoint
+) {
+    // 不再替換成 FE10～FE48 的直排專用字元。
+    // 目前外部字型可能沒有這些 glyph，
+    // 旋轉與位置調整交給 GfxRenderer 處理。
+    return codepoint;
+}
+
+std::string encodeUtf8Codepoint(
+    const uint32_t codepoint
+) {
+  std::string result;
+  result.reserve(4);
+
+  if (codepoint <= 0x7F) {
+    result.push_back(
+        static_cast<char>(codepoint)
+    );
+  } else if (codepoint <= 0x7FF) {
+    result.push_back(
+        static_cast<char>(
+            0xC0 | (codepoint >> 6)
+        )
+    );
+
+    result.push_back(
+        static_cast<char>(
+            0x80 | (codepoint & 0x3F)
+        )
+    );
+  } else if (codepoint <= 0xFFFF) {
+    result.push_back(
+        static_cast<char>(
+            0xE0 | (codepoint >> 12)
+        )
+    );
+
+    result.push_back(
+        static_cast<char>(
+            0x80 |
+            ((codepoint >> 6) & 0x3F)
+        )
+    );
+
+    result.push_back(
+        static_cast<char>(
+            0x80 | (codepoint & 0x3F)
+        )
+    );
+  } else if (codepoint <= 0x10FFFF) {
+    result.push_back(
+        static_cast<char>(
+            0xF0 | (codepoint >> 18)
+        )
+    );
+
+    result.push_back(
+        static_cast<char>(
+            0x80 |
+            ((codepoint >> 12) & 0x3F)
+        )
+    );
+
+    result.push_back(
+        static_cast<char>(
+            0x80 |
+            ((codepoint >> 6) & 0x3F)
+        )
+    );
+
+    result.push_back(
+        static_cast<char>(
+            0x80 | (codepoint & 0x3F)
+        )
+    );
+  }
+
+  return result;
+}
+
+}  // namespace
+
 constexpr int MAX_COST = std::numeric_limits<int>::max();
 
 namespace {

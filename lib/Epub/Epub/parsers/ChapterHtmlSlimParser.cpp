@@ -13,6 +13,9 @@
 #include "../converters/ImageDecoderFactory.h"
 #include "../converters/ImageToFramebufferDecoder.h"
 #include "../htmlEntities.h"
+#include <algorithm>
+
+#include "../../../../src/CrossPointSettings.h"
 
 const char* HEADER_TAGS[] = {"h1", "h2", "h3", "h4", "h5", "h6"};
 constexpr int NUM_HEADER_TAGS = sizeof(HEADER_TAGS) / sizeof(HEADER_TAGS[0]);
@@ -38,6 +41,11 @@ constexpr int NUM_IMAGE_TAGS = sizeof(IMAGE_TAGS) / sizeof(IMAGE_TAGS[0]);
 
 const char* SKIP_TAGS[] = {"head"};
 constexpr int NUM_SKIP_TAGS = sizeof(SKIP_TAGS) / sizeof(SKIP_TAGS[0]);
+
+static bool isVerticalLayoutEnabled() {
+  return SETTINGS.readingLayout ==
+         CrossPointSettings::VERTICAL_LAYOUT;
+}
 
 bool isWhitespace(const char c) { return c == ' ' || c == '\r' || c == '\n' || c == '\t'; }
 
@@ -392,6 +400,109 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   displayWidth = (int)(dims.width * scale);
                   displayHeight = (int)(dims.height * scale);
                   LOG_DBG("EHP", "Display size: %dx%d (scale %.2f)", displayWidth, displayHeight, scale);
+                }
+
+                if (isVerticalLayoutEnabled()) {
+                  /*
+                  * 直排 MVP：
+                  * 圖片使用獨立頁面，避免 currentPageNextY 與
+                  * currentPageNextX 兩套座標系互相重疊。
+                  */
+
+                  // 先送出圖片前尚未 flush 的文字。
+                  if (self->partWordBufferIndex > 0) {
+                    self->flushPartWordBuffer();
+                  }
+
+                  // 將圖片前的直排文字完成排版。
+                  if (self->currentTextBlock &&
+                      !self->currentTextBlock->isEmpty()) {
+                    self->makePages();
+                  }
+
+                  // 若目前已有文字欄，先完成目前頁。
+                  if (self->currentPage &&
+                      !self->currentPage->elements.empty()) {
+                    self->completePageFn(
+                        std::move(self->currentPage)
+                    );
+
+                    ++self->completedPageCount;
+                    self->currentPage.reset();
+                  }
+
+                  // 建立獨立圖片頁。
+                  self->currentPage.reset(new Page());
+
+                  if (!self->currentPage) {
+                    LOG_ERR(
+                        "EHP",
+                        "Failed to create vertical image page"
+                    );
+                    return;
+                  }
+
+                  auto imageBlock =
+                      std::make_shared<ImageBlock>(
+                          cachedImagePath,
+                          displayWidth,
+                          displayHeight
+                      );
+
+                  if (!imageBlock) {
+                    LOG_ERR(
+                        "EHP",
+                        "Failed to create vertical ImageBlock"
+                    );
+                    return;
+                  }
+
+                  // 圖片水平與垂直置中。
+                  const int imageX =
+                      std::max(
+                          0,
+                          (self->viewportWidth - displayWidth) / 2
+                      );
+
+                  const int imageY =
+                      std::max(
+                          0,
+                          (self->viewportHeight - displayHeight) / 2
+                      );
+
+                  auto pageImage =
+                      std::make_shared<PageImage>(
+                          imageBlock,
+                          static_cast<int16_t>(imageX),
+                          static_cast<int16_t>(imageY)
+                      );
+
+                  if (!pageImage) {
+                    LOG_ERR(
+                        "EHP",
+                        "Failed to create vertical PageImage"
+                    );
+                    return;
+                  }
+
+                  self->currentPage->elements.push_back(
+                      pageImage
+                  );
+
+                  // 圖片頁立即完成，後續文字從新頁開始。
+                  self->completePageFn(
+                      std::move(self->currentPage)
+                  );
+
+                  ++self->completedPageCount;
+
+                  self->currentPage.reset();
+
+                  self->currentPageNextY = 0;
+                  self->currentPageNextX = -1;
+
+                  self->depth += 1;
+                  return;
                 }
 
                 // Create page for image - only break if image won't fit remaining space
@@ -844,14 +955,92 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
   // memory.
   // Spotted when reading Intermezzo, there are some really long text blocks in there.
   if (self->currentTextBlock->size() > 750) {
-    LOG_DBG("EHP", "Text block too long, splitting into multiple pages");
-    const int horizontalInset = self->currentTextBlock->getBlockStyle().totalHorizontalInset();
-    const uint16_t effectiveWidth = (horizontalInset < self->viewportWidth)
-                                        ? static_cast<uint16_t>(self->viewportWidth - horizontalInset)
-                                        : self->viewportWidth;
-    self->currentTextBlock->layoutAndExtractLines(
-        self->renderer, self->fontId, effectiveWidth,
-        [self](const std::shared_ptr<TextBlock>& textBlock) { self->addLineToPage(textBlock); }, false);
+    LOG_DBG(
+        "EHP",
+        "Text block too long, "
+        "splitting into multiple pages"
+    );
+
+    if (isVerticalLayoutEnabled()) {
+      const BlockStyle& blockStyle =
+          self->currentTextBlock
+              ->getBlockStyle();
+
+      const int topInset =
+          std::max<int>(
+              0,
+              blockStyle.marginTop
+          ) +
+          std::max<int>(
+              0,
+              blockStyle.paddingTop
+          );
+
+      const int bottomInset =
+          std::max<int>(
+              0,
+              blockStyle.marginBottom
+          ) +
+          std::max<int>(
+              0,
+              blockStyle.paddingBottom
+          );
+
+      const int totalVerticalInset =
+          topInset + bottomInset;
+
+      const uint16_t effectiveHeight =
+          totalVerticalInset <
+                  static_cast<int>(
+                      self->viewportHeight)
+              ? static_cast<uint16_t>(
+                    self->viewportHeight -
+                    totalVerticalInset)
+              : self->viewportHeight;
+
+      self->currentTextBlock
+          ->layoutAndExtractColumns(
+              self->renderer,
+              self->fontId,
+              effectiveHeight,
+              [self](
+                  const std::shared_ptr<
+                      TextBlock>& textBlock) {
+                self->addColumnToPage(
+                    textBlock
+                );
+              }
+          );
+    } else {
+      const int horizontalInset =
+          self->currentTextBlock
+              ->getBlockStyle()
+              .totalHorizontalInset();
+
+      const uint16_t effectiveWidth =
+          horizontalInset <
+                  static_cast<int>(
+                      self->viewportWidth)
+              ? static_cast<uint16_t>(
+                    self->viewportWidth -
+                    horizontalInset)
+              : self->viewportWidth;
+
+      self->currentTextBlock
+          ->layoutAndExtractLines(
+              self->renderer,
+              self->fontId,
+              effectiveWidth,
+              [self](
+                  const std::shared_ptr<
+                      TextBlock>& textBlock) {
+                self->addLineToPage(
+                    textBlock
+                );
+              },
+              false
+          );
+    }
   }
 }
 
@@ -1082,7 +1271,9 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   return true;
 }
 
-void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
+void ChapterHtmlSlimParser::addLineToPage(
+  std::shared_ptr<TextBlock> line
+) {
   const int lineHeight = renderer.getLineHeight(fontId) * lineCompression;
 
   if (!currentPage) {
@@ -1112,57 +1303,297 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
   currentPageNextY += lineHeight;
 }
 
-void ChapterHtmlSlimParser::makePages() {
-  if (!currentTextBlock) {
-    LOG_ERR("EHP", "!! No text block to make pages for !!");
+void ChapterHtmlSlimParser::addColumnToPage(
+    std::shared_ptr<TextBlock> column
+) {
+  if (!column) {
     return;
   }
 
+  const int columnAdvance =
+      std::max(
+          1,
+          static_cast<int>(
+              renderer.getLineHeight(fontId) *
+              lineCompression
+          )
+      );
+
+  /*
+   * 沒有目前頁面時，建立新頁。
+   *
+   * 第一欄的左上角位於：
+   * viewportWidth - columnAdvance
+   *
+   * 因此第一欄會貼近右側，但不會超出畫面。
+   */
+  if (!currentPage) {
+    currentPage.reset(new Page());
+
+    currentPageNextY = 0;
+    currentPageNextX =
+        static_cast<int16_t>(
+            viewportWidth - columnAdvance
+        );
+  }
+
+  /*
+   * X 已小於 0，代表目前頁面已沒有空間放下一欄。
+   * 完成目前頁面，再從新頁右側重新開始。
+   *
+   * currentPageNextX == -1 也可能代表目前頁面包含圖片；
+   * MVP 會讓後續直排文字從下一頁開始。
+   */
+  if (currentPageNextX < 0) {
+    completePageFn(
+        std::move(currentPage)
+    );
+
+    ++completedPageCount;
+
+    currentPage.reset(new Page());
+
+    currentPageNextY = 0;
+    currentPageNextX =
+        static_cast<int16_t>(
+            viewportWidth - columnAdvance
+        );
+  }
+
+  /*
+   * Footnote tracking 仍使用 parser 的 logical word count，
+   * 不能使用拆成 Unicode glyph 後的 glyph 數量。
+   */
+  wordsExtractedInBlock +=
+      static_cast<int>(
+          column->wordCount()
+      );
+
+  auto footnoteIt =
+      pendingFootnotes.begin();
+
+  while (footnoteIt !=
+             pendingFootnotes.end() &&
+         footnoteIt->first <=
+             wordsExtractedInBlock) {
+    currentPage->addFootnote(
+        footnoteIt->second.number,
+        footnoteIt->second.href
+    );
+
+    ++footnoteIt;
+  }
+
+  pendingFootnotes.erase(
+      pendingFootnotes.begin(),
+      footnoteIt
+  );
+
+  /*
+   * 直排欄頂端仍保留 CSS 的 top margin / padding。
+   * 負值先忽略，避免欄位跑出畫面。
+   */
+  const BlockStyle& blockStyle =
+      column->getBlockStyle();
+
+  const int topOffset =
+      std::max<int>(0, blockStyle.marginTop) +
+      std::max<int>(0, blockStyle.paddingTop);
+
+  currentPage->elements.push_back(
+      std::make_shared<PageLine>(
+          column,
+          currentPageNextX,
+          static_cast<int16_t>(topOffset)
+      )
+  );
+
+  // 下一欄移到左側。
+  currentPageNextX -=
+      static_cast<int16_t>(
+          columnAdvance
+      );
+}
+
+void ChapterHtmlSlimParser::makePages() {
+  if (!currentTextBlock) {
+    LOG_ERR(
+        "EHP",
+        "!! No text block to make pages for !!"
+    );
+    return;
+  }
+
+  const int lineOrColumnAdvance =
+      std::max(
+          1,
+          static_cast<int>(
+              renderer.getLineHeight(fontId) *
+              lineCompression
+          )
+      );
+
+  const BlockStyle& blockStyle =
+      currentTextBlock->getBlockStyle();
+
+  /*
+   * 建立初始頁面。
+   */
   if (!currentPage) {
     currentPage.reset(new Page());
     currentPageNextY = 0;
+
+    if (isVerticalLayoutEnabled()) {
+      currentPageNextX =
+          static_cast<int16_t>(
+              viewportWidth -
+              lineOrColumnAdvance
+          );
+    } else {
+      currentPageNextX = -1;
+    }
   }
 
-  const int lineHeight = renderer.getLineHeight(fontId) * lineCompression;
+  /*
+   * =========================
+   * 直排路徑
+   * =========================
+   */
+  if (isVerticalLayoutEnabled()) {
+    const int topInset =
+        std::max<int>(0, blockStyle.marginTop) +
+        std::max<int>(0, blockStyle.paddingTop);
 
-  // Apply top spacing before the paragraph (stored in pixels)
-  const BlockStyle& blockStyle = currentTextBlock->getBlockStyle();
+    const int bottomInset =
+        std::max<int>(0, blockStyle.marginBottom) +
+        std::max<int>(0, blockStyle.paddingBottom);
+
+    const int totalVerticalInset =
+        topInset + bottomInset;
+
+    const uint16_t effectiveHeight =
+        totalVerticalInset <
+                static_cast<int>(
+                    viewportHeight)
+            ? static_cast<uint16_t>(
+                  viewportHeight -
+                  totalVerticalInset)
+            : viewportHeight;
+
+    currentTextBlock
+        ->layoutAndExtractColumns(
+            renderer,
+            fontId,
+            effectiveHeight,
+            [this](
+                const std::shared_ptr<
+                    TextBlock>& textBlock) {
+              addColumnToPage(textBlock);
+            }
+        );
+
+    /*
+     * 正常情況由 addColumnToPage()
+     * 依 word index 分配 footnote。
+     * 此處保留原本 fallback。
+     */
+    if (!pendingFootnotes.empty() &&
+        currentPage) {
+      for (const auto& [idx, fn] :
+           pendingFootnotes) {
+        currentPage->addFootnote(
+            fn.number,
+            fn.href
+        );
+      }
+
+      pendingFootnotes.clear();
+    }
+
+    /*
+     * 段落之間保留半欄空間。
+     *
+     * 第一版先使用 X 間距表示段落區隔；
+     * 之後再做直排首行縮排。
+     */
+    if (extraParagraphSpacing) {
+      currentPageNextX -=
+          static_cast<int16_t>(
+              std::max(
+                  1,
+                  lineOrColumnAdvance / 2
+              )
+          );
+    }
+
+    return;
+  }
+
+  /*
+   * =========================
+   * 原本橫排路徑
+   * =========================
+   */
+
+  // Apply top spacing before the paragraph.
   if (blockStyle.marginTop > 0) {
-    currentPageNextY += blockStyle.marginTop;
-  }
-  if (blockStyle.paddingTop > 0) {
-    currentPageNextY += blockStyle.paddingTop;
+    currentPageNextY +=
+        blockStyle.marginTop;
   }
 
-  // Calculate effective width accounting for horizontal margins/padding
-  const int horizontalInset = blockStyle.totalHorizontalInset();
+  if (blockStyle.paddingTop > 0) {
+    currentPageNextY +=
+        blockStyle.paddingTop;
+  }
+
+  const int horizontalInset =
+      blockStyle.totalHorizontalInset();
+
   const uint16_t effectiveWidth =
-      (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
+      horizontalInset <
+              static_cast<int>(
+                  viewportWidth)
+          ? static_cast<uint16_t>(
+                viewportWidth -
+                horizontalInset)
+          : viewportWidth;
 
   currentTextBlock->layoutAndExtractLines(
-      renderer, fontId, effectiveWidth,
-      [this](const std::shared_ptr<TextBlock>& textBlock) { addLineToPage(textBlock); });
+      renderer,
+      fontId,
+      effectiveWidth,
+      [this](
+          const std::shared_ptr<
+              TextBlock>& textBlock) {
+        addLineToPage(textBlock);
+      }
+  );
 
-  // Fallback: transfer any remaining pending footnotes to current page.
-  // Normally addLineToPage handles this via word-index tracking, but this catches
-  // edge cases where a footnote's word index equals the exact block size.
-  if (!pendingFootnotes.empty() && currentPage) {
-    for (const auto& [idx, fn] : pendingFootnotes) {
-      currentPage->addFootnote(fn.number, fn.href);
+  if (!pendingFootnotes.empty() &&
+      currentPage) {
+    for (const auto& [idx, fn] :
+         pendingFootnotes) {
+      currentPage->addFootnote(
+          fn.number,
+          fn.href
+      );
     }
+
     pendingFootnotes.clear();
   }
 
-  // Apply bottom spacing after the paragraph (stored in pixels)
   if (blockStyle.marginBottom > 0) {
-    currentPageNextY += blockStyle.marginBottom;
-  }
-  if (blockStyle.paddingBottom > 0) {
-    currentPageNextY += blockStyle.paddingBottom;
+    currentPageNextY +=
+        blockStyle.marginBottom;
   }
 
-  // Extra paragraph spacing if enabled (default behavior)
+  if (blockStyle.paddingBottom > 0) {
+    currentPageNextY +=
+        blockStyle.paddingBottom;
+  }
+
   if (extraParagraphSpacing) {
-    currentPageNextY += lineHeight / 2;
+    currentPageNextY +=
+        lineOrColumnAdvance / 2;
   }
 }

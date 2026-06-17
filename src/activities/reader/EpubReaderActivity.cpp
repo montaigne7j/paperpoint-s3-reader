@@ -197,7 +197,16 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-  auto [prevTriggered, nextTriggered] = ReaderUtils::detectPageTurn(mappedInput);
+  const bool reverseHorizontalZones =
+      SETTINGS.readingLayout ==
+      CrossPointSettings::VERTICAL_LAYOUT;
+
+  auto [prevTriggered, nextTriggered] =
+      ReaderUtils::detectPageTurn(
+          mappedInput,
+          reverseHorizontalZones
+      );
+      
   if (!prevTriggered && !nextTriggered) {
     return;
   }
@@ -738,6 +747,9 @@ void EpubReaderActivity::renderContents(
 ) {
   const auto t0 = millis();
 
+  // V1.5 固定直排測試開關。
+  constexpr bool ENABLE_VERTICAL_RENDER_TEST = false;
+
   auto* fcm = renderer.getFontCacheManager();
   fcm->resetStats();
 
@@ -837,7 +849,8 @@ void EpubReaderActivity::renderContents(
         std::move(glyphY),
         std::move(glyphStyles),
         BlockStyle(),
-        TextLayoutMode::Vertical
+        TextLayoutMode::Vertical,
+        12
     );
 
     verticalTest.render(
@@ -872,7 +885,9 @@ void EpubReaderActivity::renderContents(
   // 固定測試字先使用 BW 模式，避免測試階段受灰階混合影響。
   renderer.setRenderMode(GfxRenderer::BW);
 
-  renderVerticalTest();
+  if (ENABLE_VERTICAL_RENDER_TEST) {
+    renderVerticalTest();
+  }
   renderStatusBar();
 
   fcm->logStats("page_render");
@@ -929,7 +944,10 @@ void EpubReaderActivity::renderContents(
       );
 
       // 第二次 page->render() 後，也必須重新畫測試字與狀態列。
-      renderVerticalTest();
+      if (ENABLE_VERTICAL_RENDER_TEST) {
+        renderVerticalTest();
+      }
+
       renderStatusBar();
 
       renderer.displayBuffer(

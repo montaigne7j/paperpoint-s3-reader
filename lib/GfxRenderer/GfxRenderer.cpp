@@ -59,6 +59,40 @@ bool isCjkCodepoint(const uint32_t cp) {
   return false;
 }
 
+bool shouldRotateVerticalGlyph(
+    const uint32_t codepoint
+) {
+  switch (codepoint) {
+    case 0x300C:  // 「
+    case 0x300D:  // 」
+    case 0x300E:  // 『
+    case 0x300F:  // 』
+
+    case 0x2026:  // …
+    case 0x2014:  // —
+    case 0x2013:  // –
+
+    case 0x0028:  // (
+    case 0x0029:  // )
+    case 0xFF08:  // （
+    case 0xFF09:  // ）
+
+    case 0x3008:  // 〈
+    case 0x3009:  // 〉
+    case 0x300A:  // 《
+    case 0x300B:  // 》
+
+    case 0x3010:  // 【
+    case 0x3011:  // 】
+    case 0x3014:  // 〔
+    case 0x3015:  // 〕
+      return true;
+
+    default:
+      return false;
+  }
+}
+
 }  // namespace
 
 bool GfxRenderer::isUiFont(const int fontId) {
@@ -316,6 +350,273 @@ void GfxRenderer::renderExternalGlyph(
   }
 
   *x += layout.advanceX;
+}
+
+bool GfxRenderer::renderExternalReaderGlyphCentered(
+    const int fontId,
+    const int cellX,
+    const int cellY,
+    const int cellWidth,
+    const int cellHeight,
+    const uint32_t codepoint,
+    const bool pixelState
+) const {
+  if (!isReaderFont(fontId)) {
+    return false;
+  }
+
+  FontManager& fontManager =
+      FontManager::getInstance();
+
+  if (!fontManager.isExternalFontEnabled()) {
+    return false;
+  }
+
+  ExternalFont* font =
+      fontManager.getActiveFont();
+
+  if (font == nullptr ||
+      !font->isLoaded()) {
+    return false;
+  }
+
+  const uint8_t* bitmap =
+      font->getGlyph(codepoint);
+
+  if (bitmap == nullptr) {
+    return false;
+  }
+
+  ExternalGlyphMetrics metrics =
+      getDefaultMetrics(*font, codepoint);
+
+  const int sourceWidth =
+      metrics.width > 0
+          ? metrics.width
+          : font->getCharWidth();
+
+  const int sourceHeight =
+      metrics.height > 0
+          ? metrics.height
+          : font->getCharHeight();
+
+  if (sourceWidth <= 0 ||
+      sourceHeight <= 0) {
+    return false;
+  }
+
+  const int bytesPerRow =
+      (sourceWidth + 7) / 8;
+
+  /*
+   * 找出 glyph 實際黑色像素範圍。
+   *
+   * 不直接使用整個 bitmap cell，
+   * 因為逗號、句號、英文瘦字的黑點
+   * 可能只集中在 cell 的某個角落。
+   */
+  int minX = sourceWidth;
+  int minY = sourceHeight;
+  int maxX = -1;
+  int maxY = -1;
+
+  for (int sourceY = 0;
+       sourceY < sourceHeight;
+       ++sourceY) {
+    for (int sourceX = 0;
+         sourceX < sourceWidth;
+         ++sourceX) {
+      const int byteIndex =
+          sourceY * bytesPerRow +
+          sourceX / 8;
+
+      const uint8_t mask =
+          static_cast<uint8_t>(
+              0x80U >> (sourceX & 7)
+          );
+
+      if ((bitmap[byteIndex] & mask) == 0) {
+        continue;
+      }
+
+      if (sourceX < minX) {
+        minX = sourceX;
+      }
+
+      if (sourceX > maxX) {
+        maxX = sourceX;
+      }
+
+      if (sourceY < minY) {
+        minY = sourceY;
+      }
+
+      if (sourceY > maxY) {
+        maxY = sourceY;
+      }
+    }
+  }
+
+  /*
+   * glyph 存在但沒有任何黑點。
+   * 例如空白字元，視為已處理。
+   */
+  if (maxX < minX ||
+      maxY < minY) {
+    return true;
+  }
+
+  const int visibleWidth =
+      maxX - minX + 1;
+
+  const int visibleHeight =
+      maxY - minY + 1;
+
+  /*
+   * 將實際可見筆畫置中於直排 cell。
+   */
+  const int destinationX =
+      cellX +
+      (cellWidth - visibleWidth) / 2;
+
+  const int destinationY =
+      cellY +
+      (cellHeight - visibleHeight) / 2;
+
+  for (int sourceY = minY;
+       sourceY <= maxY;
+       ++sourceY) {
+    for (int sourceX = minX;
+         sourceX <= maxX;
+         ++sourceX) {
+      const int byteIndex =
+          sourceY * bytesPerRow +
+          sourceX / 8;
+
+      const uint8_t mask =
+          static_cast<uint8_t>(
+              0x80U >> (sourceX & 7)
+          );
+
+      if ((bitmap[byteIndex] & mask) == 0) {
+        continue;
+      }
+
+      drawPixel(
+          destinationX +
+              sourceX -
+              minX,
+          destinationY +
+              sourceY -
+              minY,
+          pixelState
+      );
+    }
+  }
+
+  return true;
+}
+
+bool GfxRenderer::renderExternalReaderGlyphRotated90CW(
+    const int fontId,
+    const int cellX,
+    const int cellY,
+    const int cellSize,
+    const uint32_t codepoint,
+    const bool pixelState
+) const {
+  if (!isReaderFont(fontId)) {
+    return false;
+  }
+
+  FontManager& fontManager =
+      FontManager::getInstance();
+
+  if (!fontManager.isExternalFontEnabled()) {
+    return false;
+  }
+
+  ExternalFont* font =
+      fontManager.getActiveFont();
+
+  if (font == nullptr ||
+      !font->isLoaded()) {
+    return false;
+  }
+
+  const uint8_t* bitmap =
+      font->getGlyph(codepoint);
+
+  if (bitmap == nullptr) {
+    return false;
+  }
+
+  const int sourceWidth =
+      font->getCharWidth();
+
+  const int sourceHeight =
+      font->getCharHeight();
+
+  if (sourceWidth <= 0 ||
+      sourceHeight <= 0) {
+    return false;
+  }
+
+  const int bytesPerRow =
+      (sourceWidth + 7) / 8;
+
+  // 旋轉後寬、高互換。
+  const int rotatedWidth =
+      sourceHeight;
+
+  const int rotatedHeight =
+      sourceWidth;
+
+  // 在直排 cell 中置中。
+  const int offsetX =
+      (cellSize - rotatedWidth) / 2;
+
+  const int offsetY =
+      (cellSize - rotatedHeight) / 2;
+
+  for (int sourceY = 0;
+       sourceY < sourceHeight;
+       ++sourceY) {
+    for (int sourceX = 0;
+         sourceX < sourceWidth;
+         ++sourceX) {
+      const int byteIndex =
+          sourceY * bytesPerRow +
+          sourceX / 8;
+
+      const uint8_t mask =
+          static_cast<uint8_t>(
+              0x80U >> (sourceX & 7)
+          );
+
+      if ((bitmap[byteIndex] & mask) == 0) {
+        continue;
+      }
+
+      // Clockwise rotation:
+      //
+      // source(x, y)
+      // → destination(height - 1 - y, x)
+      const int destinationX =
+          sourceHeight - 1 - sourceY;
+
+      const int destinationY =
+          sourceX;
+
+      drawPixel(
+          cellX + offsetX + destinationX,
+          cellY + offsetY + destinationY,
+          pixelState
+      );
+    }
+  }
+
+  return true;
 }
 
 bool GfxRenderer::renderExternalReaderGlyph(
@@ -1043,14 +1344,61 @@ void GfxRenderer::drawVerticalText(
 
     // 每次只畫一個 Unicode 字元。
     // 因此字元本身保持正立，不是整行旋轉。
-    drawText(
-        fontId,
-        columnX,
-        cursorY,
-        glyphText,
-        black,
-        style
-    );
+    bool rendered = false;
+
+    /*
+    * 括號、引號、刪節號等需要旋轉的字元，
+    * 優先使用 90 度旋轉繪製。
+    */
+    if (shouldRotateVerticalGlyph(cp)) {
+      rendered =
+          renderExternalReaderGlyphRotated90CW(
+              fontId,
+              columnX,
+              cursorY,
+              glyphAdvance,
+              cp,
+              black
+          );
+    }
+
+    /*
+    * 一般字元使用 bitmap 實際筆畫範圍置中。
+    *
+    * 包含：
+    * - 中文漢字
+    * - 英文字母
+    * - 數字
+    * - 逗號、句號
+    * - 問號、驚嘆號、冒號、分號
+    */
+    if (!rendered) {
+      rendered =
+          renderExternalReaderGlyphCentered(
+              fontId,
+              columnX,
+              cursorY,
+              glyphAdvance,
+              glyphAdvance,
+              cp,
+              black
+          );
+    }
+
+    /*
+    * 外部字型沒有 glyph 時，
+    * 才回退原本 drawText()。
+    */
+    if (!rendered) {
+      drawText(
+          fontId,
+          columnX,
+          cursorY,
+          glyphText,
+          black,
+          style
+      );
+    }
 
     cursorY += glyphAdvance;
   }

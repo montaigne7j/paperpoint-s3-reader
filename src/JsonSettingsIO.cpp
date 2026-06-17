@@ -134,6 +134,19 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
     }
   }
 
+  // Vertical/horizontal reader layout.
+  //
+  // This is temporarily persisted manually.
+  // It will be moved into SettingsList after the UI strings
+  // and settings menu item are added.
+  doc["readingLayout"] = s.readingLayout;
+
+  // Front button remap.
+  doc["frontButtonBack"] = s.frontButtonBack;
+  doc["frontButtonConfirm"] = s.frontButtonConfirm;
+  doc["frontButtonLeft"] = s.frontButtonLeft;
+  doc["frontButtonRight"] = s.frontButtonRight;
+
   // Front button remap — managed by RemapFrontButtons sub-activity, not in SettingsList.
   doc["frontButtonBack"] = s.frontButtonBack;
   doc["frontButtonConfirm"] = s.frontButtonConfirm;
@@ -209,6 +222,22 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
 
   // Front button remap — managed by RemapFrontButtons sub-activity, not in SettingsList.
   using S = CrossPointSettings;
+
+  // Restore horizontal/vertical reader layout.
+  //
+  // 舊 settings.json 沒有 readingLayout 時，
+  // 目前開發階段預設使用 Vertical。
+  s.readingLayout = clamp(
+      doc["readingLayout"] |
+          static_cast<uint8_t>(
+              S::VERTICAL_LAYOUT
+          ),
+      S::READING_LAYOUT_COUNT,
+      S::VERTICAL_LAYOUT
+  );
+
+  // 原本按鍵 mapping。
+
   s.frontButtonBack =
       clamp(doc["frontButtonBack"] | (uint8_t)S::FRONT_HW_BACK, S::FRONT_BUTTON_HARDWARE_COUNT, S::FRONT_HW_BACK);
   s.frontButtonConfirm = clamp(doc["frontButtonConfirm"] | (uint8_t)S::FRONT_HW_CONFIRM, S::FRONT_BUTTON_HARDWARE_COUNT,
