@@ -59,6 +59,16 @@ class HalDisplay {
   void cleanupGrayscaleBuffers(const uint8_t* bwBuffer);
 
   void displayGrayBuffer(bool turnOffScreen = false);
+    /*
+  * 臨時 GC16 實機測試入口。
+  *
+  * 顯示 16 階測試條後，不應再呼叫一般
+  * displayBuffer()，否則現有 2bpp 畫面狀態
+  * 會覆蓋 GC16 畫面。
+  */
+  bool showGc16TestBars(
+      bool clearFirst = true
+  );
 
  private:
   // 8bpp framebuffer in PSRAM — EPD_Painter native format (0=white, 3=black)

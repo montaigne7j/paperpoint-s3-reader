@@ -29,6 +29,21 @@
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 
+namespace {
+
+/*
+ * GC16 實機測試專用。
+ *
+ * true：
+ *   開機後顯示 16 階灰條，完成後永久停住。
+ *
+ * false：
+ *   正常啟動 CrossPoint。
+ */
+constexpr bool ENABLE_GC16_BOOT_TEST = false;
+
+}  // namespace
+
 HalDisplay display;
 HalGPIO gpio;
 MappedInputManager mappedInputManager(gpio);
@@ -190,6 +205,9 @@ void enterDeepSleep() {
 
   activityManager.goToSleep();
 
+  // 等待睡眠圖片的最後一次 EPD 更新完全穩定。
+  delay(100);  
+
   display.deepSleep();
   LOG_DBG("MAIN", "Power button press calibration value: %lu ms", t2 - t1);
   LOG_DBG("MAIN", "Entering deep sleep");
@@ -228,7 +246,8 @@ void setupExternalFonts() {
 
   // 暫時自動指定 Noto 14x20 為 UI 字型。
   constexpr const char* UI_FONT_FILENAME =
-      "NotoSansCJKTC_14_18x26.bin";
+      "KingHwaOldSong_17_23x30.bin";
+      // "NotoSansCJKTC_14_18x26.bin";
 
   bool uiFontFound = false;
 
@@ -423,10 +442,66 @@ void setup() {
 
   setupDisplayAndFonts();
 
-#if CROSSPOINT_PAPERS3
-  // Use the user's refresh frequency setting for periodic full refreshes to clear ghosting
-  renderer.setPeriodicFullRefreshInterval(SETTINGS.getRefreshFrequency());
-#endif
+  #if CROSSPOINT_PAPERS3
+  if (ENABLE_GC16_BOOT_TEST) {
+    LOG_INF(
+        "GC16",
+        "Boot GC16 test mode enabled"
+    );
+
+    /*
+    * display.begin() 已經完成面板初始化。
+    * 稍微等待，讓 Serial log 與先前白畫面刷新穩定。
+    */
+    delay(250);
+
+    const uint32_t gc16Start =
+        millis();
+
+    const bool gc16Success =
+        display.showGc16TestBars(
+            true
+        );
+
+    LOG_INF(
+        "GC16",
+        "Boot test finished: success=%d, "
+        "time=%lu ms",
+        gc16Success ? 1 : 0,
+        millis() - gc16Start
+    );
+
+    /*
+    * 絕對不要繼續執行：
+    *
+    *   activityManager.goToBoot();
+    *   activityManager.goHome();
+    *   renderer.displayBuffer();
+    *
+    * 因為現有 2bpp screenbuffer 不知道面板目前
+    * 顯示的是 GC16 圖片。
+    */
+    LOG_INF(
+        "GC16",
+        "System halted on GC16 test screen"
+    );
+
+    for (;;) {
+      /*
+      * 不進 deep sleep，也不再更新面板。
+      * delay() 會讓 FreeRTOS idle task 運作，
+      * 避免 watchdog reset。
+      */
+      delay(1000);
+    }
+  }
+  #endif
+
+  #if CROSSPOINT_PAPERS3
+  renderer.setPeriodicFullRefreshInterval(
+      SETTINGS.getRefreshFrequency()
+  );
+  #endif
 
   activityManager.goToBoot();
 

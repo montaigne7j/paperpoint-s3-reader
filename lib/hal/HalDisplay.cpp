@@ -4,6 +4,40 @@
 
 #include <cstring>
 
+namespace {
+
+const char* gc16ResultToString(
+    const EPD_Painter::Gc16Result result
+) {
+  switch (result) {
+    case EPD_Painter::Gc16Result::Success:
+      return "Success";
+
+    case EPD_Painter::Gc16Result::NotInitialized:
+      return "NotInitialized";
+
+    case EPD_Painter::Gc16Result::InvalidArgument:
+      return "InvalidArgument";
+
+    case EPD_Painter::Gc16Result::InvalidBufferSize:
+      return "InvalidBufferSize";
+
+    case EPD_Painter::Gc16Result::UnsupportedDevice:
+      return "UnsupportedDevice";
+
+    case EPD_Painter::Gc16Result::UnsupportedGeometry:
+      return "UnsupportedGeometry";
+
+    case EPD_Painter::Gc16Result::AllocationFailed:
+      return "AllocationFailed";
+
+    default:
+      return "Unknown";
+  }
+}
+
+}  // namespace
+
 HalDisplay::HalDisplay() : frameBuffer(nullptr) {}
 
 HalDisplay::~HalDisplay() {
@@ -152,6 +186,55 @@ void HalDisplay::displayBuffer(RefreshMode mode, bool turnOffScreen) {
 void HalDisplay::refreshDisplay(RefreshMode mode, bool turnOffScreen) {
   // With EPD_Painter, refresh = repaint the current buffer
   displayBuffer(mode, turnOffScreen);
+}
+
+bool HalDisplay::showGc16TestBars(
+    const bool clearFirst
+) {
+  if (epd == nullptr) {
+    if (Serial) {
+      Serial.printf(
+          "[%lu] [ERR] [GC16] "
+          "EPD_Painter is not initialized\n",
+          millis()
+      );
+    }
+
+    return false;
+  }
+
+  if (Serial) {
+    Serial.printf(
+        "[%lu] [INF] [GC16] "
+        "Starting 16-level grayscale test "
+        "(clearFirst=%d)\n",
+        millis(),
+        clearFirst ? 1 : 0
+    );
+  }
+
+  const EPD_Painter::Gc16Result result =
+      epd->paintGc16TestBars(
+          clearFirst
+      );
+
+  if (Serial) {
+    Serial.printf(
+        "[%lu] [%s] [GC16] "
+        "Test completed: result=%u (%s)\n",
+        millis(),
+        result ==
+                EPD_Painter::
+                    Gc16Result::Success
+            ? "INF"
+            : "ERR",
+        static_cast<unsigned>(result),
+        gc16ResultToString(result)
+    );
+  }
+
+  return result ==
+      EPD_Painter::Gc16Result::Success;
 }
 
 void HalDisplay::deepSleep() {
