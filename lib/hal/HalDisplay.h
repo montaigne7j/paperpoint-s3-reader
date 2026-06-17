@@ -2,9 +2,15 @@
 #include <Arduino.h>
 
 class EPD_Painter;
+class Bitmap;
 
 class HalDisplay {
  public:
+
+  enum class Gc16DitherMode : uint8_t {
+    None = 0,
+    FloydSteinberg,
+  };
   // Constructor
   HalDisplay();
 
@@ -68,6 +74,20 @@ class HalDisplay {
   */
   bool showGc16TestBars(
       bool clearFirst = true
+  );
+
+  /*
+  * 將 540×960 的 24/32-bit BMP
+  * 轉換為實體 960×540 的 4bpp GC16 buffer。
+  *
+  * 第一階段只接受與 Paper S3 直式畫面完全相同尺寸，
+  * 暫不處理縮放或裁切。
+  */
+  bool showGc16Bitmap(
+      const Bitmap& bitmap,
+      bool clearFirst = true,
+      Gc16DitherMode ditherMode =
+          Gc16DitherMode::FloydSteinberg
   );
 
  private:

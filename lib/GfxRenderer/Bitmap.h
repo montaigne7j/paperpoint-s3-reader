@@ -68,6 +68,18 @@ class Bitmap {
   ~Bitmap();
   BmpReaderError parseHeaders();
   BmpReaderError readNextRow(uint8_t* data, uint8_t* rowBuffer) const;
+  /*
+  * 直接讀取下一列 BMP 原始資料。
+  *
+  * 不執行既有的 2bpp／4 階量化，
+  * 供 GC16 轉換器取得 24-bit BGR 或 32-bit BGRA。
+  *
+  * rowBuffer 大小必須至少為 getRowBytes()。
+  */
+  BmpReaderError readNextRawRow(
+      uint8_t* rowBuffer
+  ) const;
+
   BmpReaderError rewindToData() const;
   int getWidth() const { return width; }
   int getHeight() const { return height; }

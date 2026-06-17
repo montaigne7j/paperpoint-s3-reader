@@ -177,6 +177,23 @@ BmpReaderError Bitmap::parseHeaders() {
   return BmpReaderError::Ok;
 }
 
+BmpReaderError Bitmap::readNextRawRow(
+    uint8_t* rowBuffer
+) const {
+  if (rowBuffer == nullptr) {
+    return BmpReaderError::BufferTooSmall;
+  }
+
+  if (file.read(
+          rowBuffer,
+          rowBytes
+      ) != rowBytes) {
+    return BmpReaderError::ShortReadRow;
+  }
+
+  return BmpReaderError::Ok;
+}
+
 // packed 2bpp output, 0 = black, 1 = dark gray, 2 = light gray, 3 = white
 BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
   // Note: rowBuffer should be pre-allocated by the caller to size 'rowBytes'

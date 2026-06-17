@@ -29,6 +29,8 @@
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 
+#include <Bitmap.h>
+
 namespace {
 
 /*
@@ -40,9 +42,21 @@ namespace {
  * false：
  *   正常啟動 CrossPoint。
  */
-constexpr bool ENABLE_GC16_BOOT_TEST = false;
+constexpr bool ENABLE_GC16_BOOT_TEST =
+    true;
+
+constexpr bool GC16_TEST_BITMAP =
+    true;
+
+constexpr const char*
+    GC16_TEST_BITMAP_PATH =
+        "/.sleep/"
+        "papers3_sleep_540x960.bmp";
 
 }  // namespace
+
+constexpr bool GC16_ENABLE_FLOYD_STEINBERG =
+    true;
 
 HalDisplay display;
 HalGPIO gpio;
@@ -458,10 +472,61 @@ void setup() {
     const uint32_t gc16Start =
         millis();
 
-    const bool gc16Success =
-        display.showGc16TestBars(
-            true
+    bool gc16Success = false;
+
+    if (GC16_TEST_BITMAP) {
+      FsFile gc16File;
+
+      if (!Storage.openFileForRead(
+              "GC16",
+              GC16_TEST_BITMAP_PATH,
+              gc16File)) {
+        LOG_ERR(
+            "GC16",
+            "Failed to open test BMP: %s",
+            GC16_TEST_BITMAP_PATH
         );
+      } else {
+        Bitmap bitmap(
+            gc16File,
+            false
+        );
+
+        const BmpReaderError parseResult =
+            bitmap.parseHeaders();
+
+        if (parseResult !=
+            BmpReaderError::Ok) {
+          LOG_ERR(
+              "GC16",
+              "BMP parse failed: %s",
+              Bitmap::errorToString(
+                  parseResult
+              )
+          );
+        } else {
+          gc16Success =
+            display.showGc16Bitmap(
+                bitmap,
+                true,
+                GC16_ENABLE_FLOYD_STEINBERG
+                    ? HalDisplay::
+                          Gc16DitherMode::
+                              FloydSteinberg
+                    : HalDisplay::
+                          Gc16DitherMode::
+                              None
+            );
+        }
+
+        gc16File.close();
+      }
+    } else {
+      gc16Success =
+          display.showGc16TestBars(
+              true
+          );
+    }
 
     LOG_INF(
         "GC16",
