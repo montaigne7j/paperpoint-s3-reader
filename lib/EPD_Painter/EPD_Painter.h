@@ -12,6 +12,9 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
+#include <cstddef>
+#include <cstdint>
+
 // I2C — TwoWire for Arduino, ESP-IDF master API otherwise
 #ifdef ARDUINO
 #include <Wire.h>
@@ -36,6 +39,16 @@ class EPD_Painter {
     int tps_addr = -1;
   };
   enum class Quality { QUALITY_HIGH, QUALITY_NORMAL, QUALITY_FAST };
+
+  enum class Gc16Result : uint8_t {
+    Success = 0,
+    NotInitialized,
+    InvalidArgument,
+    InvalidBufferSize,
+    UnsupportedDevice,
+    UnsupportedGeometry,
+    AllocationFailed,
+  };
 
   enum class Rotation {
     ROTATION_0,  // landscape — normal orientation
@@ -86,6 +99,34 @@ class EPD_Painter {
   void fxClear();
   void paint(uint8_t* framebuffer);
   void paintPacked(const uint8_t* packed);
+    /*
+  * 顯示實體面板方向的 4bpp GC16 圖片。
+  *
+  * Buffer 格式：
+  *   960 × 540
+  *   每 byte 兩個像素
+  *   高 nibble = 偶數 X
+  *   低 nibble = 奇數 X
+  *
+  * 灰階值：
+  *   0  = 黑
+  *   15 = 白
+  *
+  * 第一版只支援全螢幕同步刷新。
+  */
+  Gc16Result paintGc16Full(
+      const uint8_t* packed4bpp,
+      size_t packedSize,
+      bool clearFirst = true
+  );
+
+  /*
+  * 產生並顯示 16 條灰階測試條。
+  * 顯示後應重新啟動裝置，不立即切回一般 UI。
+  */
+  Gc16Result paintGc16TestBars(
+      bool clearFirst = true
+  );
   void unpaintPacked(const uint8_t* packed);
   void paintLater(uint8_t* framebuffer);
   void setInterlaceMode(bool mode) { interlace_mode = mode; }
