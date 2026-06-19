@@ -74,12 +74,17 @@ jobs:
           enable-cache: false
 
       - name: Install PlatformIO Core
-        run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+        run: |
+          uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+          uv pip install --system -U esptool
 
       - name: Build CrossPoint
         run: |
           set -euo pipefail
           pio run | tee pio.log
+
+      - name: Merge browser-flashable firmware
+        run: python scripts/merge_firmware.py --env default
 
       - name: Extract firmware stats
 
@@ -98,8 +103,10 @@ jobs:
       - name: Upload firmware.bin artifact
         uses: actions/upload-artifact@v4
         with:
-          name: firmware.bin
-          path: .pio/build/default/firmware.bin
+          name: crosspoint-paper-s3-firmware
+          path: |
+            .pio/build/default/firmware.bin
+            .pio/build/default/merged-firmware.bin
           if-no-files-found: error
 
   # This job is used as the PR required actions check, allows for changes to other steps in the future without breaking

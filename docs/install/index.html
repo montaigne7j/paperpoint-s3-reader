@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Install CrossPoint Reader for Paper S3</title>
+    <script
+      type="module"
+      src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"
+    ></script>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        line-height: 1.5;
+        color: #1b1b1b;
+        background: #f6f3eb;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      main {
+        box-sizing: border-box;
+        width: min(760px, 100%);
+        min-height: 100vh;
+        margin: 0 auto;
+        padding: 48px 24px;
+        display: grid;
+        align-content: center;
+        gap: 24px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(2rem, 6vw, 4rem);
+        line-height: 1;
+        letter-spacing: 0;
+      }
+
+      p {
+        margin: 0;
+        font-size: 1.05rem;
+      }
+
+      .panel {
+        border: 1px solid #d7cdbb;
+        border-radius: 8px;
+        padding: 20px;
+        background: #fffaf1;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+      }
+
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 14px 18px;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+        color: white;
+        background: #1f4f85;
+      }
+
+      button:hover {
+        background: #163d68;
+      }
+
+      code {
+        padding: 2px 5px;
+        border-radius: 4px;
+        background: #eee5d5;
+      }
+
+      ul {
+        margin: 12px 0 0;
+        padding-left: 1.3rem;
+      }
+
+      li + li {
+        margin-top: 6px;
+      }
+
+      .note {
+        color: #50493d;
+        font-size: 0.95rem;
+      }
+
+      esp-web-install-button {
+        --esp-tools-button-color: #1f4f85;
+        --esp-tools-button-text-color: #ffffff;
+        --esp-tools-button-border-radius: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div>
+        <h1>CrossPoint Reader<br />Paper S3</h1>
+        <p>用瀏覽器把韌體安裝到 M5Stack Paper S3。</p>
+      </div>
+
+      <section class="panel">
+        <div class="actions">
+          <esp-web-install-button manifest="manifest.json">
+            <button slot="activate">Install / Update Firmware</button>
+            <span slot="unsupported">
+              請使用支援 Web Serial 的 Chrome 或 Microsoft Edge 桌面版瀏覽器。
+            </span>
+            <span slot="not-allowed">
+              這個安裝頁需要透過 HTTPS 或 localhost 開啟。
+            </span>
+          </esp-web-install-button>
+        </div>
+        <ul>
+          <li>用 USB-C 傳輸線接上 M5Stack Paper S3。</li>
+          <li>按下安裝按鈕後，選擇裝置的序列埠。</li>
+          <li>若連線失敗，按住 BOOT、按一下 RESET，再重新選擇序列埠。</li>
+        </ul>
+      </section>
+
+      <p class="note">
+        睡眠封面圖可放在 SD 卡的 <code>/.sleep/</code>，建議使用
+        <code>540x960</code> BMP。
+      </p>
+    </main>
+  </body>
+</html>

@@ -26,10 +26,15 @@ jobs:
           enable-cache: false
 
       - name: Install PlatformIO Core
-        run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+        run: |
+          uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+          uv pip install --system -U esptool
 
       - name: Build CrossPoint
         run: pio run -e gh_release
+
+      - name: Merge browser-flashable firmware
+        run: python scripts/merge_firmware.py --env gh_release
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -40,6 +45,7 @@ jobs:
             .pio/build/gh_release/firmware.bin
             .pio/build/gh_release/firmware.elf
             .pio/build/gh_release/firmware.map
+            .pio/build/gh_release/merged-firmware.bin
             .pio/build/gh_release/partitions.bin
 
       - name: Create GitHub Release
@@ -48,6 +54,7 @@ jobs:
           name: CrossPoint PaperS3 ${{ github.ref_name }}
           generate_release_notes: true
           files: |
+            .pio/build/gh_release/merged-firmware.bin
             .pio/build/gh_release/firmware.bin
             .pio/build/gh_release/bootloader.bin
             .pio/build/gh_release/partitions.bin

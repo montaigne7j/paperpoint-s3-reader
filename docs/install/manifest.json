@@ -1,0 +1,16 @@
+{
+  "name": "CrossPoint Reader Paper S3",
+  "version": "latest",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
+        {
+          "path": "merged-firmware.bin",
+          "offset": 0
+        }
+      ]
+    }
+  ]
+}
