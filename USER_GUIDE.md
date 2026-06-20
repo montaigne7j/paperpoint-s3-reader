@@ -84,7 +84,7 @@ See [Reading Mode](#4-reading-mode) below for more information.
 The Browse Files screen acts as a file and folder browser.
 
 * **Navigate List:** Use **Left** (or **Volume Up**), or **Right** (or **Volume Down**) to move the selection cursor up and down through folders and books. You can also long-press these buttons to scroll a full page up or down.
-* **Open Selection:** Press **Confirm** to open a folder or read a selected book. 
+* **Open Selection:** Press **Confirm** to open a folder or read a selected book.
 * **Delete Files:** Hold and release **Confirm** to delete the selected file. You will be given an option to either confirm or cancel deletion. Folder deletion is not supported.
 
 ### 3.4 Recent Books Screen
@@ -132,6 +132,11 @@ The Settings screen allows you to configure the device's behavior. There are a f
   - "None" (default) - The cover image will be converted to a grayscale image and displayed as it is
   - "Contrast" - The image will be displayed as a black & white image without grayscale conversion
   - "Inverted" - The image will be inverted as in white & black and will be displayed without grayscale conversion
+- **Rotate Sleep Screen 180°**: Rotate the final custom or cover sleep image for carrying the Paper S3 from its bottom loop.
+- **Transparent Sleep PNG Background**:
+  - "Current Reading Page" - Blend a transparent PNG overlay with the last complete reader page when sleeping from the reader or reader menu.
+  - "White Background" - Blend the overlay with white.
+  - Home, Settings, File Browser, and all other non-reader screens always use white, even when "Current Reading Page" is selected.
 - **Status Bar**: Configure the status bar displayed while reading:
   - "None" - No status bar
   - "No Progress" - Show status bar without reading progress
@@ -330,13 +335,20 @@ When using **Cover** or **Cover + Custom**, two additional settings apply:
 
 To use custom sleep images, set the sleep screen mode to **Custom** or **Cover + Custom**, then place images on the SD card:
 
-- **Multiple Images (recommended):** Create a `.sleep` directory in the root of the SD card and place any number of `.bmp` images inside. One will be randomly selected each time the device sleeps. (A directory named `sleep` is also accepted as a fallback.)
-- **Single Image:** Place a file named `sleep.bmp` in the root directory. This is used as a fallback if no valid images are found in the `.sleep`/`sleep` directory.
+- **Multiple Images (recommended):** Create a `.sleep` directory in the root of the SD card and place any number of `.bmp`, `.jpg`, `.jpeg`, or `.png` images inside. One image is selected for the next sleep cycle. A directory named `sleep` is accepted as a fallback.
+- **Single Image:** Place `sleep.bmp`, `sleep.jpg`, `sleep.jpeg`, or `sleep.png` in the root directory. Root files are used only when neither sleep-image directory contains a supported image.
 
-> [!TIP]
-> For best results:
-> - Use uncompressed BMP files with 24-bit color depth
-> - Use a resolution of 540x960 pixels to match the device's screen resolution.
+Images do not need to be 540×960:
+
+- Opaque BMP/JPG/PNG images preserve their aspect ratio, are center-cropped to 9:16, and fill the 540×960 sleep screen without stretching or white borders.
+- PNG files that contain actual transparent or semi-transparent pixels preserve their full aspect ratio, fit entirely inside the screen without cropping, and are centered as overlays.
+- Transparent overlays can use the current reading page or white as their background. Non-reader screens always use white.
+- Images are never automatically rotated by 90°. The separate **Rotate Sleep Screen 180°** setting is applied to the final result.
+
+On Paper S3, the next random image is decoded and converted to a GC16 cache in a low-priority background task after the device is idle. Sleeping never waits for this conversion: it uses the new prepared cache, then the previous valid cache, then the built-in sleep screen. Incomplete temporary caches are ignored.
+
+> [!NOTE]
+> Common 8-bit PNG and RGB/grayscale JPEG files are supported. CMYK JPEG, 16-bit PNG, APNG, WebP, GIF, and automatic JPEG EXIF rotation are not currently guaranteed. See `SLEEP_IMAGE_CACHE_README.md` for limits, cache details, and diagnostic logs.
 
 ---
 

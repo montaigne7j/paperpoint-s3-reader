@@ -11,10 +11,18 @@
 - 中文優先的 M5Paper S3 電子紙閱讀器韌體。
 - 針對 M5Paper S3 的顯示、觸控、SD 卡與電源流程調整。
 - 支援 EPUB 2/3 閱讀、最近書籍、閱讀進度、封面與睡眠畫面。
+- 自訂休眠圖片支援 BMP、JPG/JPEG、PNG，並會在閒置時預先建立電子紙快取。
+- 透明 PNG 休眠圖可選擇疊在目前閱讀頁面或白色背景上。
 - 支援 Wi-Fi 上傳書籍、OTA 更新與 KOReader Sync。
 - 支援可調整閱讀字體、版面、顯示與睡眠設定。
 - 支援電子紙灰階顯示，適合封面與睡眠圖片。
 - 提供 GitHub Actions 自動編譯與瀏覽器線上燒錄頁。
+
+## 最新更新
+
+- 休眠圖片不再限於 `540×960` BMP；`.bmp`、`.jpg`、`.jpeg`、`.png` 可放在 `/.sleep/`，裝置會自動縮放、中央裁切或保留透明圖完整比例。
+- Paper S3 會在閒置時背景產生 GC16 快取，按下關機後不等待圖片解碼；若新快取尚未完成，會使用上一張有效快取或內建休眠圖。
+- 新增「透明 PNG 休眠圖背景」設定，可選「目前閱讀頁面」或「白色背景」。從首頁、設定等非閱讀畫面休眠時會固定用白色背景。
 
 ## 線上燒錄
 
@@ -30,11 +38,12 @@ https://montaigne7j.github.io/paperpoint-s3-installer/install/
 
 1. 使用支援 Web Serial 的桌面版 Chrome 或 Microsoft Edge。
 2. 用 USB-C 傳輸線接上 M5Paper S3。
-3. 打開安裝頁並按下 `Install / Update Firmware`。
-4. 選擇 M5Paper S3 的序列埠。
-5. 等待燒錄完成後重新啟動裝置。
+3. 長按電源鍵，讓 Paper S3 開機並被電腦偵測。
+4. 打開安裝頁並按下「安裝 / 更新韌體」。
+5. 選擇名稱包含 `USB JTAG/serial debug unit` 的序列埠。
+6. 等待燒錄完成後重新啟動裝置。
 
-若連線失敗，請讓裝置進入下載模式後再試一次：按住 `BOOT`，按一下 `RESET`，放開 `RESET`，再放開 `BOOT`。
+若沒有看到序列埠或連線失敗，請確認使用的是可傳輸資料的 USB-C 線，重新長按電源鍵開機，或拔插 USB-C 後再試一次。
 
 ## 自行編譯
 
@@ -88,21 +97,27 @@ python -m esptool --chip esp32s3 --port COM5 --baud 921600 write_flash -z 0x0 me
 
 如果燒錄不穩，請把 baud rate 改成 `460800` 或 `115200`。
 
-## 睡眠封面圖片
+## 休眠圖片
 
-自訂睡眠封面可以放在 SD 卡：
+自訂休眠圖片可放在 SD 卡的：
 
 ```text
 /.sleep/
 ```
 
-建議圖片格式：
+Paper S3 版本支援：
 
 ```text
-540x960 BMP
+.bmp
+.jpg / .jpeg
+.png
 ```
 
-彩色 BMP 與灰階 BMP 都可以使用；灰階圖片通常更接近電子紙實際顯示效果。
+圖片不必預先製作成 `540×960`。不透明圖片會保持比例並以中央裁切方式填滿螢幕；含實際透明像素的 PNG 則會完整縮放、置中並保留 Alpha，可與目前閱讀頁或白色背景融合。
+
+裝置會在閒置時於背景預先建立 GC16 快取。關機時不等待圖片解碼：優先使用本次已完成快取，其次使用上一張有效快取，最後使用內建休眠圖。
+
+完整規格、限制、快取格式與診斷 LOG 請參閱 [SLEEP_IMAGE_CACHE_README.md](SLEEP_IMAGE_CACHE_README.md)。
 
 ## 硬體資訊
 
@@ -121,6 +136,7 @@ python -m esptool --chip esp32s3 --port COM5 --baud 921600 write_flash -z 0x0 me
 - EPUB 2/3 解析與閱讀。
 - TXT / XTC 閱讀。
 - 圖片與封面顯示。
+- BMP / JPG / PNG 自訂休眠圖片，含透明 PNG 休眠 Overlay 與背景快取。
 - 檔案瀏覽器與最近閱讀清單。
 - 閱讀進度記錄。
 - 可調整字體、版面、顯示與睡眠設定。

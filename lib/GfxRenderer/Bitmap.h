@@ -80,6 +80,13 @@ class Bitmap {
       uint8_t* rowBuffer
   ) const;
 
+  // Decode the next BMP row into 8-bit luminance (0=black, 255=white).
+  // Supports every uncompressed format accepted by parseHeaders().
+  BmpReaderError readNextLuminanceRow(
+      uint8_t* luminanceRow,
+      uint8_t* rowBuffer
+  ) const;
+
   BmpReaderError rewindToData() const;
   int getWidth() const { return width; }
   int getHeight() const { return height; }

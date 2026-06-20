@@ -219,3 +219,51 @@ if (parsedSize != fileSize) {
     std::warning(std::format("Unparsed data detected: {} bytes remaining at offset 0x{:X}", fileSize - parsedSize, parsedSize));
 }
 ```
+
+## Paper S3 sleep cache (`.sgc`)
+
+Custom BMP/JPG/PNG sleep images are converted in the background to files under:
+
+```text
+/.crosspoint/sleepcache/
+```
+
+The cache is little-endian and packed without padding.
+
+### Version 2 header
+
+```c++
+struct SleepCacheHeader {
+  char magic[4];                // "SLPC"
+  u8 version;                   // 2
+  u8 type;                      // 1 = opaque GC16, 2 = gray/alpha overlay
+  u16 width;                    // 540
+  u16 height;                   // 960
+  u32 payloadSize;
+  u32 sourceSize;
+  u32 sourceFingerprint;        // FNV-1a of size + first/last source samples
+  u32 sourcePathHash;           // FNV-1a of UTF-8 source path
+  u32 payloadFingerprint;       // FNV-1a of payload
+};
+```
+
+### Type 1: opaque GC16
+
+Payload size: `540 × 960 / 2 = 259,200` bytes.
+
+Each byte stores two horizontal pixels. The high nibble is the first pixel and the low nibble is the second. Values range from `0` (black) to `15` (white).
+
+### Type 2: transparent overlay
+
+Payload size: `540 × 960 = 518,400` bytes.
+
+Each byte stores one pixel:
+
+```text
+high nibble: gray,  0 = black, 15 = white
+low nibble:  alpha, 0 = transparent, 15 = opaque
+```
+
+The overlay is blended with either the captured reader framebuffer or white at sleep time. The final composited screen is not persisted because the reader page can change.
+
+Cache writes use a `.tmp` suffix and are renamed only after the complete payload is written. Both file length and payload fingerprint are validated before display.

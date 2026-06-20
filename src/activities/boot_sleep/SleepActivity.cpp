@@ -5,6 +5,8 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <HalDisplay.h>
+#include <SleepImageManager.h>
 #include <Txt.h>
 #include <Xtc.h>
 
@@ -67,6 +69,22 @@ void SleepActivity::onEnter() {
 }
 
 void SleepActivity::renderCustomSleepScreen() const {
+#if CROSSPOINT_PAPERS3
+  // JPG/PNG/arbitrary-size BMP files are converted ahead of time by the
+  // low-priority SleepImageManager task. Sleeping never waits for decoding:
+  // use the prepared cache, then the previous valid cache, then the built-in
+  // fallback.
+  if (SleepImages.displayPreparedOrPrevious(
+          display,
+          APP_STATE.lastSleepFromReader,
+          SETTINGS.sleepScreenRotate180 != 0,
+          SETTINGS.transparentSleepPngBackground)) {
+    return;
+  }
+
+  renderDefaultSleepScreen();
+  return;
+#else
   // Check if we have a /.sleep (preferred) or /sleep directory
   const char* sleepDir = nullptr;
   auto dir = Storage.open("/.sleep");
@@ -143,6 +161,7 @@ void SleepActivity::renderCustomSleepScreen() const {
   }
 
   renderDefaultSleepScreen();
+#endif
 }
 
 void SleepActivity::renderDefaultSleepScreen() const {

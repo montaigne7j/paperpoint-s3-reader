@@ -33,6 +33,11 @@ class CrossPointSettings {
     INVERTED_BLACK_AND_WHITE = 2,
     SLEEP_SCREEN_COVER_FILTER_COUNT
   };
+  enum TRANSPARENT_SLEEP_PNG_BACKGROUND {
+    TRANSPARENT_SLEEP_CURRENT_READING_PAGE = 0,
+    TRANSPARENT_SLEEP_WHITE_BACKGROUND = 1,
+    TRANSPARENT_SLEEP_PNG_BACKGROUND_COUNT
+  };
 
   // Status bar enum - legacy
   enum STATUS_BAR_MODE {
@@ -174,6 +179,11 @@ class CrossPointSettings {
   uint8_t sleepScreenCoverFilter = NO_FILTER;
   // Rotate the final sleep screen by 180 degrees (0 = normal, 1 = inverted).
   uint8_t sleepScreenRotate180 = 0;
+  // Background used for transparent PNG sleep overlays. Reader pages are
+  // available only when sleeping from a reader context; other activities
+  // always fall back to white.
+  uint8_t transparentSleepPngBackground =
+      TRANSPARENT_SLEEP_CURRENT_READING_PAGE;
   // Status bar settings (statusBar retained for migration only)
   uint8_t statusBar = FULL;
   uint8_t statusBarChapterPageCount = 1;
@@ -220,7 +230,7 @@ class CrossPointSettings {
   // Reader text layout. Selectable from Settings > Reader > Reading Layout.
   // Keep Vertical as the default for existing Paper S3 CJK installations.
   uint8_t readingLayout = VERTICAL_LAYOUT;
-  
+
   // Auto-sleep timeout setting (default 10 minutes)
   uint8_t sleepTimeout = SLEEP_10_MIN;
   // E-ink refresh frequency (default 15 pages)

@@ -25,6 +25,11 @@ inline const std::vector<SettingInfo>& getSettingsList() {
                         "sleepScreenCoverFilter", StrId::STR_CAT_DISPLAY),
       SettingInfo::Toggle(StrId::STR_SLEEP_SCREEN_ROTATE_180, &CrossPointSettings::sleepScreenRotate180,
                           "sleepScreenRotate180", StrId::STR_CAT_DISPLAY),
+      SettingInfo::Enum(
+          StrId::STR_TRANSPARENT_SLEEP_PNG_BACKGROUND,
+          &CrossPointSettings::transparentSleepPngBackground,
+          {StrId::STR_CURRENT_READING_PAGE, StrId::STR_WHITE_BACKGROUND},
+          "transparentSleepPngBackground", StrId::STR_CAT_DISPLAY),
       SettingInfo::Enum(StrId::STR_HIDE_BATTERY, &CrossPointSettings::hideBatteryPercentage,
                         {StrId::STR_NEVER, StrId::STR_IN_READER, StrId::STR_ALWAYS}, "hideBatteryPercentage",
                         StrId::STR_CAT_DISPLAY),

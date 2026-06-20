@@ -956,6 +956,76 @@ bool HalDisplay::showGc16Bitmap(
           Success;
 }
 
+bool HalDisplay::showGc16LogicalBuffer(
+    const uint8_t* logicalBuffer,
+    const size_t logicalBufferSize,
+    const bool clearFirst,
+    const bool rotate180
+) {
+  if (epd == nullptr || logicalBuffer == nullptr) {
+    LOG_ERR("GC16", "Logical GC16 display is not initialized");
+    return false;
+  }
+
+  constexpr int SOURCE_WIDTH = 540;
+  constexpr int SOURCE_HEIGHT = 960;
+  constexpr int PANEL_WIDTH = 960;
+  constexpr int PANEL_HEIGHT = 540;
+  constexpr size_t LOGICAL_SIZE =
+      static_cast<size_t>(SOURCE_WIDTH) * SOURCE_HEIGHT / 2;
+  constexpr size_t PANEL_SIZE =
+      static_cast<size_t>(PANEL_WIDTH) * PANEL_HEIGHT / 2;
+
+  if (logicalBufferSize != LOGICAL_SIZE) {
+    LOG_ERR(
+        "GC16",
+        "Invalid logical GC16 buffer size: %u, expected %u",
+        static_cast<unsigned>(logicalBufferSize),
+        static_cast<unsigned>(LOGICAL_SIZE));
+    return false;
+  }
+
+  uint8_t* panelBuffer = static_cast<uint8_t*>(
+      heap_caps_aligned_alloc(
+          16, PANEL_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (panelBuffer == nullptr) {
+    LOG_ERR("GC16", "Failed to allocate panel GC16 buffer");
+    return false;
+  }
+  std::memset(panelBuffer, 0xFF, PANEL_SIZE);
+
+  for (int y = 0; y < SOURCE_HEIGHT; ++y) {
+    const size_t logicalRow = static_cast<size_t>(y) * SOURCE_WIDTH / 2;
+    for (int x = 0; x < SOURCE_WIDTH; ++x) {
+      const uint8_t packed = logicalBuffer[logicalRow + static_cast<size_t>(x >> 1)];
+      const uint8_t level =
+          (x & 1) == 0 ? static_cast<uint8_t>(packed >> 4)
+                       : static_cast<uint8_t>(packed & 0x0F);
+
+      const int panelX = rotate180 ? PANEL_WIDTH - 1 - y : y;
+      const int panelY = rotate180 ? x : PANEL_HEIGHT - 1 - x;
+      setGc16PackedPixel(panelBuffer, PANEL_WIDTH, panelX, panelY, level);
+    }
+
+    if ((y & 31) == 31) {
+      vTaskDelay(1);
+    }
+  }
+
+  const uint32_t paintStart = millis();
+  const EPD_Painter::Gc16Result result =
+      epd->paintGc16Full(panelBuffer, PANEL_SIZE, clearFirst);
+  LOG_INF(
+      "GC16",
+      "Logical GC16 paint completed: result=%u (%s), time=%lu ms",
+      static_cast<unsigned>(result),
+      gc16ResultToString(result),
+      millis() - paintStart);
+
+  heap_caps_free(panelBuffer);
+  return result == EPD_Painter::Gc16Result::Success;
+}
+
 void HalDisplay::deepSleep() {
   if (epd) {
     epd->end();

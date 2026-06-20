@@ -13,6 +13,7 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <SPI.h>
+#include <SleepImageManager.h>
 #include <builtinFonts/all.h>
 
 #include <cstring>
@@ -214,6 +215,16 @@ void waitForPowerRelease() {
 // Enter deep sleep mode
 void enterDeepSleep() {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
+#if CROSSPOINT_PAPERS3
+  // Direct sleep from the reader does not pass through a pushed menu, so save
+  // the current page here as well.
+  if (activityManager.isReaderActivity()) {
+    RenderLock snapshotLock;
+    SleepImages.captureReaderFrame(
+        display.getFrameBuffer(),
+        static_cast<uint8_t>(renderer.getOrientation()));
+  }
+#endif
   APP_STATE.lastSleepFromReader = activityManager.isReaderContextActive();
   LOG_DBG("SLP", "Sleep reader context: %d", APP_STATE.lastSleepFromReader ? 1 : 0);
   APP_STATE.saveToFile();
@@ -589,6 +600,9 @@ void setup() {
   // first visible screen be Home, Crash Report, or the previously open reader.
   APP_STATE.loadFromFile();
   RECENT_BOOKS.loadFromFile();
+#if CROSSPOINT_PAPERS3
+  SleepImages.begin();
+#endif
 
   if (HalSystem::isRebootFromPanic()) {
     // If we rebooted from a panic, go to crash report screen to show the panic info
@@ -650,6 +664,9 @@ void loop() {
   if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || activityManager.preventAutoSleep()) {
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
+#if CROSSPOINT_PAPERS3
+    SleepImages.noteUserActivity();
+#endif
   }
 
   static bool screenshotButtonsReleased = true;
@@ -709,6 +726,15 @@ void loop() {
 
   const unsigned long activityStartTime = millis();
   activityManager.loop();
+#if CROSSPOINT_PAPERS3
+  const bool renderBusy = RenderLock::peek();
+  if (renderBusy) {
+    SleepImages.noteUserActivity();
+  }
+  SleepImages.loop(
+      millis() - lastActivityTime,
+      activityManager.preventAutoSleep() || renderBusy);
+#endif
   const unsigned long activityDuration = millis() - activityStartTime;
 
   const unsigned long loopDuration = millis() - loopStartTime;

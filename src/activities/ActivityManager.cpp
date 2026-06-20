@@ -1,6 +1,8 @@
 #include "ActivityManager.h"
 
 #include <HalPowerManager.h>
+#include <HalDisplay.h>
+#include <SleepImageManager.h>
 #if CROSSPOINT_PAPERS3
 #include "CrossPointSettings.h"
 #include "components/UITheme.h"
@@ -219,6 +221,18 @@ void ActivityManager::goToCrashReport() { replaceActivity(std::make_unique<Crash
 void ActivityManager::goHome() { replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInput)); }
 
 void ActivityManager::pushActivity(std::unique_ptr<Activity>&& activity) {
+#if CROSSPOINT_PAPERS3
+  // Preserve the fully rendered page before a reader menu replaces it on the
+  // panel. Transparent sleep PNGs can then blend with the real page rather
+  // than with the menu UI.
+  if (currentActivity && currentActivity->isReaderActivity()) {
+    RenderLock snapshotLock;
+    SleepImages.captureReaderFrame(
+        display.getFrameBuffer(),
+        static_cast<uint8_t>(renderer.getOrientation()));
+  }
+#endif
+
   if (pendingActivity) {
     // Should never happen in practice
     LOG_ERR("ACT", "pendingActivity while pushActivity is not expected");

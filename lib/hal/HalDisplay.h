@@ -102,6 +102,15 @@ class HalDisplay {
       bool rotate180 = false
   );
 
+  // Display a logical portrait 540x960 packed 4bpp buffer. Each byte stores
+  // two pixels, high nibble first, with 0=black and 15=white.
+  bool showGc16LogicalBuffer(
+      const uint8_t* logicalBuffer,
+      size_t logicalBufferSize,
+      bool clearFirst = true,
+      bool rotate180 = false
+  );
+
  private:
   // 8bpp framebuffer in PSRAM — EPD_Painter native format (0=white, 3=black)
   uint8_t* frameBuffer;
