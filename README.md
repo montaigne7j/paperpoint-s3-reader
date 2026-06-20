@@ -23,7 +23,7 @@
 安裝頁網址通常是：
 
 ```text
-https://montaigne7j.github.io/paperpoint-s3-reader/install/
+https://montaigne7j.github.io/paperpoint-s3-installer/install/
 ```
 
 使用方式：
