@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Install PaperPoint S3 Reader</title>
+    <title>安裝 PaperPoint S3 Reader</title>
     <script
       type="module"
       src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"
@@ -113,7 +113,7 @@
       <section class="panel">
         <div class="actions">
           <esp-web-install-button manifest="manifest.json">
-            <button slot="activate">Install / Update Firmware</button>
+            <button slot="activate">安裝 / 更新韌體</button>
             <span slot="unsupported">
               請使用支援 Web Serial 的 Chrome 或 Microsoft Edge 桌面版瀏覽器。
             </span>
@@ -125,7 +125,10 @@
         <ul>
           <li>用 USB-C 傳輸線接上 M5Stack Paper S3。</li>
           <li>長按電源鍵，讓 Paper S3 開機並被電腦偵測。</li>
-          <li>按下安裝按鈕後，選擇 Paper S3 的序列埠。</li>
+          <li>
+            按下「安裝 / 更新韌體」後，選擇名稱包含
+            <code>USB JTAG/serial debug unit</code> 的序列埠。
+          </li>
           <li>
             若沒有看到序列埠或連線失敗，請確認使用的是可傳輸資料的 USB-C 線，
             重新長按電源鍵開機，或拔插 USB-C 後再試一次。
