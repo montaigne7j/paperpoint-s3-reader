@@ -41,6 +41,12 @@
         letter-spacing: 0;
       }
 
+      h2 {
+        margin: 0;
+        font-size: 1.2rem;
+        line-height: 1.2;
+      }
+
       p {
         margin: 0;
         font-size: 1.05rem;
@@ -90,11 +96,6 @@
         margin-top: 6px;
       }
 
-      .note {
-        color: #50493d;
-        font-size: 0.95rem;
-      }
-
       esp-web-install-button {
         --esp-tools-button-color: #1f4f85;
         --esp-tools-button-text-color: #ffffff;
@@ -128,10 +129,27 @@
         </ul>
       </section>
 
-      <p class="note">
-        睡眠封面圖可放在 SD 卡的 <code>/.sleep/</code>，建議使用
-        <code>540x960</code> BMP。
-      </p>
+      <section class="panel">
+        <h2>燒錄完成後的 SD 卡檔案</h2>
+        <p>休眠封面與字型請放在 SD 卡根目錄的指定資料夾。</p>
+        <ul>
+          <li>
+            <code>/.sleep/</code>：只讀取 <code>.bmp</code>。建議使用
+            <code>540x960</code>、24-bit 或 32-bit、未壓縮 BMP。不要直接放
+            JPG、PNG、WEBP；多張 BMP 會隨機顯示。
+          </li>
+          <li>
+            <code>/fonts/</code>：閱讀字型可放 <code>.ttf</code>、
+            <code>.bin</code>、<code>.epdf</code>。其中
+            <code>.bin</code>/<code>.epdf</code> 檔名需包含尺寸，例如
+            <code>KingHwaOldSong_17_23x30.bin</code>。
+          </li>
+          <li>
+            目前設定頁主要調整「閱讀字型」。系統介面/UI 字型還不是一般設定項目，
+            <code>.ttf</code> 也不會拿來當 UI 字型。
+          </li>
+        </ul>
+      </section>
     </main>
   </body>
 </html>
