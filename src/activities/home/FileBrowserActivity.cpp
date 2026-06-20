@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 #include "../util/ConfirmationActivity.h"
 #include "CrossPointSettings.h"
@@ -102,6 +103,21 @@ void FileBrowserActivity::loadFiles() {
   sortFileList(files);
 }
 
+void FileBrowserActivity::moveSelectionTo(const size_t newIndex) {
+  if (files.empty() || newIndex >= files.size() || newIndex == selectorIndex) {
+    return;
+  }
+
+  selectorIndex = newIndex;
+  selectionMovePending = true;
+  requestUpdate();
+}
+
+void FileBrowserActivity::requestFullPageUpdate(const bool immediate) {
+  selectionMovePending = false;
+  requestUpdate(immediate);
+}
+
 void FileBrowserActivity::onEnter() {
   Activity::onEnter();
 
@@ -125,6 +141,8 @@ void FileBrowserActivity::onEnter() {
     loadFiles();
   }
 
+  hasRenderedList = false;
+  selectionMovePending = false;
   requestUpdate();
 }
 
@@ -150,7 +168,7 @@ void FileBrowserActivity::loop() {
     basepath = "/";
     loadFiles();
     selectorIndex = 0;
-    requestUpdate();
+    requestFullPageUpdate();
     return;
   }
 
@@ -159,7 +177,7 @@ void FileBrowserActivity::loop() {
     return;
   }
 
-  const int pathReserved = renderer.getLineHeight(SMALL_FONT_ID) + UITheme::getInstance().getMetrics().verticalSpacing;
+  const int pathReserved = renderer.getLineHeight(UI_10_FONT_ID) + UITheme::getInstance().getMetrics().verticalSpacing;
   const int pageItems =
       UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, false, pathReserved);
 
@@ -188,7 +206,7 @@ void FileBrowserActivity::loop() {
               selectorIndex = files.size() - 1;
             }
 
-            requestUpdate(true);
+            requestFullPageUpdate(true);
           } else {
             LOG_ERR("FileBrowser", "Failed to delete file: %s", fullPath.c_str());
           }
@@ -209,7 +227,7 @@ void FileBrowserActivity::loop() {
         basepath += entry.substr(0, entry.length() - 1);
         loadFiles();
         selectorIndex = 0;
-        requestUpdate();
+        requestFullPageUpdate();
       } else {
         onSelectBook(basepath + entry);
       }
@@ -231,9 +249,11 @@ void FileBrowserActivity::loop() {
         const std::string dirName = oldPath.substr(pos + 1) + "/";
         selectorIndex = findEntry(dirName);
 
-        requestUpdate();
+        requestFullPageUpdate();
+        return;
       } else {
         onGoHome();
+        return;
       }
     }
   }
@@ -242,34 +262,28 @@ void FileBrowserActivity::loop() {
 #if CROSSPOINT_PAPERS3
   // On Paper S3, Up/Down move one row at a time
   if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
-    selectorIndex = ButtonNavigator::previousIndex(static_cast<int>(selectorIndex), listSize);
-    requestUpdate();
+    moveSelectionTo(ButtonNavigator::previousIndex(static_cast<int>(selectorIndex), listSize));
     return;
   }
   if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
-    selectorIndex = ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize);
-    requestUpdate();
+    moveSelectionTo(ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize));
     return;
   }
 #else
   buttonNavigator.onNextRelease([this, listSize] {
-    selectorIndex = ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize);
-    requestUpdate();
+    moveSelectionTo(ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize));
   });
 
   buttonNavigator.onPreviousRelease([this, listSize] {
-    selectorIndex = ButtonNavigator::previousIndex(static_cast<int>(selectorIndex), listSize);
-    requestUpdate();
+    moveSelectionTo(ButtonNavigator::previousIndex(static_cast<int>(selectorIndex), listSize));
   });
 
   buttonNavigator.onNextContinuous([this, listSize, pageItems] {
-    selectorIndex = ButtonNavigator::nextPageIndex(static_cast<int>(selectorIndex), listSize, pageItems);
-    requestUpdate();
+    moveSelectionTo(ButtonNavigator::nextPageIndex(static_cast<int>(selectorIndex), listSize, pageItems));
   });
 
   buttonNavigator.onPreviousContinuous([this, listSize, pageItems] {
-    selectorIndex = ButtonNavigator::previousPageIndex(static_cast<int>(selectorIndex), listSize, pageItems);
-    requestUpdate();
+    moveSelectionTo(ButtonNavigator::previousPageIndex(static_cast<int>(selectorIndex), listSize, pageItems));
   });
 #endif
 }
@@ -295,63 +309,103 @@ std::string getFileExtension(std::string filename) {
 }
 
 void FileBrowserActivity::render(RenderLock&&) {
-  renderer.clearScreen();
-
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
   const auto& metrics = UITheme::getInstance().getMetrics();
 
-  std::string folderName = (basepath == "/") ? tr(STR_SD_CARD) : basepath.substr(basepath.rfind('/') + 1);
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, folderName.c_str());
-
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int pathLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
+  const int pathLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
   const int pathReserved = pathLineHeight + metrics.verticalSpacing;
   const int contentHeight =
       pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing - pathReserved;
-  if (files.empty()) {
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20, tr(STR_NO_FILES_FOUND));
-  } else {
-    GUI.drawList(
-        renderer, Rect{0, contentTop, pageWidth, contentHeight}, files.size(), selectorIndex,
-        [this](int index) { return getFileName(files[index]); }, nullptr,
+  const Rect listRect{0, contentTop, pageWidth, contentHeight};
+  const int pageItems = UITheme::getInstance().getNumberOfItemsPerPage(
+      renderer, true, false, true, false, pathReserved);
+
+  const size_t targetSelectorIndex = selectorIndex;
+  const bool validSelection = !files.empty() && targetSelectorIndex < files.size();
+  const bool validRenderedSelection = hasRenderedList && !files.empty() && renderedSelectorIndex < files.size();
+  const bool samePage = validSelection && validRenderedSelection && pageItems > 0 &&
+                        targetSelectorIndex / pageItems == renderedSelectorIndex / pageItems;
+  const bool partialSelectionUpdate = selectionMovePending && samePage;
+  const bool crossedPage = selectionMovePending && validSelection && validRenderedSelection && pageItems > 0 &&
+                           targetSelectorIndex / pageItems != renderedSelectorIndex / pageItems;
+
+  if (partialSelectionUpdate) {
+    renderer.beginFrame();
+    GUI.redrawListSelection(
+        renderer, listRect, static_cast<int>(files.size()), static_cast<int>(renderedSelectorIndex),
+        static_cast<int>(targetSelectorIndex), [this](int index) { return getFileName(files[index]); }, nullptr,
         [this](int index) { return UITheme::getFileIcon(files[index]); },
         [this](int index) { return getFileExtension(files[index]); }, false);
-  }
 
-  // Full path display
-  {
-    const int pathY = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - pathLineHeight;
-    const int separatorY = pathY - metrics.verticalSpacing / 2;
-    renderer.drawLine(0, separatorY, pageWidth - 1, separatorY, 3, true);
+    LOG_DBG("FileBrowser", "Partial row update: %u -> %u (page %u)",
+            static_cast<unsigned>(renderedSelectorIndex), static_cast<unsigned>(targetSelectorIndex),
+            static_cast<unsigned>(targetSelectorIndex / pageItems));
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  } else {
+    renderer.clearScreen();
 
-    const int pathMaxWidth = pageWidth - metrics.contentSidePadding * 2;
-    const char* pathStr = basepath.c_str();
-    const char* pathDisplay = pathStr;
-    char leftTruncBuf[256];
-    if (renderer.getTextWidth(SMALL_FONT_ID, pathStr) > pathMaxWidth) {
-      const char ellipsis[] = "\xe2\x80\xa6";
-      const int ellipsisWidth = renderer.getTextWidth(SMALL_FONT_ID, ellipsis);
-      const int available = pathMaxWidth - ellipsisWidth;
-      const char* p = pathStr;
-      while (*p) {
-        if (renderer.getTextWidth(SMALL_FONT_ID, p) <= available) break;
-        ++p;
-        while (*p && (static_cast<unsigned char>(*p) & 0xC0) == 0x80) ++p;
-      }
-      std::snprintf(leftTruncBuf, sizeof(leftTruncBuf), "%s%s", ellipsis, p);
-      pathDisplay = leftTruncBuf;
+    std::string folderName = (basepath == "/") ? tr(STR_SD_CARD) : basepath.substr(basepath.rfind('/') + 1);
+    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, folderName.c_str());
+
+    if (files.empty()) {
+      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20, tr(STR_NO_FILES_FOUND));
+    } else {
+      GUI.drawList(
+          renderer, listRect, files.size(), targetSelectorIndex,
+          [this](int index) { return getFileName(files[index]); }, nullptr,
+          [this](int index) { return UITheme::getFileIcon(files[index]); },
+          [this](int index) { return getFileExtension(files[index]); }, false);
     }
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, pathY, pathDisplay);
+
+    // Full path display
+    {
+      const int pathY = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - pathLineHeight;
+      const int separatorY = pathY - metrics.verticalSpacing / 2;
+      renderer.drawLine(0, separatorY, pageWidth - 1, separatorY, 3, true);
+
+      const int pathMaxWidth = pageWidth - metrics.contentSidePadding * 2;
+      const char* pathStr = basepath.c_str();
+      const char* pathDisplay = pathStr;
+      char leftTruncBuf[256];
+      if (renderer.getTextWidth(UI_10_FONT_ID, pathStr) > pathMaxWidth) {
+        const char ellipsis[] = "\xe2\x80\xa6";
+        const int ellipsisWidth = renderer.getTextWidth(UI_10_FONT_ID, ellipsis);
+        const int available = pathMaxWidth - ellipsisWidth;
+        const char* p = pathStr;
+        while (*p) {
+          if (renderer.getTextWidth(UI_10_FONT_ID, p) <= available) break;
+          ++p;
+          while (*p && (static_cast<unsigned char>(*p) & 0xC0) == 0x80) ++p;
+        }
+        std::snprintf(leftTruncBuf, sizeof(leftTruncBuf), "%s%s", ellipsis, p);
+        pathDisplay = leftTruncBuf;
+      }
+      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, pathY, pathDisplay);
+    }
+
+    // Help text
+    const auto labels =
+        mappedInput.mapLabels(basepath == "/" ? tr(STR_HOME) : tr(STR_BACK), files.empty() ? "" : tr(STR_OPEN),
+                              files.empty() ? "" : tr(STR_DIR_UP), files.empty() ? "" : tr(STR_DIR_DOWN));
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+
+    if (crossedPage) {
+      LOG_DBG("FileBrowser", "Page change: %u -> %u, full screen refresh",
+              static_cast<unsigned>(renderedSelectorIndex / pageItems),
+              static_cast<unsigned>(targetSelectorIndex / pageItems));
+      renderer.displayBuffer(HalDisplay::FULL_REFRESH);
+    } else {
+      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    }
   }
 
-  // Help text
-  const auto labels =
-      mappedInput.mapLabels(basepath == "/" ? tr(STR_HOME) : tr(STR_BACK), files.empty() ? "" : tr(STR_OPEN),
-                            files.empty() ? "" : tr(STR_DIR_UP), files.empty() ? "" : tr(STR_DIR_DOWN));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-
-  renderer.displayBuffer();
+  renderedSelectorIndex = targetSelectorIndex;
+  hasRenderedList = true;
+  // If another input arrived while this render was running, preserve the pending
+  // flag so the next render can reconcile from the row that is now on screen.
+  selectionMovePending = selectorIndex != targetSelectorIndex;
 }
 
 size_t FileBrowserActivity::findEntry(const std::string& name) const {

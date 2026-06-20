@@ -43,10 +43,10 @@ namespace {
  *   正常啟動 CrossPoint。
  */
 constexpr bool ENABLE_GC16_BOOT_TEST =
-    true;
+    false;
 
 constexpr bool GC16_TEST_BITMAP =
-    true;
+    false;
 
 constexpr const char*
     GC16_TEST_BITMAP_PATH =
@@ -56,7 +56,7 @@ constexpr const char*
 }  // namespace
 
 constexpr bool GC16_ENABLE_FLOYD_STEINBERG =
-    true;
+    false;
 
 HalDisplay display;
 HalGPIO gpio;
@@ -214,14 +214,15 @@ void waitForPowerRelease() {
 // Enter deep sleep mode
 void enterDeepSleep() {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
-  APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
+  APP_STATE.lastSleepFromReader = activityManager.isReaderContextActive();
+  LOG_DBG("SLP", "Sleep reader context: %d", APP_STATE.lastSleepFromReader ? 1 : 0);
   APP_STATE.saveToFile();
+  FontMgr.flushPersistentCaches();
 
   activityManager.goToSleep();
 
-  // 等待睡眠圖片的最後一次 EPD 更新完全穩定。
-  delay(100);  
-
+  // display.deepSleep() 會等待背景 EPD waveform 完整結束，
+  // 並依正確順序關閉面板電源；不再依賴固定 delay。
   display.deepSleep();
   LOG_DBG("MAIN", "Power button press calibration value: %lu ms", t2 - t1);
   LOG_DBG("MAIN", "Entering deep sleep");
@@ -278,7 +279,26 @@ void setupExternalFonts() {
 
     uiFontFound = true;
 
-    if (fontManager.previewUiFont(i)) {
+    const bool uiFontAlreadyActive =
+        fontManager.getUiSelectedIndex() == i &&
+        fontManager.isUiFontEnabled();
+
+    if (uiFontAlreadyActive) {
+      // loadSettings() has already restored and loaded this exact UI font.
+      // Do not parse the same file again and do not rewrite the settings file
+      // on every boot.
+      LOG_INF(
+          "MAIN",
+          "External UI font already active: %s "
+          "(%dpt, %dx%d)",
+          info->filename,
+          info->size,
+          info->width,
+          info->height
+      );
+    } else if (fontManager.previewUiFont(i)) {
+      // Save only when the configured/default UI font actually changed, or
+      // when the saved font could not be restored and had to be loaded again.
       fontManager.saveSettings();
 
       LOG_INF(
@@ -309,24 +329,25 @@ void setupExternalFonts() {
     );
   }
 
-  // 第一階段尚未加入字型選單。
-  // 若沒有保存的字型，或保存的字型已不存在，
-  // 暫時自動載入掃描清單中的第 1 套字型。
-  if (!fontManager.isExternalFontEnabled()) {
-    LOG_INF(
-        "MAIN",
-        "No active external reader font; loading font index 0"
-    );
+  // Preserve an explicit "Built-in font" selection. Only choose the first
+  // external font on a truly fresh install with no font settings file.
+  if (!fontManager.hasLoadedSettings() && !fontManager.isExternalFontEnabled()) {
+    // Keep first-boot behaviour fast: prefer an existing bitmap/EPDF reader
+    // font. Runtime TTF remains opt-in from Settings.
+    int initialFontIndex = 0;
+    for (int i = 0; i < fontManager.getFontCount(); ++i) {
+      const FontInfo* info = fontManager.getFontInfo(i);
+      if (info != nullptr && info->type != FontFileType::TrueType) {
+        initialFontIndex = i;
+        break;
+      }
+    }
 
-    if (fontManager.previewFont(0)) {
-      // previewFont() 不會自行保存，所以成功後手動保存。
+    LOG_INF("MAIN", "No saved reader font; selecting initial font index %d", initialFontIndex);
+    if (fontManager.previewFont(initialFontIndex)) {
       fontManager.saveSettings();
     } else {
-      LOG_ERR(
-          "MAIN",
-          "Failed to load external font index 0"
-      );
-      return;
+      LOG_ERR("MAIN", "Failed to load initial external font; using built-in font");
     }
   }
 
@@ -348,10 +369,7 @@ void setupExternalFonts() {
         selectedFont->height
     );
   } else {
-    LOG_ERR(
-        "MAIN",
-        "External font selection exists but font is not active"
-    );
+    LOG_INF("MAIN", "Built-in reader font active");
   }
 }
 
@@ -392,15 +410,19 @@ void setup() {
   t1 = millis();
 
   // Always start Serial first — with ARDUINO_USB_CDC_ON_BOOT=1 it's USB CDC.
-  // We must wait for USB enumeration so isUsbConnected() (which uses Serial)
-  // returns the correct value before getWakeupReason() is called.
   Serial.begin(115200);
+
+#if !CROSSPOINT_PAPERS3
+  // Other boards still use USB enumeration state while determining the wake-up
+  // reason. Paper S3 does not need to block here: its PMIC power-button path
+  // proceeds normally even before the USB CDC host finishes enumerating.
   {
-    unsigned long start = millis();
-    while (!Serial && (millis() - start) < 2000) {
+    const unsigned long serialWaitStart = millis();
+    while (!Serial && (millis() - serialWaitStart) < 2000) {
       delay(10);
     }
   }
+#endif
 
   HalSystem::begin();
   gpio.begin();
@@ -562,14 +584,9 @@ void setup() {
   }
   #endif
 
-  #if CROSSPOINT_PAPERS3
-  renderer.setPeriodicFullRefreshInterval(
-      SETTINGS.getRefreshFrequency()
-  );
-  #endif
-
-  activityManager.goToBoot();
-
+  // Skip the Boot activity. Loading these small state files before selecting
+  // the initial activity avoids a redundant boot-logo EPD refresh and lets the
+  // first visible screen be Home, Crash Report, or the previously open reader.
   APP_STATE.loadFromFile();
   RECENT_BOOKS.loadFromFile();
 
@@ -605,9 +622,6 @@ void loop() {
   gpio.update();
 
   renderer.setFadingFix(SETTINGS.fadingFix);
-#if CROSSPOINT_PAPERS3
-  renderer.setPeriodicFullRefreshInterval(SETTINGS.getRefreshFrequency());
-#endif
 
   if (Serial && millis() - lastMemPrint >= 10000) {
     LOG_INF("MEM", "Free: %d bytes, Total: %d bytes, Min Free: %d bytes, MaxAlloc: %d bytes", ESP.getFreeHeap(),
@@ -651,6 +665,18 @@ void loop() {
   } else {
     screenshotButtonsReleased = true;
   }
+
+#if CROSSPOINT_PAPERS3
+  // Paper S3 has no readable physical power-button GPIO. The top-left
+  // on-screen power button is therefore mapped to BTN_POWER. On release,
+  // reuse the normal deep-sleep path so the configured sleep picture is
+  // rendered completely before panel and system power are shut down.
+  if (mappedInputManager.wasReleased(MappedInputManager::Button::Power)) {
+    LOG_DBG("SLP", "On-screen power button tapped");
+    enterDeepSleep();
+    return;
+  }
+#endif
 
   // Refresh screen when power button is short-pressed with FORCE_REFRESH setting.
   if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::FORCE_REFRESH &&

@@ -112,7 +112,10 @@ inline PageTurnResult detectPageTurn(
 
 inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntilFullRefresh) {
   if (pagesUntilFullRefresh <= 1) {
-    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    // Refresh frequency is a reader-page setting. Keep the full refresh
+    // local to reader page turns instead of applying a global render counter
+    // that also affects menus and the file browser.
+    renderer.displayBuffer(HalDisplay::FULL_REFRESH);
     pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
   } else {
     renderer.displayBuffer();

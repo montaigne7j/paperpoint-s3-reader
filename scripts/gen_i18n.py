@@ -428,9 +428,10 @@ def generate_keys_header(
         abbrev = get_lang_abbreviation(code, name)
         lines.append(f"    case Language::{code}:")
         lines.append(f"      return i18n_strings::STRINGS_{abbrev};")
-    first_abbrev = get_lang_abbreviation(languages[0], language_names[0])
+    default_index = languages.index("ZH_TW") if "ZH_TW" in languages else 0
+    default_abbrev = get_lang_abbreviation(languages[default_index], language_names[default_index])
     lines.append("    default:")
-    lines.append(f"      return i18n_strings::STRINGS_{first_abbrev};")
+    lines.append(f"      return i18n_strings::STRINGS_{default_abbrev};")
     lines.append("  }")
     lines.append("}")
     lines.append("")

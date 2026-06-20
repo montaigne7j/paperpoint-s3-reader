@@ -241,6 +241,22 @@ bool ActivityManager::preventAutoSleep() const { return currentActivity && curre
 
 bool ActivityManager::isReaderActivity() const { return currentActivity && currentActivity->isReaderActivity(); }
 
+bool ActivityManager::isReaderContextActive() const {
+  if (currentActivity && currentActivity->isReaderActivity()) {
+    return true;
+  }
+
+  // Reader menus and other sub-activities are pushed on top of the reader.
+  // Preserve the reader-resume state when sleeping from one of those screens.
+  for (const auto& activity : stackActivities) {
+    if (activity && activity->isReaderActivity()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 bool ActivityManager::skipLoopDelay() const { return currentActivity && currentActivity->skipLoopDelay(); }
 
 void ActivityManager::requestUpdate(bool immediate) {

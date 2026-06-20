@@ -18,28 +18,49 @@
 void SleepActivity::onEnter() {
   Activity::onEnter();
 
-  // Show popup with reader orientation only when going to sleep from reader
-  if (APP_STATE.lastSleepFromReader) {
-    ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
-    GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
-    renderer.setOrientation(GfxRenderer::Orientation::Portrait);
-  } else {
-    GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
-  }
+  /*
+   * 睡眠圖片固定使用直式座標。
+   *
+   * 不先顯示 Going to sleep，避免：
+   * 1. 使用者等待提示畫面；
+   * 2. 電子紙多做一次不必要的畫面切換；
+   * 3. 提示框殘留在最終睡眠圖片中。
+   */
+  const bool rotate180 = SETTINGS.sleepScreenRotate180 != 0;
+
+  renderer.setOrientation(
+      rotate180
+          ? GfxRenderer::Orientation::PortraitInverted
+          : GfxRenderer::Orientation::Portrait
+  );
+
+  LOG_DBG(
+      "SLP",
+      "Sleep screen rotation: %s",
+      rotate180 ? "180" : "0"
+  );
 
   switch (SETTINGS.sleepScreen) {
-    case (CrossPointSettings::SLEEP_SCREEN_MODE::BLANK):
+    case CrossPointSettings::
+        SLEEP_SCREEN_MODE::BLANK:
       return renderBlankSleepScreen();
-    case (CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM):
+
+    case CrossPointSettings::
+        SLEEP_SCREEN_MODE::CUSTOM:
       return renderCustomSleepScreen();
-    case (CrossPointSettings::SLEEP_SCREEN_MODE::COVER):
+
+    case CrossPointSettings::
+        SLEEP_SCREEN_MODE::COVER:
       return renderCoverSleepScreen();
-    case (CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM):
+
+    case CrossPointSettings::
+        SLEEP_SCREEN_MODE::COVER_CUSTOM:
       if (APP_STATE.lastSleepFromReader) {
         return renderCoverSleepScreen();
-      } else {
-        return renderCustomSleepScreen();
       }
+
+      return renderCustomSleepScreen();
+
     default:
       return renderDefaultSleepScreen();
   }
@@ -141,11 +162,112 @@ void SleepActivity::renderDefaultSleepScreen() const {
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
 
-void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
-  int x, y;
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
-  float cropX = 0, cropY = 0;
+void SleepActivity::renderBitmapSleepScreen(
+    const Bitmap& bitmap
+) const {
+  const auto pageWidth =
+      renderer.getScreenWidth();
+
+  const auto pageHeight =
+      renderer.getScreenHeight();
+
+#if CROSSPOINT_PAPERS3
+  /*
+   * GC16 第一版只處理：
+   *
+   *   540 × 960
+   *   24-bit / 32-bit
+   *   No filter
+   *
+   * 其他尺寸、1-bit、2-bit、反相黑白，
+   * 自動退回原本 renderer 路徑。
+   */
+  const uint16_t bitmapBpp =
+      bitmap.getBpp();
+
+  const bool gc16Eligible =
+      SETTINGS.sleepScreenCoverFilter ==
+          CrossPointSettings::
+              SLEEP_SCREEN_COVER_FILTER::
+                  NO_FILTER &&
+      bitmap.getWidth() ==
+          pageWidth &&
+      bitmap.getHeight() ==
+          pageHeight &&
+      (
+          bitmapBpp == 24 ||
+          bitmapBpp == 32
+      );
+
+  if (gc16Eligible) {
+    LOG_INF(
+        "SLP",
+        "Rendering GC16 sleep bitmap: "
+        "%dx%d, %u bpp",
+        bitmap.getWidth(),
+        bitmap.getHeight(),
+        static_cast<unsigned>(
+            bitmapBpp
+        )
+    );
+
+    const bool gc16Success =
+        renderer.displayGc16Bitmap(
+            bitmap,
+            true,
+            HalDisplay::
+                Gc16DitherMode::
+                    FloydSteinberg,
+            SETTINGS.sleepScreenRotate180 != 0
+        );
+
+    if (gc16Success) {
+      LOG_INF(
+          "SLP",
+          "GC16 sleep bitmap completed"
+      );
+
+      /*
+       * 到此不可再執行任何一般
+       * renderer.displayBuffer()。
+       *
+       * main.cpp 接下來會呼叫
+       * display.deepSleep()。
+       */
+      return;
+    }
+
+    LOG_ERR(
+        "SLP",
+        "GC16 sleep bitmap failed; "
+        "falling back to standard renderer"
+    );
+
+    /*
+     * GC16 嘗試期間 Bitmap 的檔案位置
+     * 可能已經移到 pixel data 結尾。
+     *
+     * 退回普通 renderer 前必須 rewind。
+     */
+    if (bitmap.rewindToData() !=
+        BmpReaderError::Ok) {
+      LOG_ERR(
+          "SLP",
+          "Failed to rewind bitmap "
+          "after GC16 failure"
+      );
+
+      renderDefaultSleepScreen();
+      return;
+    }
+  }
+#endif
+
+  int x = 0;
+  int y = 0;
+
+  float cropX = 0;
+  float cropY = 0;
 
   LOG_DBG("SLP", "bitmap %d x %d, screen %d x %d", bitmap.getWidth(), bitmap.getHeight(), pageWidth, pageHeight);
   if (bitmap.getWidth() > pageWidth || bitmap.getHeight() > pageHeight) {
@@ -181,36 +303,136 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
     y = (pageHeight - bitmap.getHeight()) / 2;
   }
 
-  LOG_DBG("SLP", "drawing to %d x %d", x, y);
-  renderer.clearScreen();
+  LOG_DBG(
+    "SLP",
+    "drawing to %d x %d",
+    x,
+    y
+);
 
-  const bool hasGreyscale = bitmap.hasGreyscale() &&
-                            SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER;
+const uint32_t renderStart = millis();
 
-  renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
+/*
+ * 除非使用者選擇黑白或反相黑白 filter，
+ * 否則 Custom／Cover BMP 一律使用原生 4 階灰階。
+ *
+ * 不再依賴 bitmap.hasGreyscale() 或 is1Bit()，
+ * 因為 24-bit 灰階 BMP 可能沒有被這些函式
+ * 判定成「灰階格式」。
+ */
+const bool useDirectGrayscale =
+    SETTINGS.sleepScreenCoverFilter ==
+    CrossPointSettings::
+        SLEEP_SCREEN_COVER_FILTER::
+            NO_FILTER;
 
-  if (SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
-    renderer.invertScreen();
-  }
+LOG_DBG(
+    "SLP",
+    "Sleep render mode: filter=%u directGray=%d",
+    static_cast<unsigned>(
+        SETTINGS.sleepScreenCoverFilter
+    ),
+    useDirectGrayscale ? 1 : 0
+);
 
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+/*
+ * 睡眠畫面清洗開關。
+ *
+ * true：
+ *   先實際顯示全白，再顯示睡眠圖片。
+ *   比較慢，但殘影較少。
+ *
+ * false：
+ *   只刷新一次睡眠圖片。
+ */
+constexpr bool CLEAN_SLEEP_REFRESH = true;
 
-  if (hasGreyscale) {
-    bitmap.rewindToData();
-    renderer.clearScreen(0x00);
-    renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
-    renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
-    renderer.copyGrayscaleLsbBuffers();
+if (CLEAN_SLEEP_REFRESH) {
+  renderer.setRenderMode(
+      GfxRenderer::BW
+  );
 
-    bitmap.rewindToData();
-    renderer.clearScreen(0x00);
-    renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
-    renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
-    renderer.copyGrayscaleMsbBuffers();
+  // 先建立純白 framebuffer。
+  renderer.clearScreen(0xFF);
 
-    renderer.displayGrayBuffer();
-    renderer.setRenderMode(GfxRenderer::BW);
-  }
+  // 實際讓面板顯示純白，洗掉上一畫面。
+  renderer.displayBuffer(
+      HalDisplay::FULL_REFRESH
+  );
+
+  // 讓白色清洗波形穩定一下。
+  delay(150);
+}
+
+/*
+ * 建立最終睡眠圖片 framebuffer。
+ */
+renderer.clearScreen(0xFF);
+
+/*
+ * 每次 drawBitmap 前都必須把檔案位置
+ * 重設到 BMP pixel data 開始處。
+ */
+bitmap.rewindToData();
+
+if (useDirectGrayscale) {
+  renderer.setRenderMode(
+      GfxRenderer::GRAYSCALE_DIRECT
+  );
+} else {
+  renderer.setRenderMode(
+      GfxRenderer::BW
+  );
+}
+
+renderer.drawBitmap(
+    bitmap,
+    x,
+    y,
+    pageWidth,
+    pageHeight,
+    cropX,
+    cropY
+);
+
+/*
+ * 只有非灰階路徑才執行黑白反相。
+ */
+if (!useDirectGrayscale &&
+    SETTINGS.sleepScreenCoverFilter ==
+        CrossPointSettings::
+            SLEEP_SCREEN_COVER_FILTER::
+                INVERTED_BLACK_AND_WHITE) {
+  renderer.invertScreen();
+}
+
+/*
+ * 最終睡眠圖片使用完整、高品質刷新。
+ */
+renderer.displayBuffer(
+    HalDisplay::FULL_REFRESH
+);
+
+renderer.setRenderMode(
+    GfxRenderer::BW
+);
+
+LOG_DBG(
+    "SLP",
+    "Sleep screen completed in %lu ms "
+    "(directGray=%d clean=%d)",
+    millis() - renderStart,
+    useDirectGrayscale ? 1 : 0,
+    CLEAN_SLEEP_REFRESH ? 1 : 0
+);
+
+/*
+ * 到此直接結束。
+ * 函式後面不能再有第二組 drawBitmap、
+ * GRAYSCALE_LSB、GRAYSCALE_MSB 或 displayGrayBuffer。
+ */
+return;
+
 }
 
 void SleepActivity::renderCoverSleepScreen() const {
@@ -294,5 +516,4 @@ void SleepActivity::renderCoverSleepScreen() const {
 
 void SleepActivity::renderBlankSleepScreen() const {
   renderer.clearScreen();
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }

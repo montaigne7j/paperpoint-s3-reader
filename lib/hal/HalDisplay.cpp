@@ -189,15 +189,18 @@ void HalDisplay::begin() {
   epdConfig.i2c.sda = -1;
 
   epd = new EPD_Painter(epdConfig);
-  bool ok = epd->begin();
 
-  // Full white paint on boot to physically clear the sleep cover and sync
-  // EPD_Painter's internal state with the panel. clear() resets the internal
-  // buffer, then paint() drives the e-ink particles to white.
-  if (ok && frameBuffer) {
-    epd->clear();
-    epd->setQuality(EPD_Painter::Quality::QUALITY_HIGH);
-    epd->paint(frameBuffer);  // frameBuffer is all-zero (white) from memset above
+  const bool ok =
+      epd->begin();
+
+  if (ok &&
+      frameBuffer != nullptr) {
+    if (!force2bppWhiteResync()) {
+      LOG_ERR(
+          "DISP",
+          "Initial 2bpp resync failed"
+      );
+    }
   }
 
   if (Serial)
@@ -348,7 +351,8 @@ bool HalDisplay::showGc16TestBars(
 bool HalDisplay::showGc16Bitmap(
     const Bitmap& bitmap,
     const bool clearFirst,
-    const Gc16DitherMode ditherMode
+    const Gc16DitherMode ditherMode,
+    const bool rotate180
 ) {
   if (epd == nullptr) {
     LOG_ERR(
@@ -608,7 +612,7 @@ bool HalDisplay::showGc16Bitmap(
   LOG_INF(
       "GC16",
       "Converting BMP: %dx%d, %u bpp, "
-      "rowBytes=%u, topDown=%d, dither=%s",
+      "rowBytes=%u, topDown=%d, dither=%s, rotate180=%d",
       bitmap.getWidth(),
       bitmap.getHeight(),
       static_cast<unsigned>(bpp),
@@ -619,7 +623,8 @@ bool HalDisplay::showGc16Bitmap(
       ditherMode ==
               Gc16DitherMode::FloydSteinberg
           ? "FloydSteinberg"
-          : "None"
+          : "None",
+      rotate180 ? 1 : 0
   );
 
   const uint32_t convertStart =
@@ -864,12 +869,14 @@ bool HalDisplay::showGc16Bitmap(
        * 960 × 540
        */
       const int panelX =
-          sourceY;
+          rotate180
+              ? PANEL_WIDTH - 1 - sourceY
+              : sourceY;
 
       const int panelY =
-          PANEL_HEIGHT -
-          1 -
-          sourceX;
+          rotate180
+              ? sourceX
+              : PANEL_HEIGHT - 1 - sourceX;
 
       setGc16PackedPixel(
           gc16Buffer,
@@ -1002,4 +1009,62 @@ void HalDisplay::displayGrayBuffer(bool turnOffScreen) {
   epd->setQuality(EPD_Painter::Quality::QUALITY_NORMAL);
   epd->paint(frameBuffer);
   freeGrayscaleBuffers();
+}
+
+bool HalDisplay::force2bppWhiteResync() {
+  if (epd == nullptr ||
+      frameBuffer == nullptr) {
+    LOG_ERR(
+        "DISP",
+        "Cannot resync 2bpp state: "
+        "display not initialized"
+    );
+
+    return false;
+  }
+
+  LOG_INF(
+      "DISP",
+      "Starting full white 2bpp resync"
+  );
+
+  /*
+   * 0 是 EPD_Painter 的白色值。
+   */
+  std::memset(
+      frameBuffer,
+      0,
+      BUFFER_SIZE
+  );
+
+  /*
+   * 舊 LSB／MSB 暫存若存在，也不再有效。
+   */
+  freeGrayscaleBuffers();
+
+  /*
+   * clear():
+   *   強制執行面板清洗 waveform。
+   *
+   * paint(white):
+   *   讓 packed_screenbuffer 與實體面板
+   *   都正式記錄成白色。
+   */
+  epd->clear();
+
+  epd->setQuality(
+      EPD_Painter::Quality::
+          QUALITY_HIGH
+  );
+
+  epd->paint(
+      frameBuffer
+  );
+
+  LOG_INF(
+      "DISP",
+      "Full white 2bpp resync completed"
+  );
+
+  return true;
 }

@@ -10,26 +10,27 @@ std::string normalisePath(const std::string& path) {
   std::vector<std::string> components;
   std::string component;
 
+  auto commitComponent = [&]() {
+    if (component.empty() || component == ".") {
+      component.clear();
+      return;
+    }
+    if (component == "..") {
+      if (!components.empty()) components.pop_back();
+    } else {
+      components.push_back(component);
+    }
+    component.clear();
+  };
+
   for (const auto c : path) {
     if (c == '/') {
-      if (!component.empty()) {
-        if (component == "..") {
-          if (!components.empty()) {
-            components.pop_back();
-          }
-        } else {
-          components.push_back(component);
-        }
-        component.clear();
-      }
+      commitComponent();
     } else {
       component += c;
     }
   }
-
-  if (!component.empty()) {
-    components.push_back(component);
-  }
+  commitComponent();
 
   std::string result;
   for (const auto& c : components) {

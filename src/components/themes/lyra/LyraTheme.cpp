@@ -38,6 +38,10 @@ constexpr int maxSubtitleWidth = 100;
 constexpr int maxListValueWidth = 200;
 constexpr int mainMenuIconSize = 32;
 constexpr int listIconSize = 24;
+// Lyra list subtitles can contain EPUB metadata such as Chinese author names.
+// SMALL_FONT_ID only uses the built-in Latin-oriented font, while UI_10_FONT_ID
+// can route CJK glyphs through the configured external UI font.
+constexpr int listSubtitleFontId = UI_10_FONT_ID;
 constexpr int mainMenuColumns = 2;
 int coverWidth = 0;
 
@@ -80,6 +84,125 @@ const uint8_t* iconForName(UIIcon icon, int size) {
     }
   }
   return nullptr;
+}
+
+int lyraListRowHeight(const std::function<std::string(int index)>& rowSubtitle) {
+  return rowSubtitle != nullptr ? LyraMetrics::values.listWithSubtitleRowHeight
+                                : LyraMetrics::values.listRowHeight;
+}
+
+int lyraListContentWidth(const Rect rect, const int totalPages) {
+  return rect.width -
+         (totalPages > 1 ? (LyraMetrics::values.scrollBarWidth + LyraMetrics::values.scrollBarRightOffset) : 1);
+}
+
+void drawLyraListScrollBar(const GfxRenderer& renderer, const Rect rect, const int itemCount, const int selectedIndex,
+                           const int pageItems) {
+  if (pageItems <= 0) return;
+
+  const int totalPages = (itemCount + pageItems - 1) / pageItems;
+  if (totalPages <= 1) return;
+
+  const int scrollAreaHeight = rect.height;
+  const int scrollBarHeight = (scrollAreaHeight * pageItems) / itemCount;
+  const int currentPage = selectedIndex / pageItems;
+  const int scrollBarY = rect.y + ((scrollAreaHeight - scrollBarHeight) * currentPage) / (totalPages - 1);
+  const int scrollBarX = rect.x + rect.width - LyraMetrics::values.scrollBarRightOffset;
+  renderer.drawLine(scrollBarX, rect.y, scrollBarX, rect.y + scrollAreaHeight, true);
+  renderer.fillRect(scrollBarX - LyraMetrics::values.scrollBarWidth, scrollBarY,
+                    LyraMetrics::values.scrollBarWidth, scrollBarHeight, true);
+}
+
+void clearLyraListRow(const GfxRenderer& renderer, const Rect rect, const int rowHeight, const int pageItems,
+                      const int totalPages, const int index) {
+  if (pageItems <= 0 || index < 0) return;
+
+  const int itemY = rect.y + (index % pageItems) * rowHeight;
+  const int contentWidth = lyraListContentWidth(rect, totalPages);
+  renderer.fillRect(rect.x, itemY, contentWidth, rowHeight, false);
+}
+
+void drawLyraListRow(const GfxRenderer& renderer, const Rect rect, const int itemCount, const int pageItems,
+                     const int index, const int selectedIndex,
+                     const std::function<std::string(int index)>& rowTitle,
+                     const std::function<std::string(int index)>& rowSubtitle,
+                     const std::function<UIIcon(int index)>& rowIcon,
+                     const std::function<std::string(int index)>& rowValue, const bool highlightValue) {
+  if (pageItems <= 0 || itemCount <= 0 || index < 0 || index >= itemCount) return;
+
+  const int rowHeight = lyraListRowHeight(rowSubtitle);
+  const int totalPages = (itemCount + pageItems - 1) / pageItems;
+  const int contentWidth = lyraListContentWidth(rect, totalPages);
+  const int itemY = rect.y + (index % pageItems) * rowHeight;
+
+  if (index == selectedIndex) {
+    renderer.fillRoundedRect(LyraMetrics::values.contentSidePadding, itemY,
+                             contentWidth - LyraMetrics::values.contentSidePadding * 2, rowHeight, cornerRadius,
+                             Color::LightGray);
+  }
+
+  int textX = rect.x + LyraMetrics::values.contentSidePadding + hPaddingInSelection;
+  int textWidth = contentWidth - LyraMetrics::values.contentSidePadding * 2 - hPaddingInSelection * 2;
+  int iconSize = 0;
+  if (rowIcon != nullptr) {
+    iconSize = rowSubtitle != nullptr ? mainMenuIconSize : listIconSize;
+    textX += iconSize + hPaddingInSelection;
+    textWidth -= iconSize + hPaddingInSelection;
+  }
+
+  const int titleLineH = renderer.getLineHeight(UI_10_FONT_ID);
+  int textYOffset = 0;
+  int subtitleYOffset = 0;
+  if (rowSubtitle != nullptr) {
+    const int subtitleLineH = renderer.getLineHeight(listSubtitleFontId);
+    constexpr int subtitleGap = 4;
+    const int totalTextH = titleLineH + subtitleGap + subtitleLineH;
+    textYOffset = (rowHeight - totalTextH) / 2;
+    subtitleYOffset = textYOffset + titleLineH + subtitleGap;
+  } else {
+    textYOffset = (rowHeight - titleLineH) / 2;
+  }
+
+  int rowTextWidth = textWidth;
+  int valueWidth = 0;
+  std::string valueText;
+  if (rowValue != nullptr) {
+    valueText = rowValue(index);
+    valueText = renderer.truncatedText(UI_10_FONT_ID, valueText.c_str(), maxListValueWidth);
+    valueWidth = renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str()) + hPaddingInSelection;
+    rowTextWidth -= valueWidth;
+  }
+
+  auto itemName = rowTitle(index);
+  auto item = renderer.truncatedText(UI_10_FONT_ID, itemName.c_str(), rowTextWidth);
+  renderer.drawText(UI_10_FONT_ID, textX, itemY + textYOffset, item.c_str(), true);
+
+  if (rowIcon != nullptr) {
+    UIIcon icon = rowIcon(index);
+    const uint8_t* iconBitmap = iconForName(icon, iconSize);
+    if (iconBitmap != nullptr) {
+      const int iconYOff = (rowHeight - iconSize) / 2;
+      renderer.drawIcon(iconBitmap, rect.x + LyraMetrics::values.contentSidePadding + hPaddingInSelection,
+                        itemY + iconYOff, iconSize, iconSize);
+    }
+  }
+
+  if (rowSubtitle != nullptr) {
+    std::string subtitleText = rowSubtitle(index);
+    auto subtitle = renderer.truncatedText(listSubtitleFontId, subtitleText.c_str(), rowTextWidth);
+    renderer.drawText(listSubtitleFontId, textX, itemY + subtitleYOffset, subtitle.c_str(), true);
+  }
+
+  if (!valueText.empty()) {
+    if (index == selectedIndex && highlightValue) {
+      renderer.fillRoundedRect(
+          contentWidth - LyraMetrics::values.contentSidePadding - hPaddingInSelection - valueWidth, itemY,
+          valueWidth + hPaddingInSelection, rowHeight, cornerRadius, Color::Black);
+    }
+
+    renderer.drawText(UI_10_FONT_ID, rect.x + contentWidth - LyraMetrics::values.contentSidePadding - valueWidth,
+                      itemY + textYOffset, valueText.c_str(), !(index == selectedIndex && highlightValue));
+  }
 }
 }  // namespace
 
@@ -145,6 +268,7 @@ void LyraTheme::drawBatteryRight(const GfxRenderer& renderer, Rect rect, const b
 
 void LyraTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle) const {
   renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
+  drawPowerButton(renderer, rect);
 
   const bool showBatteryPercentage =
       SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS;
@@ -231,105 +355,46 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
                          const std::function<std::string(int index)>& rowSubtitle,
                          const std::function<UIIcon(int index)>& rowIcon,
                          const std::function<std::string(int index)>& rowValue, bool highlightValue) const {
-  int rowHeight =
-      (rowSubtitle != nullptr) ? LyraMetrics::values.listWithSubtitleRowHeight : LyraMetrics::values.listRowHeight;
-  int pageItems = rect.height / rowHeight;
+  const int rowHeight = lyraListRowHeight(rowSubtitle);
+  const int pageItems = rowHeight > 0 ? rect.height / rowHeight : 0;
+  if (pageItems <= 0) return;
+
+  drawLyraListScrollBar(renderer, rect, itemCount, selectedIndex, pageItems);
+
+  const int pageStartIndex = selectedIndex / pageItems * pageItems;
+  for (int i = pageStartIndex; i < itemCount && i < pageStartIndex + pageItems; ++i) {
+    drawLyraListRow(renderer, rect, itemCount, pageItems, i, selectedIndex, rowTitle, rowSubtitle, rowIcon, rowValue,
+                    highlightValue);
+  }
+}
+
+void LyraTheme::redrawListSelection(const GfxRenderer& renderer, Rect rect, int itemCount, int oldSelectedIndex,
+                                    int newSelectedIndex,
+                                    const std::function<std::string(int index)>& rowTitle,
+                                    const std::function<std::string(int index)>& rowSubtitle,
+                                    const std::function<UIIcon(int index)>& rowIcon,
+                                    const std::function<std::string(int index)>& rowValue,
+                                    bool highlightValue) const {
+  const int rowHeight = lyraListRowHeight(rowSubtitle);
+  const int pageItems = rowHeight > 0 ? rect.height / rowHeight : 0;
+  if (pageItems <= 0 || itemCount <= 0 || oldSelectedIndex < 0 || newSelectedIndex < 0 ||
+      oldSelectedIndex >= itemCount || newSelectedIndex >= itemCount) {
+    return;
+  }
+
+  if (oldSelectedIndex / pageItems != newSelectedIndex / pageItems) return;
 
   const int totalPages = (itemCount + pageItems - 1) / pageItems;
-  if (totalPages > 1) {
-    const int scrollAreaHeight = rect.height;
-
-    // Draw scroll bar
-    const int scrollBarHeight = (scrollAreaHeight * pageItems) / itemCount;
-    const int currentPage = selectedIndex / pageItems;
-    const int scrollBarY = rect.y + ((scrollAreaHeight - scrollBarHeight) * currentPage) / (totalPages - 1);
-    const int scrollBarX = rect.x + rect.width - LyraMetrics::values.scrollBarRightOffset;
-    renderer.drawLine(scrollBarX, rect.y, scrollBarX, rect.y + scrollAreaHeight, true);
-    renderer.fillRect(scrollBarX - LyraMetrics::values.scrollBarWidth, scrollBarY, LyraMetrics::values.scrollBarWidth,
-                      scrollBarHeight, true);
+  clearLyraListRow(renderer, rect, rowHeight, pageItems, totalPages, oldSelectedIndex);
+  if (newSelectedIndex != oldSelectedIndex) {
+    clearLyraListRow(renderer, rect, rowHeight, pageItems, totalPages, newSelectedIndex);
   }
 
-  // Draw selection
-  int contentWidth =
-      rect.width -
-      (totalPages > 1 ? (LyraMetrics::values.scrollBarWidth + LyraMetrics::values.scrollBarRightOffset) : 1);
-  if (selectedIndex >= 0) {
-    renderer.fillRoundedRect(LyraMetrics::values.contentSidePadding, rect.y + selectedIndex % pageItems * rowHeight,
-                             contentWidth - LyraMetrics::values.contentSidePadding * 2, rowHeight, cornerRadius,
-                             Color::LightGray);
-  }
-
-  int textX = rect.x + LyraMetrics::values.contentSidePadding + hPaddingInSelection;
-  int textWidth = contentWidth - LyraMetrics::values.contentSidePadding * 2 - hPaddingInSelection * 2;
-  int iconSize;
-  if (rowIcon != nullptr) {
-    iconSize = (rowSubtitle != nullptr) ? mainMenuIconSize : listIconSize;
-    textX += iconSize + hPaddingInSelection;
-    textWidth -= iconSize + hPaddingInSelection;
-  }
-
-  // Compute vertical centering offsets
-  const int titleLineH = renderer.getLineHeight(UI_10_FONT_ID);
-  int textYOffset;  // Y offset from itemY to vertically center text in row
-  int subtitleYOffset = 0;
-  if (rowSubtitle != nullptr) {
-    const int subtitleLineH = renderer.getLineHeight(SMALL_FONT_ID);
-    constexpr int subtitleGap = 4;
-    const int totalTextH = titleLineH + subtitleGap + subtitleLineH;
-    textYOffset = (rowHeight - totalTextH) / 2;
-    subtitleYOffset = textYOffset + titleLineH + subtitleGap;
-  } else {
-    textYOffset = (rowHeight - titleLineH) / 2;
-  }
-
-  // Draw all items
-  const auto pageStartIndex = selectedIndex / pageItems * pageItems;
-  for (int i = pageStartIndex; i < itemCount && i < pageStartIndex + pageItems; i++) {
-    const int itemY = rect.y + (i % pageItems) * rowHeight;
-    int rowTextWidth = textWidth;
-
-    // Draw name
-    int valueWidth = 0;
-    std::string valueText = "";
-    if (rowValue != nullptr) {
-      valueText = rowValue(i);
-      valueText = renderer.truncatedText(UI_10_FONT_ID, valueText.c_str(), maxListValueWidth);
-      valueWidth = renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str()) + hPaddingInSelection;
-      rowTextWidth -= valueWidth;
-    }
-
-    auto itemName = rowTitle(i);
-    auto item = renderer.truncatedText(UI_10_FONT_ID, itemName.c_str(), rowTextWidth);
-    renderer.drawText(UI_10_FONT_ID, textX, itemY + textYOffset, item.c_str(), true);
-
-    if (rowIcon != nullptr) {
-      UIIcon icon = rowIcon(i);
-      const uint8_t* iconBitmap = iconForName(icon, iconSize);
-      if (iconBitmap != nullptr) {
-        const int iconYOff = (rowHeight - iconSize) / 2;
-        renderer.drawIcon(iconBitmap, rect.x + LyraMetrics::values.contentSidePadding + hPaddingInSelection,
-                          itemY + iconYOff, iconSize, iconSize);
-      }
-    }
-
-    if (rowSubtitle != nullptr) {
-      // Draw subtitle
-      std::string subtitleText = rowSubtitle(i);
-      auto subtitle = renderer.truncatedText(SMALL_FONT_ID, subtitleText.c_str(), rowTextWidth);
-      renderer.drawText(SMALL_FONT_ID, textX, itemY + subtitleYOffset, subtitle.c_str(), true);
-    }
-
-    // Draw value
-    if (!valueText.empty()) {
-      if (i == selectedIndex && highlightValue) {
-        renderer.fillRoundedRect(
-            contentWidth - LyraMetrics::values.contentSidePadding - hPaddingInSelection - valueWidth, itemY,
-            valueWidth + hPaddingInSelection, rowHeight, cornerRadius, Color::Black);
-      }
-
-      renderer.drawText(UI_10_FONT_ID, rect.x + contentWidth - LyraMetrics::values.contentSidePadding - valueWidth,
-                        itemY + textYOffset, valueText.c_str(), !(i == selectedIndex && highlightValue));
-    }
+  drawLyraListRow(renderer, rect, itemCount, pageItems, oldSelectedIndex, newSelectedIndex, rowTitle, rowSubtitle,
+                  rowIcon, rowValue, highlightValue);
+  if (newSelectedIndex != oldSelectedIndex) {
+    drawLyraListRow(renderer, rect, itemCount, pageItems, newSelectedIndex, newSelectedIndex, rowTitle, rowSubtitle,
+                    rowIcon, rowValue, highlightValue);
   }
 }
 

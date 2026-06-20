@@ -3,6 +3,9 @@
 #include <FsHelpers.h>
 #include <Logging.h>
 #include <Serialization.h>
+#include <cstring>
+#include <new>
+#include <esp_heap_caps.h>
 #include <XmlParserUtils.h>
 
 #include "../BookMetadataCache.h"
@@ -28,6 +31,8 @@ bool ContentOpfParser::setup() {
 
 ContentOpfParser::~ContentOpfParser() {
   destroyXmlParser(parser);
+  flushItemWriteBuffer();
+  releaseItemStoreBuffer();
   if (tempItemStore) {
     tempItemStore.close();
   }
@@ -35,6 +40,99 @@ ContentOpfParser::~ContentOpfParser() {
   if (Storage.exists(itemCachePath.c_str())) {
     Storage.remove(itemCachePath.c_str());
   }
+}
+
+bool ContentOpfParser::flushItemWriteBuffer() {
+  if (itemWriteUsed == 0) return !itemWriteFailed;
+  if (!itemWriteBuffer) return false;
+  const size_t written = tempItemStore.write(itemWriteBuffer.get(), itemWriteUsed);
+  if (written != itemWriteUsed) {
+    itemWriteFailed = true;
+    return false;
+  }
+  itemWriteUsed = 0;
+  return true;
+}
+
+bool ContentOpfParser::appendItemBytes(const void* data, size_t length) {
+  const auto* input = static_cast<const uint8_t*>(data);
+  if (!itemWriteBuffer) {
+    const size_t written = tempItemStore.write(input, length);
+    itemStoreLogicalPosition += static_cast<uint32_t>(written);
+    if (written != length) itemWriteFailed = true;
+    return written == length;
+  }
+  while (length > 0) {
+    if (itemWriteUsed == ITEM_WRITE_BUFFER_SIZE && !flushItemWriteBuffer()) return false;
+    const size_t chunk = std::min(ITEM_WRITE_BUFFER_SIZE - itemWriteUsed, length);
+    memcpy(itemWriteBuffer.get() + itemWriteUsed, input, chunk);
+    itemWriteUsed += chunk;
+    itemStoreLogicalPosition += static_cast<uint32_t>(chunk);
+    input += chunk;
+    length -= chunk;
+  }
+  return true;
+}
+
+bool ContentOpfParser::writeItemString(const std::string& value) {
+  const uint32_t length = static_cast<uint32_t>(value.size());
+  return appendItemBytes(&length, sizeof(length)) &&
+         (length == 0 || appendItemBytes(value.data(), length));
+}
+
+void ContentOpfParser::releaseItemStoreBuffer() {
+  if (itemStoreBuffer) {
+    heap_caps_free(itemStoreBuffer);
+    itemStoreBuffer = nullptr;
+    itemStoreBufferSize = 0;
+  }
+}
+
+bool ContentOpfParser::loadItemStoreBuffer() {
+  releaseItemStoreBuffer();
+  const size_t fileSize = tempItemStore.size();
+  if (fileSize == 0 || fileSize > MAX_BUFFERED_ITEM_STORE) return false;
+
+  const size_t freePsram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+  if (freePsram < fileSize + 256 * 1024) return false;
+
+  itemStoreBuffer = static_cast<uint8_t*>(
+      heap_caps_malloc(fileSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!itemStoreBuffer) return false;
+
+  tempItemStore.seek(0);
+  const int bytesRead = tempItemStore.read(itemStoreBuffer, fileSize);
+  tempItemStore.seek(0);
+  if (bytesRead != static_cast<int>(fileSize)) {
+    releaseItemStoreBuffer();
+    return false;
+  }
+
+  itemStoreBufferSize = fileSize;
+  LOG_DBG("COF", "Buffered manifest lookup table in PSRAM: %zu bytes", fileSize);
+  return true;
+}
+
+bool ContentOpfParser::lookupBufferedItem(const uint32_t offset, const std::string& expectedId,
+                                          std::string& href) const {
+  if (!itemStoreBuffer || offset + sizeof(uint32_t) > itemStoreBufferSize) return false;
+
+  size_t pos = offset;
+  uint32_t idLength = 0;
+  memcpy(&idLength, itemStoreBuffer + pos, sizeof(idLength));
+  pos += sizeof(idLength);
+  if (pos + idLength + sizeof(uint32_t) > itemStoreBufferSize) return false;
+  if (idLength != expectedId.size() || memcmp(itemStoreBuffer + pos, expectedId.data(), idLength) != 0) {
+    return false;
+  }
+  pos += idLength;
+
+  uint32_t hrefLength = 0;
+  memcpy(&hrefLength, itemStoreBuffer + pos, sizeof(hrefLength));
+  pos += sizeof(hrefLength);
+  if (pos + hrefLength > itemStoreBufferSize) return false;
+  href.assign(reinterpret_cast<const char*>(itemStoreBuffer + pos), hrefLength);
+  return true;
 }
 
 size_t ContentOpfParser::write(const uint8_t data) { return write(&data, 1); }
@@ -106,6 +204,12 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
 
   if (self->state == IN_PACKAGE && (strcmp(name, "manifest") == 0 || strcmp(name, "opf:manifest") == 0)) {
     self->state = IN_MANIFEST;
+    self->itemWriteUsed = 0;
+    self->itemStoreLogicalPosition = 0;
+    self->itemWriteFailed = false;
+    if (!self->itemWriteBuffer) {
+      self->itemWriteBuffer.reset(new (std::nothrow) uint8_t[ITEM_WRITE_BUFFER_SIZE]);
+    }
     if (!Storage.openFileForWrite("COF", self->cachePath + itemCacheFile, self->tempItemStore)) {
       LOG_ERR("COF", "Couldn't open temp items file for writing. This is probably going to be a fatal error.");
     }
@@ -118,13 +222,15 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
       LOG_ERR("COF", "Couldn't open temp items file for reading. This is probably going to be a fatal error.");
     }
 
-    // Sort item index for binary search if we have enough items
+    // Sort item index for binary search if we have enough items.
     if (self->itemIndex.size() >= LARGE_SPINE_THRESHOLD) {
       std::sort(self->itemIndex.begin(), self->itemIndex.end(), [](const ItemIndexEntry& a, const ItemIndexEntry& b) {
         return a.idHash < b.idHash || (a.idHash == b.idHash && a.idLen < b.idLen);
       });
       self->useItemIndex = true;
-      LOG_DBG("COF", "Using fast index for %zu manifest items", self->itemIndex.size());
+      self->loadItemStoreBuffer();
+      LOG_DBG("COF", "Using fast index for %zu manifest items%s", self->itemIndex.size(),
+              self->itemStoreBuffer ? " (PSRAM lookup)" : " (SD lookup)");
     }
     return;
   }
@@ -175,18 +281,20 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
       }
     }
 
-    // Record index entry for fast lookup later
+    // Record the logical offset, including bytes still in the write buffer.
     if (self->tempItemStore) {
       ItemIndexEntry entry;
       entry.idHash = fnvHash(itemId);
       entry.idLen = static_cast<uint16_t>(itemId.size());
-      entry.fileOffset = static_cast<uint32_t>(self->tempItemStore.position());
+      entry.fileOffset = self->itemStoreLogicalPosition;
       self->itemIndex.push_back(entry);
     }
 
-    // Write items down to SD card
-    serialization::writeString(self->tempItemStore, itemId);
-    serialization::writeString(self->tempItemStore, href);
+    // Write manifest items in 4KB blocks instead of issuing four tiny SD
+    // writes for every item.
+    if (!self->writeItemString(itemId) || !self->writeItemString(href)) {
+      self->itemWriteFailed = true;
+    }
 
     if (itemId == self->coverItemId) {
       self->coverItemHref = href;
@@ -245,15 +353,22 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
                                          return a.idHash < b.idHash || (a.idHash == b.idHash && a.idLen < b.idLen);
                                        });
 
-            // Check for match (may need to check a few due to hash collisions)
+            // Check for match (may need to check a few due to hash collisions).
             while (it != self->itemIndex.end() && it->idHash == targetHash) {
-              self->tempItemStore.seek(it->fileOffset);
-              std::string itemId;
-              serialization::readString(self->tempItemStore, itemId);
-              if (itemId == idref) {
-                serialization::readString(self->tempItemStore, href);
-                found = true;
-                break;
+              if (self->itemStoreBuffer) {
+                if (self->lookupBufferedItem(it->fileOffset, idref, href)) {
+                  found = true;
+                  break;
+                }
+              } else {
+                self->tempItemStore.seek(it->fileOffset);
+                std::string itemId;
+                serialization::readString(self->tempItemStore, itemId);
+                if (itemId == idref) {
+                  serialization::readString(self->tempItemStore, href);
+                  found = true;
+                  break;
+                }
               }
               ++it;
             }
@@ -333,6 +448,8 @@ void XMLCALL ContentOpfParser::endElement(void* userData, const XML_Char* name) 
 
   if (self->state == IN_SPINE && (strcmp(name, "spine") == 0 || strcmp(name, "opf:spine") == 0)) {
     self->state = IN_PACKAGE;
+    self->releaseItemStoreBuffer();
+    self->itemIndex.clear();
     self->tempItemStore.close();
     return;
   }
@@ -345,6 +462,9 @@ void XMLCALL ContentOpfParser::endElement(void* userData, const XML_Char* name) 
 
   if (self->state == IN_MANIFEST && (strcmp(name, "manifest") == 0 || strcmp(name, "opf:manifest") == 0)) {
     self->state = IN_PACKAGE;
+    if (!self->flushItemWriteBuffer() || self->itemWriteFailed) {
+      LOG_ERR("COF", "Failed to flush manifest item cache");
+    }
     self->tempItemStore.close();
     return;
   }

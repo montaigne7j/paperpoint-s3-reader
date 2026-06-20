@@ -6,15 +6,19 @@
 
 class HalFile;
 
+/** Font file type found under /fonts. */
+enum class FontFileType : uint8_t { BitmapBin = 0, EpdFont = 1, TrueType = 2 };
+
 /**
  * Font information structure
  */
 struct FontInfo {
-  char filename[64];  // Full filename
-  char name[32];      // Font name
+  char filename[128];  // Full filename
+  char name[48];      // Font name
   uint8_t size;       // Font size (pt)
   uint8_t width;      // Character width
   uint8_t height;     // Character height
+  FontFileType type = FontFileType::BitmapBin;
 };
 
 /**
@@ -52,6 +56,15 @@ class FontManager {
    * @param index Font index, -1 means disable external font (use built-in)
    */
   void selectFont(int index);
+
+  /** Reload an active TTF after Reader Font Size changes. */
+  bool reloadReaderFontForSize();
+
+  /** Remove cached EPUB/XTC section layouts after changing reader fonts. */
+  void invalidateReaderLayoutCaches();
+
+  /** True when a valid font_settings.bin was read during this boot. */
+  bool hasLoadedSettings() const { return _settingsLoaded; }
 
   /**
    * Select UI font (for menus, titles, etc.)
@@ -104,6 +117,9 @@ class FontManager {
    * selected font metadata and open font files.
    */
   void releaseGlyphCaches();
+
+  /** Flush runtime TTF glyph-cache writes before deep sleep or SD shutdown. */
+  void flushPersistentCaches();
 
   void setGlyphCachesSuspended(bool suspended);
   bool areGlyphCachesSuspended() const { return _glyphCachesSuspended; }
@@ -158,10 +174,11 @@ class FontManager {
       _fonts[i].size = 0;
       _fonts[i].width = 0;
       _fonts[i].height = 0;
+      _fonts[i].type = FontFileType::BitmapBin;
     }
   }
 
-  static constexpr int MAX_FONTS = 16;
+  static constexpr int MAX_FONTS = 64;
   static constexpr const char* FONTS_DIR = "/fonts";
   static constexpr const char* SETTINGS_FILE = "/.crosspoint/font_settings.bin";
   static constexpr uint8_t SETTINGS_VERSION = 2;  // Bumped for UI font support
@@ -174,6 +191,7 @@ class FontManager {
   ExternalFont _activeFont;    // Reader font
   ExternalFont _activeUiFont;  // UI font
   bool _glyphCachesSuspended = false;
+  bool _settingsLoaded = false;
 
   bool isUiSharingReaderFont() const { return _selectedUiIndex >= 0 && _selectedUiIndex == _selectedIndex; }
 
@@ -181,6 +199,7 @@ class FontManager {
    * Load selected reader font file
    */
   bool loadSelectedFont();
+  static uint8_t getTtfPixelSize();
 
   /**
    * Load selected UI font file

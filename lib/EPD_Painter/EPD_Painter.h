@@ -95,6 +95,11 @@ class EPD_Painter {
   bool begin();
   bool end();
 
+  // Block until the background paint task is completely idle.
+  // paint() only waits until the framebuffer has been picked up, not until
+  // the complete waveform has finished.
+  void waitUntilIdle();
+
   void clear();
   void fxClear();
   void paint(uint8_t* framebuffer);
@@ -182,25 +187,80 @@ class EPD_Painter {
   // ---- Power management ----
   class PanelPowerGuard {
    public:
-    PanelPowerGuard(EPD_Painter& d) : disp(d) {
+    explicit PanelPowerGuard(EPD_Painter& d) : disp(d) {
       initOnce(d);
+
       xSemaphoreTake(power_mtx, portMAX_DELAY);
-      if (state == 0) d.powerOn();
-      state = 5;
+
+      owner = &d;
+
+      if (!powered) {
+        d.powerOn();
+        powered = true;
+      }
+
+      ++activeUsers;
+
+      // A live guard means a waveform is still using the panel. Never let
+      // the delayed power-off task count down while an operation is active.
+      idleTicks = 0;
+
+      xSemaphoreGive(power_mtx);
+    }
+
+    ~PanelPowerGuard() {
+      if (power_mtx == nullptr) return;
+
+      xSemaphoreTake(power_mtx, portMAX_DELAY);
+
+      if (activeUsers > 0) {
+        --activeUsers;
+      }
+
+      if (activeUsers == 0 && powered) {
+        idleTicks = IDLE_OFF_TICKS;
+      }
+
+      xSemaphoreGive(power_mtx);
+    }
+
+    // Used by EPD_Painter::end() before the board PMIC is switched off.
+    // This gives the panel a deterministic power-down sequence instead of
+    // relying on an arbitrary timer phase or an abrupt board power cut.
+    static void shutdown(EPD_Painter& d) {
+      if (power_mtx == nullptr) {
+        d.powerOff();
+        return;
+      }
+
+      xSemaphoreTake(power_mtx, portMAX_DELAY);
+
+      activeUsers = 0;
+      idleTicks = 0;
+
+      if (powered) {
+        d.powerOff();
+        powered = false;
+      }
+
       xSemaphoreGive(power_mtx);
     }
 
    private:
     EPD_Painter& disp;
 
+    static constexpr uint8_t IDLE_OFF_TICKS = 5;
+
     static inline TaskHandle_t task = nullptr;
     static inline EPD_Painter* owner = nullptr;
     static inline SemaphoreHandle_t power_mtx = nullptr;
-    static inline uint8_t state = 0;
+    static inline uint8_t activeUsers = 0;
+    static inline uint8_t idleTicks = 0;
+    static inline bool powered = false;
 
     static void initOnce(EPD_Painter& d) {
       struct Init {
-        Init(EPD_Painter& d) {
+        explicit Init(EPD_Painter& d) {
           power_mtx = xSemaphoreCreateMutex();
           owner = &d;
           xTaskCreate(taskEntry, "panel_idle_off", 2048, nullptr, 1, &task);
@@ -212,11 +272,18 @@ class EPD_Painter {
     static void taskEntry(void*) {
       for (;;) {
         vTaskDelay(pdMS_TO_TICKS(1000));
+
         xSemaphoreTake(power_mtx, portMAX_DELAY);
-        if (state > 0) {
-          state--;
-          if (state == 0) owner->powerOff();
+
+        if (powered && activeUsers == 0 && idleTicks > 0) {
+          --idleTicks;
+
+          if (idleTicks == 0) {
+            owner->powerOff();
+            powered = false;
+          }
         }
+
         xSemaphoreGive(power_mtx);
       }
     }

@@ -3,6 +3,8 @@
 #include <FontManager.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <TtfFontEngine.h>
+#include <esp_heap_caps.h>
 
 #include <algorithm>
 #include <cstring>
@@ -18,6 +20,34 @@ constexpr size_t EPDFONT_HEADER_SIZE = 32;
 constexpr size_t EPDFONT_INTERVAL_ENTRY_SIZE = 12;
 constexpr size_t EPDFONT_GLYPH_ENTRY_SIZE = 16;
 constexpr uint16_t EPDFONT_VERSION_SUPPORTED = 1;
+
+bool hasExtensionNoCase(const char* path, const char* extension) {
+  if (path == nullptr || extension == nullptr) return false;
+  const size_t pathLen = std::strlen(path);
+  const size_t extLen = std::strlen(extension);
+  if (pathLen < extLen) return false;
+  const char* tail = path + pathLen - extLen;
+  for (size_t i = 0; i < extLen; ++i) {
+    char a = tail[i];
+    char b = extension[i];
+    if (a >= 'A' && a <= 'Z') a = static_cast<char>(a - 'A' + 'a');
+    if (b >= 'A' && b <= 'Z') b = static_cast<char>(b - 'A' + 'a');
+    if (a != b) return false;
+  }
+  return true;
+}
+
+void deriveTtfName(const char* filepath, char* out, size_t outSize) {
+  if (out == nullptr || outSize == 0) return;
+  out[0] = '\0';
+  if (filepath == nullptr) return;
+  const char* base = std::strrchr(filepath, '/');
+  base = base ? base + 1 : filepath;
+  std::strncpy(out, base, outSize - 1);
+  out[outSize - 1] = '\0';
+  char* dot = std::strrchr(out, '.');
+  if (dot != nullptr) *dot = '\0';
+}
 
 int8_t readInt8(const uint8_t* bytes) { return static_cast<int8_t>(bytes[0]); }
 
@@ -145,6 +175,9 @@ void ExternalFont::unload() {
   _bytesPerRow = 0;
   _bytesPerChar = 0;
   _isRichMetricsFormat = false;
+  _isTtfFormat = false;
+  delete _ttfEngine;
+  _ttfEngine = nullptr;
   _fontMetrics = {};
   _intervalCount = 0;
   _glyphCount = 0;
@@ -157,9 +190,9 @@ void ExternalFont::unload() {
 
   delete[] _intervals;
   _intervals = nullptr;
-  delete[] _cache;
+  if (_cache) heap_caps_free(_cache);
   _cache = nullptr;
-  delete[] _hashTable;
+  if (_hashTable) heap_caps_free(_hashTable);
   _hashTable = nullptr;
 }
 
@@ -372,8 +405,39 @@ bool ExternalFont::readEpdGlyphBitmap(uint32_t dataOffset, uint32_t dataLength, 
   return true;
 }
 
-bool ExternalFont::load(const char* filepath) {
+bool ExternalFont::load(const char* filepath, const uint8_t ttfPixelSize) {
   unload();
+
+  if (hasExtensionNoCase(filepath, ".ttf")) {
+    const uint8_t pixelSize = ttfPixelSize > 0 ? ttfPixelSize : 38;
+    _fontSize = pixelSize;
+    _charWidth = pixelSize;
+    _charHeight = static_cast<uint8_t>(pixelSize + 6);
+    _bytesPerRow = (_charWidth + 7) / 8;
+    _bytesPerChar = _bytesPerRow * _charHeight;
+    if (_bytesPerChar > MAX_GLYPH_BYTES) {
+      LOG_ERR("EFT", "TTF cell too large: %u bytes", _bytesPerChar);
+      return false;
+    }
+    deriveTtfName(filepath, _fontName, sizeof(_fontName));
+    _fontMetrics.ascender = _charHeight;
+    _fontMetrics.descender = 0;
+    _fontMetrics.lineHeight = _charHeight;
+    _isRichMetricsFormat = true;
+    _isTtfFormat = true;
+
+    _ttfEngine = new (std::nothrow) TtfFontEngine();
+    if (_ttfEngine == nullptr || !_ttfEngine->load(filepath, pixelSize, _charWidth, _charHeight)) {
+      LOG_ERR("EFT", "Failed to initialize TTF: %s", filepath);
+      unload();
+      return false;
+    }
+
+    _isLoaded = true;
+    LOG_INF("EFT", "Loaded TTF: %s (%upx, cell=%ux%u, cache=%s)", filepath, pixelSize, _charWidth, _charHeight,
+            _ttfEngine->cachePath());
+    return true;
+  }
 
   if (!parseFilename(filepath)) {
     return false;
@@ -396,7 +460,6 @@ bool ExternalFont::load(const char* filepath) {
     }
     _isRichMetricsFormat = true;
   } else {
-    // Legacy .bin: rewind so per-glyph reads start at offset 0.
     if (!_fontFile.seek(0)) {
       _fontFile.close();
       return false;
@@ -413,9 +476,9 @@ bool ExternalFont::load(const char* filepath) {
 }
 
 void ExternalFont::releaseGlyphCache() {
-  delete[] _cache;
+  if (_cache) heap_caps_free(_cache);
   _cache = nullptr;
-  delete[] _hashTable;
+  if (_hashTable) heap_caps_free(_hashTable);
   _hashTable = nullptr;
   _accessCounter = 0;
   _lastReadOffset = 0;
@@ -429,8 +492,8 @@ bool ExternalFont::ensureGlyphCache() {
 
   releaseGlyphCache();
 
-  _cache = new (std::nothrow) CacheEntry[CACHE_SIZE];
-  _hashTable = new (std::nothrow) int16_t[CACHE_SIZE];
+  _cache = static_cast<CacheEntry*>(heap_caps_calloc(CACHE_SIZE, sizeof(CacheEntry), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  _hashTable = static_cast<int16_t*>(heap_caps_malloc(CACHE_SIZE * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!_cache || !_hashTable) {
     LOG_ERR("EFT", "Failed to allocate glyph cache (%d bytes)",
             static_cast<int>(CACHE_SIZE * (sizeof(CacheEntry) + sizeof(int16_t))));
@@ -548,6 +611,27 @@ const uint8_t* ExternalFont::getGlyph(uint32_t codepoint) {
         break;
       }
     }
+  }
+
+  if (_isTtfFormat) {
+    ExternalGlyphMetrics metrics{};
+    std::memset(_cache[slot].bitmap, 0, MAX_GLYPH_BYTES);
+    const bool ok = _ttfEngine != nullptr &&
+                    _ttfEngine->loadGlyph(codepoint, _cache[slot].bitmap, MAX_GLYPH_BYTES, &metrics);
+    _cache[slot].codepoint = codepoint;
+    _cache[slot].lastUsed = ++_accessCounter;
+    _cache[slot].notFound = !ok;
+    _cache[slot].metrics = metrics;
+
+    int hash = hashCodepoint(codepoint);
+    for (int i = 0; i < CACHE_SIZE; ++i) {
+      const int idx = (hash + i) % CACHE_SIZE;
+      if (_hashTable[idx] == -1) {
+        _hashTable[idx] = slot;
+        break;
+      }
+    }
+    return ok ? _cache[slot].bitmap : nullptr;
   }
 
   uint32_t actualCodepoint = codepoint;
@@ -782,6 +866,9 @@ bool ExternalFont::getGlyphMetricsForLayout(uint32_t codepoint, ExternalGlyphMet
     }
   }
 
+  if (_isTtfFormat) {
+    return _ttfEngine != nullptr && _ttfEngine->loadMetrics(codepoint, out);
+  }
   if (_isRichMetricsFormat) {
     return measureRichGlyphForLayout(codepoint, out);
   }
@@ -921,6 +1008,10 @@ bool ExternalFont::measureLegacyGlyphForLayout(uint32_t codepoint, ExternalGlyph
   return false;
 }
 
+void ExternalFont::flushPersistentCache() {
+  if (_ttfEngine != nullptr) _ttfEngine->flushPersistentCache();
+}
+
 void ExternalFont::preloadGlyphs(const uint32_t* codepoints, size_t count) {
   if (!_isLoaded || !codepoints || count == 0) {
     return;
@@ -934,11 +1025,27 @@ void ExternalFont::preloadGlyphs(const uint32_t* codepoints, size_t count) {
 
   const size_t maxLoad = std::min(count, static_cast<size_t>(PRELOAD_LIMIT));
 
-  // Sort + dedupe so SD reads stay roughly sequential (especially for legacy
-  // .bin where neighbouring codepoints are neighbouring file offsets).
+  // Sorting also deduplicates repeated characters in a page. For TTF this
+  // prevents redundant FreeType/cache lookups; for bitmap fonts it keeps SD
+  // reads roughly sequential.
   std::vector<uint32_t> sorted(codepoints, codepoints + maxLoad);
   std::sort(sorted.begin(), sorted.end());
   sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+
+  if (_isTtfFormat) {
+    const unsigned long startTime = millis();
+    size_t loaded = 0;
+    for (const uint32_t codepoint : sorted) {
+      if (findInCache(codepoint) < 0) {
+        getGlyph(codepoint);
+        ++loaded;
+      }
+    }
+    if (_ttfEngine != nullptr) _ttfEngine->flushPersistentCache();
+    LOG_DBG("TTF", "Prewarm: %u/%u new glyphs in %lums", static_cast<unsigned>(loaded),
+            static_cast<unsigned>(sorted.size()), millis() - startTime);
+    return;
+  }
 
   LOG_DBG("EFT", "Preloading %zu unique glyphs", sorted.size());
   const unsigned long startTime = millis();

@@ -5,6 +5,7 @@
 #include <Logging.h>
 #include <Serialization.h>
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 
@@ -167,7 +168,28 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, fontFamily, FONT_FAMILY_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
-    readAndValidate(inputFile, fontSize, FONT_SIZE_COUNT);
+    {
+      uint8_t legacyOrPixels = READER_FONT_SIZE_DEFAULT;
+      serialization::readPod(inputFile, legacyOrPixels);
+      switch (legacyOrPixels) {
+        case SMALL:
+          fontSize = 30;
+          break;
+        case MEDIUM:
+          fontSize = 36;
+          break;
+        case LARGE:
+          fontSize = 40;
+          break;
+        case EXTRA_LARGE:
+          fontSize = 46;
+          break;
+        default:
+          fontSize = std::min<uint8_t>(READER_FONT_SIZE_MAX,
+                                       std::max<uint8_t>(READER_FONT_SIZE_MIN, legacyOrPixels));
+          break;
+      }
+    }
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, lineSpacing, LINE_COMPRESSION_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
@@ -308,10 +330,24 @@ int CrossPointSettings::getRefreshFrequency() const {
 }
 
 int CrossPointSettings::getReaderFontId() const {
+  // Built-in font families only contain four raster sizes. Map the numeric
+  // reader size to the closest legacy bucket. Runtime TTF fonts use the exact
+  // 20..60 px value through FontManager instead.
+  uint8_t sizeBucket = MEDIUM;
+  if (fontSize <= 32) {
+    sizeBucket = SMALL;
+  } else if (fontSize <= 38) {
+    sizeBucket = MEDIUM;
+  } else if (fontSize <= 43) {
+    sizeBucket = LARGE;
+  } else {
+    sizeBucket = EXTRA_LARGE;
+  }
+
   switch (fontFamily) {
     case BOOKERLY:
     default:
-      switch (fontSize) {
+      switch (sizeBucket) {
         case SMALL:
           return BOOKERLY_12_FONT_ID;
         case MEDIUM:
@@ -323,7 +359,7 @@ int CrossPointSettings::getReaderFontId() const {
           return BOOKERLY_18_FONT_ID;
       }
     case NOTOSANS:
-      switch (fontSize) {
+      switch (sizeBucket) {
         case SMALL:
           return NOTOSANS_12_FONT_ID;
         case MEDIUM:
@@ -335,7 +371,7 @@ int CrossPointSettings::getReaderFontId() const {
           return NOTOSANS_18_FONT_ID;
       }
     case OPENDYSLEXIC:
-      switch (fontSize) {
+      switch (sizeBucket) {
         case SMALL:
           return OPENDYSLEXIC_8_FONT_ID;
         case MEDIUM:

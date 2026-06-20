@@ -134,13 +134,6 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
     }
   }
 
-  // Vertical/horizontal reader layout.
-  //
-  // This is temporarily persisted manually.
-  // It will be moved into SettingsList after the UI strings
-  // and settings menu item are added.
-  doc["readingLayout"] = s.readingLayout;
-
   // Front button remap.
   doc["frontButtonBack"] = s.frontButtonBack;
   doc["frontButtonConfirm"] = s.frontButtonConfirm;
@@ -206,6 +199,15 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     } else {
       const uint8_t fieldDefault = s.*(info.valuePtr);  // struct-initializer default, read before we overwrite it
       uint8_t v = doc[info.key] | fieldDefault;
+
+      // Reader font size used to be an enum (0..3). Migrate old JSON files to
+      // their equivalent runtime TTF pixel sizes before applying VALUE bounds.
+      if (info.valuePtr == &CrossPointSettings::fontSize && v <= CrossPointSettings::EXTRA_LARGE) {
+        static constexpr uint8_t LEGACY_TO_PIXELS[] = {30, 36, 40, 46};
+        v = LEGACY_TO_PIXELS[v];
+        if (needsResave) *needsResave = true;
+      }
+
       if (info.type == SettingType::ENUM) {
         v = clamp(v, (uint8_t)info.enumValues.size(), fieldDefault);
       } else if (info.type == SettingType::TOGGLE) {
@@ -223,20 +225,7 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   // Front button remap — managed by RemapFrontButtons sub-activity, not in SettingsList.
   using S = CrossPointSettings;
 
-  // Restore horizontal/vertical reader layout.
-  //
-  // 舊 settings.json 沒有 readingLayout 時，
-  // 目前開發階段預設使用 Vertical。
-  s.readingLayout = clamp(
-      doc["readingLayout"] |
-          static_cast<uint8_t>(
-              S::VERTICAL_LAYOUT
-          ),
-      S::READING_LAYOUT_COUNT,
-      S::VERTICAL_LAYOUT
-  );
-
-  // 原本按鍵 mapping。
+  // Front button mapping.
 
   s.frontButtonBack =
       clamp(doc["frontButtonBack"] | (uint8_t)S::FRONT_HW_BACK, S::FRONT_BUTTON_HARDWARE_COUNT, S::FRONT_HW_BACK);

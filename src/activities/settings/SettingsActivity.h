@@ -21,6 +21,7 @@ enum class SettingAction {
   ClearCache,
   CheckForUpdates,
   Language,
+  ReaderFontFile,
 };
 
 struct SettingInfo {
@@ -156,12 +157,18 @@ class SettingsActivity final : public Activity {
   static constexpr int categoryCount = 4;
   static const StrId categoryNames[categoryCount];
 
+  int initialCategoryIndex = 0;
+  bool returnToCaller = false;
+
   void enterCategory(int categoryIndex);
   void toggleCurrentSetting();
 
  public:
-  explicit SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("Settings", renderer, mappedInput) {}
+  explicit SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
+                            int initialCategoryIndex = 0, bool returnToCaller = false)
+      : Activity("Settings", renderer, mappedInput),
+        initialCategoryIndex(initialCategoryIndex),
+        returnToCaller(returnToCaller) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;

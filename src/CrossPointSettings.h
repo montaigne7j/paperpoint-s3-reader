@@ -107,8 +107,12 @@ class CrossPointSettings {
 
   // Font family options
   enum FONT_FAMILY { BOOKERLY = 0, NOTOSANS = 1, OPENDYSLEXIC = 2, FONT_FAMILY_COUNT };
-  // Font size options
-  enum FONT_SIZE { SMALL = 0, MEDIUM = 1, LARGE = 2, EXTRA_LARGE = 3, FONT_SIZE_COUNT };
+  // Reader font pixel-size range. Legacy settings used enum values 0..3;
+  // loaders migrate those values to 30/36/40/46 px.
+  static constexpr uint8_t READER_FONT_SIZE_MIN = 20;
+  static constexpr uint8_t READER_FONT_SIZE_MAX = 60;
+  static constexpr uint8_t READER_FONT_SIZE_DEFAULT = 36;
+  enum LEGACY_FONT_SIZE { SMALL = 0, MEDIUM = 1, LARGE = 2, EXTRA_LARGE = 3, FONT_SIZE_COUNT };
   enum LINE_COMPRESSION {
     TIGHT = 0,
     NORMAL = 1,
@@ -168,6 +172,8 @@ class CrossPointSettings {
   uint8_t sleepScreenCoverMode = FIT;
   // Sleep screen cover filter
   uint8_t sleepScreenCoverFilter = NO_FILTER;
+  // Rotate the final sleep screen by 180 degrees (0 = normal, 1 = inverted).
+  uint8_t sleepScreenRotate180 = 0;
   // Status bar settings (statusBar retained for migration only)
   uint8_t statusBar = FULL;
   uint8_t statusBarChapterPageCount = 1;
@@ -207,14 +213,12 @@ class CrossPointSettings {
   uint8_t frontButtonRight = FRONT_HW_RIGHT;
   // Reader font settings
   uint8_t fontFamily = BOOKERLY;
-  uint8_t fontSize = MEDIUM;
+  uint8_t fontSize = READER_FONT_SIZE_DEFAULT;
   uint8_t lineSpacing = NORMAL;
   uint8_t paragraphAlignment = JUSTIFIED;
 
-  // Reader text layout.
-  //
-  // 目前直排功能開發階段先預設為 Vertical，
-  // 之後加入設定選單時可改回 Horizontal。
+  // Reader text layout. Selectable from Settings > Reader > Reading Layout.
+  // Keep Vertical as the default for existing Paper S3 CJK installations.
   uint8_t readingLayout = VERTICAL_LAYOUT;
   
   // Auto-sleep timeout setting (default 10 minutes)

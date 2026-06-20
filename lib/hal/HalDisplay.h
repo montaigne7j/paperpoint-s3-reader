@@ -27,6 +27,17 @@ class HalDisplay {
   // Initialize the display hardware and driver
   void begin();
 
+  /*
+  * 將實體面板與 EPD_Painter 的
+  * 2bpp internal screenbuffer 全部同步為白色。
+  *
+  * 用於：
+  *   GC16 睡眠畫面喚醒後
+  *   韌體更新後
+  *   driver state 不確定時
+  */
+  bool force2bppWhiteResync();
+
   // Display dimensions (M5PaperS3: 960x540 physical landscape)
   static constexpr uint16_t DISPLAY_WIDTH = 960;
   static constexpr uint16_t DISPLAY_HEIGHT = 540;
@@ -87,7 +98,8 @@ class HalDisplay {
       const Bitmap& bitmap,
       bool clearFirst = true,
       Gc16DitherMode ditherMode =
-          Gc16DitherMode::FloydSteinberg
+          Gc16DitherMode::FloydSteinberg,
+      bool rotate180 = false
   );
 
  private:

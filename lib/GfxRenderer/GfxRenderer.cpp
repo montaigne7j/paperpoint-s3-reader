@@ -95,11 +95,20 @@ bool shouldRotateVerticalGlyph(
 
 }  // namespace
 
+bool GfxRenderer::shouldUseExternalUiFont(
+    const int fontId
+) {
+  return fontId == UI_10_FONT_ID ||
+         fontId == UI_12_FONT_ID;
+}
+
 bool GfxRenderer::isUiFont(const int fontId) {
   return fontId == UI_10_FONT_ID ||
          fontId == UI_12_FONT_ID ||
          fontId == SMALL_FONT_ID;
 }
+
+
 
 bool GfxRenderer::isReaderFont(const int fontId) {
   for (int i = 0; i < UI_FONT_COUNT; ++i) {
@@ -625,61 +634,31 @@ bool GfxRenderer::renderExternalReaderGlyph(
     const int baselineY,
     const bool pixelState
 ) const {
-  if (!isCjkCodepoint(cp)) {
-    return false;
-  }
-
   FontManager& fontManager = FontManager::getInstance();
+  if (!fontManager.isExternalFontEnabled()) return false;
 
-  if (!fontManager.isExternalFontEnabled()) {
+  ExternalFont* externalFont = fontManager.getActiveFont();
+  if (externalFont == nullptr ||
+      (!externalFont->handlesAllCodepoints() && !isCjkCodepoint(cp))) {
     return false;
   }
 
-  ExternalFont* externalFont =
-      fontManager.getActiveFont();
+  const uint8_t* bitmap = externalFont->getGlyph(cp);
+  if (bitmap == nullptr) return false;
 
-  if (!externalFont) {
-    return false;
+  ExternalGlyphMetrics metrics = getDefaultMetrics(*externalFont, cp);
+  const bool forceCell = isCjkCodepoint(cp);
+  if (forceCell && shouldUseCjkSymbolCellMetrics(cp)) {
+    normalizeCjkSymbolMetricsForRendering(metrics, externalFont->getCharWidth(),
+                                          externalFont->isRichMetricsFormat());
   }
 
-  const uint8_t* bitmap =
-      externalFont->getGlyph(cp);
+  const int advance = getExternalGlyphAdvanceForRendering(
+      metrics, externalFont->getCharWidth(), 0, forceCell,
+      forceCell && shouldUseGlyphBoundsForAdvance(cp));
 
-  if (!bitmap) {
-    return false;
-  }
-
-  ExternalGlyphMetrics metrics =
-      getDefaultMetrics(*externalFont, cp);
-
-  if (shouldUseCjkSymbolCellMetrics(cp)) {
-    normalizeCjkSymbolMetricsForRendering(
-        metrics,
-        externalFont->getCharWidth(),
-        externalFont->isRichMetricsFormat()
-    );
-  }
-
-  const int advance =
-      getExternalGlyphAdvanceForRendering(
-          metrics,
-          externalFont->getCharWidth(),
-          0,     // 第一版暫時不額外加字距
-          true,  // CJK 使用完整 cell advance
-          shouldUseGlyphBoundsForAdvance(cp)
-      );
-
-  renderExternalGlyph(
-      bitmap,
-      externalFont,
-      x,
-      baselineY,
-      pixelState,
-      metrics,
-      advance,
-      externalFont->getCharWidth()
-  );
-
+  renderExternalGlyph(bitmap, externalFont, x, baselineY, pixelState, metrics,
+                      advance, forceCell ? externalFont->getCharWidth() : -1);
   return true;
 }
 
@@ -794,12 +773,9 @@ int GfxRenderer::getTextWidthExternalReader(
     const char* text,
     const EpdFontFamily::Style style
 ) const {
-  if (text == nullptr || *text == '\0') {
-    return 0;
-  }
+  if (text == nullptr || *text == '\0') return 0;
 
   const auto fontIt = fontMap.find(fontId);
-
   if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
@@ -807,103 +783,63 @@ int GfxRenderer::getTextWidthExternalReader(
 
   FontManager& fontManager = FontManager::getInstance();
   ExternalFont* externalFont = fontManager.getActiveFont();
-
   if (!fontManager.isExternalFontEnabled() || externalFont == nullptr) {
     int width = 0;
     int height = 0;
-
-    fontIt->second.getTextDimensions(
-        text,
-        &width,
-        &height,
-        style
-    );
-
+    fontIt->second.getTextDimensions(text, &width, &height, style);
     return width;
   }
 
   const auto& builtinFont = fontIt->second;
-
   int width = 0;
   uint32_t previousBuiltinCp = 0;
   uint32_t cp = 0;
 
-  while ((cp = utf8NextCodepoint(
-              reinterpret_cast<const uint8_t**>(&text)))) {
-
-    if (utf8IsCombiningMark(cp)) {
-      continue;
-    }
+  while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
+    if (utf8IsCombiningMark(cp)) continue;
 
     const bool isCjk = isCjkCodepoint(cp);
+    const bool useExternal = externalFont->handlesAllCodepoints() || isCjk;
+    if (useExternal) {
+      previousBuiltinCp = 0;
 
-    if (isCjk) {
-    // CJK 前後不能延續內建英文字型 kerning。
-    previousBuiltinCp = 0;
-
-    // Legacy .bin 是固定格字型。
-    // 排版只需要 cell width，不需要逐字讀取 SD metrics。
-    if (!externalFont->isRichMetricsFormat()) {
-      width += externalFont->getCharWidth();
-      continue;
-    }
-
-    // .epdf rich-metrics 字型才需要查每個 glyph 的 metrics。
-    ExternalGlyphMetrics metrics{};
-
-    metrics.width = externalFont->getCharWidth();
-    metrics.height = externalFont->getCharHeight();
-    metrics.advanceX = externalFont->getCharWidth();
-
-    if (externalFont->getGlyphMetricsForLayout(cp, &metrics)) {
-      if (shouldUseCjkSymbolCellMetrics(cp)) {
-        normalizeCjkSymbolMetricsForRendering(
-            metrics,
-            externalFont->getCharWidth(),
-            externalFont->isRichMetricsFormat()
-        );
+      // Legacy .bin is fixed-cell. TTF and EPDF use per-glyph metrics.
+      if (!externalFont->isRichMetricsFormat()) {
+        width += externalFont->getCharWidth();
+        continue;
       }
 
-      width += getExternalGlyphAdvanceForRendering(
-          metrics,
-          externalFont->getCharWidth(),
-          0,
-          true,
-          shouldUseGlyphBoundsForAdvance(cp)
-      );
+      ExternalGlyphMetrics metrics{};
+      metrics.width = externalFont->getCharWidth();
+      metrics.height = externalFont->getCharHeight();
+      metrics.advanceX = externalFont->getCharWidth();
 
-      continue;
+      if (externalFont->getGlyphMetricsForLayout(cp, &metrics)) {
+        if (isCjk && shouldUseCjkSymbolCellMetrics(cp)) {
+          normalizeCjkSymbolMetricsForRendering(metrics, externalFont->getCharWidth(),
+                                                externalFont->isRichMetricsFormat());
+        }
+        width += getExternalGlyphAdvanceForRendering(
+            metrics, externalFont->getCharWidth(), 0, isCjk,
+            isCjk && shouldUseGlyphBoundsForAdvance(cp));
+        continue;
+      }
+
+      // If a TTF lacks the glyph, fall through to the built-in Latin font.
+      if (!externalFont->handlesAllCodepoints() || isCjk) {
+        width += externalFont->getCharWidth();
+        continue;
+      }
     }
 
-    // rich-metrics 查不到時也使用預設 cell width，
-    // 避免排版寬度變成 0。
-    width += externalFont->getCharWidth();
-    continue;
-  }
-
-    // 外部字型沒有這個字時，退回內建字型
     cp = builtinFont.applyLigatures(cp, text, style);
-
     if (previousBuiltinCp != 0) {
-      width += fp4::toPixel(
-          builtinFont.getKerning(
-              previousBuiltinCp,
-              cp,
-              style
-          )
-      );
+      width += fp4::toPixel(builtinFont.getKerning(previousBuiltinCp, cp, style));
     }
-
-    const EpdGlyph* glyph =
-        builtinFont.getGlyph(cp, style);
-
-    if (glyph != nullptr) {
-      width += fp4::toPixel(glyph->advanceX);
-    }
-
+    const EpdGlyph* glyph = builtinFont.getGlyph(cp, style);
+    if (glyph != nullptr) width += fp4::toPixel(glyph->advanceX);
     previousBuiltinCp = cp;
   }
-
   return width;
 }
 
@@ -982,6 +918,22 @@ int GfxRenderer::getTextWidthExternalUi(
         builtinGlyph == nullptr;
 
     if (tryExternal) {
+      // Legacy .bin UI fonts are fixed-cell fonts. Measuring a CJK glyph by
+      // calling getGlyphMetricsForLayout() would seek to the glyph on SD and
+      // scan every pixel just to rediscover the fixed cell width. The file
+      // browser calls getTextWidth() many times while truncating every visible
+      // filename, so that path turns one cursor move into hundreds of SD reads.
+      //
+      // The reader-font width path already has this fixed-cell shortcut. Keep
+      // the UI path consistent and reserve per-glyph metric reads for EPDFont
+      // rich-metrics fonts (or non-CJK fallback glyphs).
+      if (!uiFont->isRichMetricsFormat() &&
+          isCjkCodepoint(cp)) {
+        flushBuiltinWidth();
+        widthPixels += uiFont->getCharWidth();
+        continue;
+      }
+
       ExternalGlyphMetrics metrics{};
 
       metrics.width = uiFont->getCharWidth();
@@ -1068,7 +1020,7 @@ int GfxRenderer::getTextWidth(
       FontManager::getInstance();
 
    // UI 外部字型
-  if (isUiFont(fontId) &&
+  if (shouldUseExternalUiFont(fontId) &&
       fontManager.isUiFontEnabled() &&
       fontManager.getActiveUiFont() != nullptr) {
 
@@ -1141,10 +1093,10 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     return;
   }
   const auto& font = fontIt->second;
-    
+
   ExternalFont* activeUiFont = nullptr;
 
-  if (isUiFont(fontId)) {
+  if (shouldUseExternalUiFont(fontId)) {
     FontManager& fontManager =
         FontManager::getInstance();
 
@@ -1159,6 +1111,33 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     }
   }
 
+  /*
+   * drawText() receives y as the top of the text line.
+   *
+   * The legacy external CJK UI font draws its fixed cell from y downward.
+   * The built-in Ubuntu line box must therefore start at the same y.
+   *
+   * Do not vertically center the smaller Latin line box inside the CJK cell:
+   * for UI_10 that added (30 - 24) / 2 = 3 pixels above the Latin font and
+   * made English letters and digits appear visibly lower than Chinese.
+   *
+   * Use each font's own ascender from the same top coordinate instead:
+   *   CJK baseline   = y + external ascender
+   *   Latin baseline = y + built-in ascender
+   */
+  int builtinBaselineY = yPos;
+
+  if (activeUiFont != nullptr) {
+    const EpdFontData* builtinData =
+        font.getData(style);
+
+    if (builtinData != nullptr) {
+      builtinBaselineY =
+          y +
+          builtinData->ascender;
+    }
+  }
+
   uint32_t cp;
   uint32_t prevCp = 0;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
@@ -1168,7 +1147,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       const int raiseBy = combiningMark::raiseAboveBase(combiningGlyph->top, combiningGlyph->height, lastBaseTop);
       const int combiningX = combiningMark::centerOver(lastBaseX, lastBaseLeft, lastBaseWidth, combiningGlyph->left,
                                                        combiningGlyph->width);
-      renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, combiningX, yPos - raiseBy, black, style);
+      renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, combiningX, builtinBaselineY - raiseBy, black, style);
       continue;
     }
 
@@ -1176,8 +1155,11 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
         isReaderFont(fontId) &&
         FontManager::getInstance().isExternalFontEnabled();
 
-    if (useExternalReaderFont &&
-        isCjkCodepoint(cp)) {
+    ExternalFont* activeReaderFont = useExternalReaderFont
+                                         ? FontManager::getInstance().getActiveFont()
+                                         : nullptr;
+    if (activeReaderFont != nullptr &&
+        (activeReaderFont->handlesAllCodepoints() || isCjkCodepoint(cp))) {
 
       // 先把前一個內建字型 glyph 尚未套用的 advance 補上
       if (prevCp != 0) {
@@ -1260,7 +1242,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     lastBaseTop = glyph ? glyph->top : 0;
     prevAdvanceFP = glyph ? glyph->advanceX : 0;  // 12.4 fixed-point
 
-    renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, lastBaseX, yPos, black, style);
+    renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, lastBaseX, builtinBaselineY, black, style);
     prevCp = cp;
   }
 }
@@ -2006,8 +1988,10 @@ void GfxRenderer::fillPolygon(const int* xPoints, const int* yPoints, int numPoi
 // For performance measurement (using static to allow "const" methods)
 static unsigned long start_ms = 0;
 
+void GfxRenderer::beginFrame() const { start_ms = millis(); }
+
 void GfxRenderer::clearScreen(const uint8_t color) const {
-  start_ms = millis();
+  beginFrame();
   display.clearScreen(color);
 }
 
@@ -2015,6 +1999,20 @@ void GfxRenderer::invertScreen() const {
   for (uint32_t i = 0; i < HalDisplay::BUFFER_SIZE; i++) {
     frameBuffer[i] = 3 - frameBuffer[i];
   }
+}
+
+bool GfxRenderer::displayGc16Bitmap(
+    const Bitmap& bitmap,
+    const bool clearFirst,
+    const HalDisplay::Gc16DitherMode ditherMode,
+    const bool rotate180
+) const {
+  return display.showGc16Bitmap(
+      bitmap,
+      clearFirst,
+      ditherMode,
+      rotate180
+  );
 }
 
 void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const {
@@ -2025,11 +2023,6 @@ void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const
   if (forceNextFullRefresh) {
     mode = HalDisplay::FULL_REFRESH;
     forceNextFullRefresh = false;
-    rendersSinceFullRefresh = 0;
-  } else if (periodicFullRefreshInterval > 0 && ++rendersSinceFullRefresh >= periodicFullRefreshInterval) {
-    // Periodic full refresh to clear accumulated ghosting on e-ink
-    mode = HalDisplay::FULL_REFRESH;
-    rendersSinceFullRefresh = 0;
   }
   display.displayBuffer(mode, fadingFix);
 }
@@ -2038,20 +2031,56 @@ std::string GfxRenderer::truncatedText(const int fontId, const char* text, const
                                        const EpdFontFamily::Style style) const {
   if (!text || maxWidth <= 0) return "";
 
-  std::string item = text;
+  const std::string item = text;
   // U+2026 HORIZONTAL ELLIPSIS (UTF-8: 0xE2 0x80 0xA6)
   const char* ellipsis = "\xe2\x80\xa6";
-  int textWidth = getTextWidth(fontId, item.c_str(), style);
-  if (textWidth <= maxWidth) {
-    // Text fits, return as is
+
+  if (getTextWidth(fontId, item.c_str(), style) <= maxWidth) {
     return item;
   }
 
-  while (!item.empty() && getTextWidth(fontId, (item + ellipsis).c_str(), style) >= maxWidth) {
-    utf8RemoveLastChar(item);
+  // Record UTF-8 codepoint boundaries once, then binary-search the longest
+  // prefix that fits. The old implementation removed one codepoint and
+  // remeasured the entire string on every iteration (O(n^2)). With external
+  // CJK fonts each measurement may touch the SD card, which made long Chinese
+  // filenames especially slow.
+  std::vector<size_t> boundaries;
+  boundaries.reserve(item.size() / 2 + 1);
+  boundaries.push_back(0);
+
+  const auto* begin =
+      reinterpret_cast<const unsigned char*>(item.c_str());
+  const unsigned char* cursor = begin;
+
+  while (*cursor != '\0') {
+    utf8NextCodepoint(&cursor);
+    boundaries.push_back(
+        static_cast<size_t>(cursor - begin));
   }
 
-  return item.empty() ? ellipsis : item + ellipsis;
+  size_t low = 0;
+  size_t high = boundaries.size() - 1;
+
+  while (low < high) {
+    const size_t mid = low + (high - low + 1) / 2;
+    std::string candidate = item.substr(0, boundaries[mid]);
+    candidate += ellipsis;
+
+    // Preserve the previous behaviour: a candidate exactly equal to maxWidth
+    // is shortened once more, so the returned text is strictly inside the
+    // available width.
+    if (getTextWidth(fontId, candidate.c_str(), style) < maxWidth) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  if (low == 0) {
+    return ellipsis;
+  }
+
+  return item.substr(0, boundaries[low]) + ellipsis;
 }
 
 std::vector<std::string> GfxRenderer::wrappedText(const int fontId, const char* text, const int maxWidth,
@@ -2246,8 +2275,8 @@ int GfxRenderer::getFontAscenderSize(const int fontId) const {
   FontManager& fontManager =
       FontManager::getInstance();
 
-  if (isUiFont(fontId) &&
-      fontManager.isUiFontEnabled()) {
+  if (shouldUseExternalUiFont(fontId) &&
+    fontManager.isUiFontEnabled()) {
 
     ExternalFont* uiFont =
         fontManager.getActiveUiFont();
@@ -2257,6 +2286,13 @@ int GfxRenderer::getFontAscenderSize(const int fontId) const {
       return getExternalFontAscenderForRendering(
           *uiFont
       );
+    }
+  }
+
+  if (isReaderFont(fontId) && fontManager.isExternalFontEnabled()) {
+    ExternalFont* readerFont = fontManager.getActiveFont();
+    if (readerFont != nullptr && readerFont->isLoaded() && readerFont->isTtfFormat()) {
+      return getExternalFontAscenderForRendering(*readerFont);
     }
   }
 
@@ -2275,8 +2311,8 @@ int GfxRenderer::getLineHeight(const int fontId) const {
   FontManager& fontManager =
       FontManager::getInstance();
 
-  if (isUiFont(fontId) &&
-      fontManager.isUiFontEnabled()) {
+  if (shouldUseExternalUiFont(fontId) &&
+    fontManager.isUiFontEnabled()) {
 
     ExternalFont* uiFont =
         fontManager.getActiveUiFont();
@@ -2286,6 +2322,13 @@ int GfxRenderer::getLineHeight(const int fontId) const {
       return getExternalFontLineHeightForRendering(
           *uiFont
       );
+    }
+  }
+
+  if (isReaderFont(fontId) && fontManager.isExternalFontEnabled()) {
+    ExternalFont* readerFont = fontManager.getActiveFont();
+    if (readerFont != nullptr && readerFont->isLoaded() && readerFont->isTtfFormat()) {
+      return getExternalFontLineHeightForRendering(*readerFont);
     }
   }
 
@@ -2302,8 +2345,8 @@ int GfxRenderer::getTextHeight(const int fontId) const {
   FontManager& fontManager =
       FontManager::getInstance();
 
-  if (isUiFont(fontId) &&
-      fontManager.isUiFontEnabled()) {
+  if (shouldUseExternalUiFont(fontId) &&
+    fontManager.isUiFontEnabled()) {
 
     ExternalFont* uiFont =
         fontManager.getActiveUiFont();
@@ -2311,6 +2354,13 @@ int GfxRenderer::getTextHeight(const int fontId) const {
     if (uiFont != nullptr &&
         uiFont->isLoaded()) {
       return uiFont->getCharHeight();
+    }
+  }
+
+  if (isReaderFont(fontId) && fontManager.isExternalFontEnabled()) {
+    ExternalFont* readerFont = fontManager.getActiveFont();
+    if (readerFont != nullptr && readerFont->isLoaded() && readerFont->isTtfFormat()) {
+      return readerFont->getCharHeight();
     }
   }
 

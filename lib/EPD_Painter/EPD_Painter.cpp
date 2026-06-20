@@ -362,16 +362,45 @@ bool EPD_Painter::begin() {
 }
 
 // =============================================================================
+// waitUntilIdle()
+// =============================================================================
+void EPD_Painter::waitUntilIdle() {
+  if (_paint_active_sem == nullptr || _paint_task_h == nullptr) {
+    return;
+  }
+
+  // The paint task owns this semaphore for the whole physical waveform.
+  // Taking it therefore waits for every row/pass to finish, unlike paint(),
+  // which only waits until the framebuffer has been copied by the task.
+  xSemaphoreTake(_paint_active_sem, portMAX_DELAY);
+  xSemaphoreGive(_paint_active_sem);
+}
+
+// =============================================================================
 // end()
 // =============================================================================
 bool EPD_Painter::end() {
+  // Do not delete the worker while it is still driving the panel.
+  waitUntilIdle();
+
+  // Shut the EPD rails down in a deterministic order before the board PMIC
+  // removes power. The old code left this to the delayed idle task.
+  PanelPowerGuard::shutdown(*this);
+
   if (_paint_task_h) {
     vTaskDelete(_paint_task_h);
     _paint_task_h = nullptr;
   }
 
-  vSemaphoreDelete(_paint_active_sem);
-  vSemaphoreDelete(_paint_buffer_sem);
+  if (_paint_active_sem) {
+    vSemaphoreDelete(_paint_active_sem);
+    _paint_active_sem = nullptr;
+  }
+
+  if (_paint_buffer_sem) {
+    vSemaphoreDelete(_paint_buffer_sem);
+    _paint_buffer_sem = nullptr;
+  }
 
   if (dma_chan) {
     gdma_disconnect(dma_chan);

@@ -31,6 +31,10 @@ struct PercentResult {
   int percent = 0;
 };
 
+struct FontSizeResult {
+  uint8_t size = 36;
+};
+
 struct PageResult {
   uint32_t page = 0;
 };
@@ -50,7 +54,7 @@ struct FootnoteResult {
   std::string href;
 };
 
-using ResultVariant = std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult,
+using ResultVariant = std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult, FontSizeResult,
                                    PageResult, SyncResult, NetworkModeResult, FootnoteResult>;
 
 struct ActivityResult {

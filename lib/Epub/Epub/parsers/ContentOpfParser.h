@@ -2,6 +2,7 @@
 #include <Print.h>
 
 #include <algorithm>
+#include <memory>
 #include <deque>
 #include <vector>
 
@@ -42,6 +43,23 @@ class ContentOpfParser final : public Print {
   bool useItemIndex = false;
 
   static constexpr uint16_t LARGE_SPINE_THRESHOLD = 400;
+  static constexpr size_t ITEM_WRITE_BUFFER_SIZE = 4096;
+  static constexpr size_t MAX_BUFFERED_ITEM_STORE = 2 * 1024 * 1024;
+
+  std::unique_ptr<uint8_t[]> itemWriteBuffer;
+  size_t itemWriteUsed = 0;
+  uint32_t itemStoreLogicalPosition = 0;
+  bool itemWriteFailed = false;
+
+  uint8_t* itemStoreBuffer = nullptr;
+  size_t itemStoreBufferSize = 0;
+
+  bool appendItemBytes(const void* data, size_t length);
+  bool writeItemString(const std::string& value);
+  bool flushItemWriteBuffer();
+  bool loadItemStoreBuffer();
+  bool lookupBufferedItem(uint32_t offset, const std::string& expectedId, std::string& href) const;
+  void releaseItemStoreBuffer();
 
   // FNV-1a hash function
   static uint32_t fnvHash(const std::string& s) {

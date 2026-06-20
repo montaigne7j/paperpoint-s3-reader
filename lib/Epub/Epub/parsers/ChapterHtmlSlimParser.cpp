@@ -14,6 +14,7 @@
 #include "../converters/ImageToFramebufferDecoder.h"
 #include "../htmlEntities.h"
 #include <algorithm>
+#include <cctype>
 
 #include "../../../../src/CrossPointSettings.h"
 
@@ -36,7 +37,7 @@ constexpr int NUM_ITALIC_TAGS = sizeof(ITALIC_TAGS) / sizeof(ITALIC_TAGS[0]);
 const char* UNDERLINE_TAGS[] = {"u", "ins"};
 constexpr int NUM_UNDERLINE_TAGS = sizeof(UNDERLINE_TAGS) / sizeof(UNDERLINE_TAGS[0]);
 
-const char* IMAGE_TAGS[] = {"img"};
+const char* IMAGE_TAGS[] = {"img", "image", "svg:image"};
 constexpr int NUM_IMAGE_TAGS = sizeof(IMAGE_TAGS) / sizeof(IMAGE_TAGS[0]);
 
 const char* SKIP_TAGS[] = {"head"};
@@ -48,6 +49,179 @@ static bool isVerticalLayoutEnabled() {
 }
 
 bool isWhitespace(const char c) { return c == ' ' || c == '\r' || c == '\n' || c == '\t'; }
+
+// Used by the image-source helpers below and by the parser itself.
+const char* getAttribute(const XML_Char** atts, const char* attrName);
+
+namespace {
+
+int hexDigitValue(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return -1;
+}
+
+std::string decodePercentEscapes(const std::string& input) {
+  std::string output;
+  output.reserve(input.size());
+  for (size_t i = 0; i < input.size(); ++i) {
+    if (input[i] == '%' && i + 2 < input.size()) {
+      const int high = hexDigitValue(input[i + 1]);
+      const int low = hexDigitValue(input[i + 2]);
+      if (high >= 0 && low >= 0) {
+        output.push_back(static_cast<char>((high << 4) | low));
+        i += 2;
+        continue;
+      }
+    }
+    output.push_back(input[i]);
+  }
+  return output;
+}
+
+std::string firstSrcsetCandidate(const std::string& srcset) {
+  const size_t comma = srcset.find(',');
+  std::string candidate = srcset.substr(0, comma);
+  const size_t first = candidate.find_first_not_of(" \t\r\n");
+  if (first == std::string::npos) return {};
+  candidate.erase(0, first);
+  const size_t whitespace = candidate.find_first_of(" \t\r\n");
+  if (whitespace != std::string::npos) candidate.erase(whitespace);
+  return candidate;
+}
+
+std::string getImageSource(const XML_Char** atts) {
+  if (atts == nullptr) return {};
+
+  // Standard XHTML, common lazy-load variants, and SVG image references.
+  static const char* ATTRIBUTES[] = {"data-src", "data-original", "data-original-src",
+                                     "data-lazy-src", "data-echo", "src", "href", "xlink:href"};
+  for (const char* attribute : ATTRIBUTES) {
+    const char* value = getAttribute(atts, attribute);
+    if (value != nullptr && value[0] != '\0') return value;
+  }
+
+  const char* srcset = getAttribute(atts, "data-srcset");
+  if (srcset == nullptr || srcset[0] == '\0') srcset = getAttribute(atts, "srcset");
+  return srcset == nullptr ? std::string{} : firstSrcsetCandidate(srcset);
+}
+
+std::string resolveImagePath(const std::string& contentBase, const std::string& source) {
+  if (source.empty() || source.rfind("data:", 0) == 0) return {};
+
+  std::string clean = source;
+  const size_t suffix = clean.find_first_of("?#");
+  if (suffix != std::string::npos) clean.erase(suffix);
+  clean = decodePercentEscapes(clean);
+  std::replace(clean.begin(), clean.end(), '\\', '/');
+  if (clean.empty() || clean.find("://") != std::string::npos || clean.rfind("//", 0) == 0) return {};
+
+  // EPUB ZIP item names are root-relative without a leading slash. Relative
+  // references are resolved against the XHTML file's directory.
+  bool rootRelative = clean.front() == '/';
+  if (rootRelative) clean.erase(0, 1);
+
+  // Some EPUB generators write package-root paths such as
+  // "OEBPS/Images/pic.jpg" without the leading slash. Avoid turning those
+  // into "OEBPS/Text/OEBPS/Images/pic.jpg".
+  if (!rootRelative) {
+    const size_t rootEnd = contentBase.find('/');
+    if (rootEnd != std::string::npos) {
+      const std::string packageRoot = contentBase.substr(0, rootEnd + 1);
+      rootRelative = clean.rfind(packageRoot, 0) == 0;
+    }
+  }
+
+  return FsHelpers::normalisePath(rootRelative ? clean : contentBase + clean);
+}
+
+std::string lowerExtension(const std::string& path) {
+  const size_t dot = path.find_last_of('.');
+  if (dot == std::string::npos) return {};
+  std::string extension = path.substr(dot);
+  std::transform(extension.begin(), extension.end(), extension.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return extension;
+}
+
+bool isSupportedRasterExtension(const std::string& extension) {
+  return extension == ".jpg" || extension == ".jpeg" || extension == ".png";
+}
+
+std::string sniffRasterExtension(const std::string& path) {
+  HalFile file;
+  if (!Storage.openFileForRead("EHP", path, file)) return {};
+
+  uint8_t header[12] = {};
+  const int bytesRead = file.read(header, sizeof(header));
+  file.close();
+
+  if (bytesRead >= 8 && header[0] == 0x89 && header[1] == 0x50 &&
+      header[2] == 0x4e && header[3] == 0x47 && header[4] == 0x0d &&
+      header[5] == 0x0a && header[6] == 0x1a && header[7] == 0x0a) {
+    return ".png";
+  }
+  if (bytesRead >= 3 && header[0] == 0xff && header[1] == 0xd8 &&
+      header[2] == 0xff) {
+    return ".jpg";
+  }
+  return {};
+}
+
+bool extractSupportedRasterImage(Epub* epub, const std::string& resolvedPath,
+                                 const std::string& cacheBasePath,
+                                 std::string* cachedImagePath) {
+  if (epub == nullptr || cachedImagePath == nullptr || resolvedPath.empty()) return false;
+
+  std::string extension = lowerExtension(resolvedPath);
+  const bool knownExtension = isSupportedRasterExtension(extension);
+  if (!knownExtension) extension = ".img";
+
+  std::string temporaryPath = cacheBasePath + extension;
+  Storage.remove(temporaryPath.c_str());
+
+  FsFile cachedImageFile;
+  bool extractSuccess = false;
+  if (Storage.openFileForWrite("EHP", temporaryPath, cachedImageFile)) {
+    extractSuccess = epub->readItemContentsToStream(resolvedPath, cachedImageFile, 4096);
+    cachedImageFile.flush();
+    cachedImageFile.close();
+    delay(20);
+  }
+
+  if (!extractSuccess) {
+    Storage.remove(temporaryPath.c_str());
+    return false;
+  }
+
+  const std::string detectedExtension = sniffRasterExtension(temporaryPath);
+  if (!knownExtension && detectedExtension.empty()) {
+    LOG_ERR("EHP", "Unsupported image data: %s", resolvedPath.c_str());
+    Storage.remove(temporaryPath.c_str());
+    return false;
+  }
+
+  const std::string canonicalDeclared = extension == ".jpeg" ? ".jpg" : extension;
+  if (!detectedExtension.empty() && detectedExtension != canonicalDeclared) {
+    // The resource has no suffix or is mislabeled (for example PNG bytes in a
+    // file named .jpg). Give the cache file the extension expected by the
+    // decoder factory.
+    const std::string finalPath = cacheBasePath + detectedExtension;
+    Storage.remove(finalPath.c_str());
+    if (!Storage.rename(temporaryPath.c_str(), finalPath.c_str())) {
+      LOG_ERR("EHP", "Failed to rename detected image cache: %s", finalPath.c_str());
+      Storage.remove(temporaryPath.c_str());
+      return false;
+    }
+    temporaryPath = finalPath;
+  }
+
+  *cachedImagePath = temporaryPath;
+  return true;
+}
+
+}  // namespace
 
 // given the start and end of a tag, check to see if it matches a known tag
 bool matches(const char* tag_name, const char* possible_tags[], const int possible_tag_count) {
@@ -264,16 +438,11 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   }
 
   if (matches(name, IMAGE_TAGS, NUM_IMAGE_TAGS)) {
-    std::string src;
+    std::string src = getImageSource(atts);
     std::string alt;
     if (atts != nullptr) {
-      for (int i = 0; atts[i]; i += 2) {
-        if (strcmp(atts[i], "src") == 0) {
-          src = atts[i + 1];
-        } else if (strcmp(atts[i], "alt") == 0) {
-          alt = atts[i + 1];
-        }
-      }
+      const char* altValue = getAttribute(atts, "alt");
+      if (altValue != nullptr) alt = altValue;
 
       // imageRendering: 0=display, 1=placeholder (alt text only), 2=suppress entirely
       if (self->imageRendering == 2) {
@@ -286,27 +455,19 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         LOG_DBG("EHP", "Found image: src=%s", src.c_str());
 
         {
-          // Resolve the image path relative to the HTML file
-          std::string resolvedPath = FsHelpers::normalisePath(self->contentBase + src);
+          // Resolve standard, lazy-loaded, srcset, and SVG image references.
+          const std::string resolvedPath = resolveImagePath(self->contentBase, src);
+          LOG_DBG("EHP", "Resolved image: %s -> %s", src.c_str(), resolvedPath.c_str());
 
-          if (ImageDecoderFactory::isFormatSupported(resolvedPath)) {
-            // Create a unique filename for the cached image
-            std::string ext;
-            size_t extPos = resolvedPath.rfind('.');
-            if (extPos != std::string::npos) {
-              ext = resolvedPath.substr(extPos);
-            }
-            std::string cachedImagePath = self->imageBasePath + std::to_string(self->imageCounter++) + ext;
-
-            // Extract image to cache file
-            FsFile cachedImageFile;
-            bool extractSuccess = false;
-            if (Storage.openFileForWrite("EHP", cachedImagePath, cachedImageFile)) {
-              extractSuccess = self->epub->readItemContentsToStream(resolvedPath, cachedImageFile, 4096);
-              cachedImageFile.flush();
-              cachedImageFile.close();
-              delay(50);  // Give SD card time to sync
-            }
+          if (!resolvedPath.empty()) {
+            // Extract first, then inspect the bytes when the EPUB uses no file
+            // extension or a misleading extension. This covers many generator-
+            // produced EPUBs whose JPEG/PNG resources are named as generic items.
+            const std::string cacheBasePath =
+                self->imageBasePath + std::to_string(self->imageCounter++);
+            std::string cachedImagePath;
+            const bool extractSuccess = extractSupportedRasterImage(
+                self->epub.get(), resolvedPath, cacheBasePath, &cachedImagePath);
 
             if (extractSuccess) {
               // Get image dimensions
@@ -547,13 +708,19 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 Storage.remove(cachedImagePath.c_str());
               }
             } else {
-              LOG_ERR("EHP", "Failed to extract image");
+              LOG_ERR("EHP", "Failed to extract or identify image: %s", resolvedPath.c_str());
             }
-          }  // isFormatSupported
+          } else {
+            LOG_ERR("EHP", "Invalid image reference: src=%s", src.c_str());
+          }
         }
       }
 
-      // Fallback to alt text if image processing fails
+      if (self->imageRendering == CrossPointSettings::IMAGES_PLACEHOLDER) {
+        LOG_DBG("EHP", "Image placeholder requested by setting: %s", src.c_str());
+      }
+
+      // Fallback to alt text if image processing fails or placeholder mode is selected
       if (!alt.empty()) {
         alt = "[Image: " + alt + "]";
         self->startNewTextBlock(centeredBlockStyle);

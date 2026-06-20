@@ -7,6 +7,8 @@
 
 #include "ExternalFontCachePolicy.h"
 
+class TtfFontEngine;
+
 struct ExternalGlyphMetrics {
   uint8_t width = 0;
   uint8_t height = 0;
@@ -69,7 +71,7 @@ class ExternalFont {
    * "/fonts/KingHwaOldSong_38_33x39.bin")
    * @return true on success
    */
-  bool load(const char* filepath);
+  bool load(const char* filepath, uint8_t ttfPixelSize = 0);
 
   /**
    * Get glyph bitmap data (with LRU cache)
@@ -86,6 +88,9 @@ class ExternalFont {
    */
   void preloadGlyphs(const uint32_t* codepoints, size_t count);
 
+  /** Flush pending writes made by the runtime TTF persistent cache. */
+  void flushPersistentCache();
+
   // Font properties
   uint8_t getCharWidth() const { return _charWidth; }
   uint8_t getCharHeight() const { return _charHeight; }
@@ -98,6 +103,8 @@ class ExternalFont {
 
   bool isLoaded() const { return _isLoaded; }
   bool isRichMetricsFormat() const { return _isRichMetricsFormat; }
+  bool isTtfFormat() const { return _isTtfFormat; }
+  bool handlesAllCodepoints() const { return _isTtfFormat; }
   int16_t getAscender() const { return _fontMetrics.ascender; }
   int16_t getDescender() const { return _fontMetrics.descender; }
   uint16_t getLineHeight() const { return _fontMetrics.lineHeight; }
@@ -145,6 +152,8 @@ class ExternalFont {
   uint8_t _bytesPerRow = 0;
   uint16_t _bytesPerChar = 0;
   bool _isRichMetricsFormat = false;
+  bool _isTtfFormat = false;
+  TtfFontEngine* _ttfEngine = nullptr;
 
   // EPDFont format metadata (only valid when _isRichMetricsFormat is true)
   ExternalFontMetrics _fontMetrics;
@@ -156,10 +165,10 @@ class ExternalFont {
 
   // LRU cache - lazily allocated for bitmap rendering/preload, freed on unload()
   // or before memory-heavy section builds. 160 glyphs for CJK text rendering
-  // (~44KB per font when loaded).
+  // (~103KB at the maximum 60px TTF size; allocated in PSRAM).
   static constexpr int CACHE_SIZE = ExternalFontCachePolicy::kGlyphCacheSize;
   static constexpr int PRELOAD_LIMIT = ExternalFontCachePolicy::kPreloadLimit;
-  static constexpr int MAX_GLYPH_BYTES = 260;  // Max 260 bytes per glyph (e.g. up to 38x52)
+  static constexpr int MAX_GLYPH_BYTES = 640;  // Supports the 60x66px maximum TTF cell at 1 bpp
 
   struct CacheEntry {
     uint32_t codepoint = 0xFFFFFFFF;  // Invalid marker

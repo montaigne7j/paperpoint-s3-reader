@@ -10,7 +10,7 @@ using namespace i18n_strings;
 
 // Settings file path
 static constexpr const char* SETTINGS_FILE = "/.crosspoint/language.bin";
-static constexpr uint8_t SETTINGS_VERSION = 1;
+static constexpr uint8_t SETTINGS_VERSION = 2;
 
 I18n& I18n::getInstance() {
   static I18n instance;
@@ -63,14 +63,19 @@ void I18n::saveSettings() {
 void I18n::loadSettings() {
   FsFile file;
   if (!Storage.openFileForRead("I18N", SETTINGS_FILE, file)) {
-    Serial.printf("[I18N] No settings file, using default (English)\n");
+    _language = DEFAULT_LANGUAGE;
+    Serial.printf("[I18N] No settings file, using default (Traditional Chinese)\n");
+    saveSettings();
     return;
   }
 
   uint8_t version;
   serialization::readPod(file, version);
   if (version != SETTINGS_VERSION) {
-    Serial.printf("[I18N] Settings version mismatch\n");
+    file.close();
+    _language = DEFAULT_LANGUAGE;
+    Serial.printf("[I18N] Settings version mismatch, resetting to Traditional Chinese\n");
+    saveSettings();
     return;
   }
 
@@ -79,6 +84,11 @@ void I18n::loadSettings() {
   if (lang < static_cast<size_t>(Language::_COUNT)) {
     _language = static_cast<Language>(lang);
     Serial.printf("[I18N] Loaded language: %d\n", static_cast<int>(_language));
+  } else {
+    file.close();
+    _language = DEFAULT_LANGUAGE;
+    Serial.printf("[I18N] Invalid language value, resetting to Traditional Chinese\n");
+    saveSettings();
   }
 }
 
@@ -86,7 +96,7 @@ void I18n::loadSettings() {
 const char* I18n::getCharacterSet(Language lang) {
   const auto langIndex = static_cast<size_t>(lang);
   if (langIndex >= static_cast<size_t>(Language::_COUNT)) {
-    lang = Language::EN;  // Fallback to first language
+    lang = DEFAULT_LANGUAGE;  // Fallback to the configured default language
   }
 
   return CHARACTER_SETS[static_cast<size_t>(lang)];
