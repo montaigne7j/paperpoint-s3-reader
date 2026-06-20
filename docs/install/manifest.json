@@ -1,5 +1,5 @@
 {
-  "name": "CrossPoint Reader Paper S3",
+  "name": "PaperPoint S3 Reader",
   "version": "latest",
   "new_install_prompt_erase": true,
   "builds": [

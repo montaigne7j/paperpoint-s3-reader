@@ -1,15 +1,18 @@
-# CrossPoint Reader - M5Paper S3 中文版
+# PaperPoint S3 Reader（中文優先版）
 
-這是 [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) 的 **M5Stack Paper S3 / M5Paper S3** 移植版本，目標是在 ESP32-S3 電子紙裝置上閱讀 EPUB、TXT、XTC、圖片與自訂睡眠封面。
+**PaperPoint S3 Reader** 是基於 [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) 的 **M5Stack Paper S3 / M5Paper S3** 移植版本。
+
+這個 fork 的維護方向是 **中文優先**：主要目標是讓繁體中文使用者可以舒服地在 M5Paper S3 上閱讀 EPUB、TXT、XTC、圖片與自訂睡眠封面。原專案的多語系架構仍可能保留，但本 fork 不承諾維護所有語言翻譯；後續功能、文件、測試與介面調整會以中文閱讀體驗為主。
 
 專案使用 **PlatformIO** 編譯，目標晶片為 **ESP32-S3**，搭配 Paper S3 的 960x540 電子紙螢幕、GT911 觸控、SD 卡與 AXP2101 電源管理。
 
 ## 目前重點
 
+- 中文優先的 M5Paper S3 電子紙閱讀器韌體。
 - 針對 M5Paper S3 的顯示、觸控、SD 卡與電源流程調整。
 - 支援 EPUB 2/3 閱讀、最近書籍、閱讀進度、封面與睡眠畫面。
 - 支援 Wi-Fi 上傳書籍、OTA 更新與 KOReader Sync。
-- 支援多語系介面與可調整閱讀字體。
+- 支援可調整閱讀字體、版面、顯示與睡眠設定。
 - 支援電子紙灰階顯示，適合封面與睡眠圖片。
 - 提供 GitHub Actions 自動編譯與瀏覽器線上燒錄頁。
 
@@ -20,7 +23,7 @@
 安裝頁網址通常是：
 
 ```text
-https://montaigne7j.github.io/crosspoint-reader-papers3/install/
+https://montaigne7j.github.io/paperpoint-s3-reader/install/
 ```
 
 使用方式：
@@ -45,8 +48,8 @@ https://montaigne7j.github.io/crosspoint-reader-papers3/install/
 ### 取得專案
 
 ```sh
-git clone --recursive https://github.com/montaigne7j/crosspoint-reader-papers3.git
-cd crosspoint-reader-papers3
+git clone --recursive https://github.com/montaigne7j/paperpoint-s3-reader.git
+cd paperpoint-s3-reader
 ```
 
 ### 編譯
@@ -124,7 +127,6 @@ python -m esptool --chip esp32s3 --port COM5 --baud 921600 write_flash -z 0x0 me
 - Wi-Fi 書籍上傳。
 - OTA 韌體更新。
 - KOReader Sync 整合。
-- 多語系介面。
 - Paper S3 專用觸控與底部按鈕導覽。
 
 ## 操作方式
@@ -191,6 +193,10 @@ CrossPoint 會把章節資料快取到 SD 卡的 `.crosspoint/`，以降低 RAM 
 - `Build Web Installer`：產生瀏覽器燒錄用的 `merged-firmware.bin`，並部署到 GitHub Pages。
 
 `merged-firmware.bin` 是最適合一般使用者的燒錄檔，因為它已經包含 bootloader、partition table、boot app 與 firmware，可直接從 `0x0` 寫入。
+
+## 與原專案的關係
+
+PaperPoint S3 Reader 是 CrossPoint Reader 的 M5Paper S3 移植 fork。這個 repo 會保留原專案 attribution，但名稱與維護目標會與原專案區分：這裡主要照顧 Paper S3 硬體與中文使用情境。
 
 ## 致謝
 

@@ -38,13 +38,61 @@ def resolve_part(build_dir: Path, part_path: str) -> Path:
     return path
 
 
-def collect_parts(build_dir: Path, app_offset: str) -> list[tuple[int, Path]]:
+def find_boot_app(project_dir: Path) -> Path:
+    candidates = [
+        project_dir
+        / ".pio"
+        / "packages"
+        / "framework-arduinoespressif32"
+        / "tools"
+        / "partitions"
+        / "boot_app0.bin",
+        Path.home()
+        / ".platformio"
+        / "packages"
+        / "framework-arduinoespressif32"
+        / "tools"
+        / "partitions"
+        / "boot_app0.bin",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.resolve()
+
+    search_roots = [
+        project_dir / ".pio" / "packages",
+        Path.home() / ".platformio" / "packages",
+    ]
+    for root in search_roots:
+        if root.is_dir():
+            matches = list(root.glob("**/tools/partitions/boot_app0.bin"))
+            if matches:
+                return matches[0].resolve()
+
+    raise FileNotFoundError("Missing boot_app0.bin in PlatformIO package directories")
+
+
+def collect_parts(project_dir: Path, build_dir: Path, app_offset: str) -> list[tuple[int, Path]]:
     idedata_path = build_dir / "idedata.json"
     firmware_path = build_dir / "firmware.bin"
-    if not idedata_path.is_file():
-        raise FileNotFoundError(f"Missing PlatformIO metadata: {idedata_path}")
     if not firmware_path.is_file():
         raise FileNotFoundError(f"Missing application firmware: {firmware_path}")
+
+    if not idedata_path.is_file():
+        fallback_parts = [
+            (0x0000, build_dir / "bootloader.bin"),
+            (0x8000, build_dir / "partitions.bin"),
+            (0xE000, find_boot_app(project_dir)),
+            (int(app_offset, 0), firmware_path.resolve()),
+        ]
+        missing = [str(path) for _, path in fallback_parts if not path.is_file()]
+        if missing:
+            raise FileNotFoundError(
+                "Missing firmware part(s) without idedata fallback: "
+                + ", ".join(missing)
+            )
+        print(f"PlatformIO metadata not found at {idedata_path}; using standard offsets.")
+        return [(offset, path.resolve()) for offset, path in fallback_parts]
 
     idedata = json.loads(idedata_path.read_text(encoding="utf-8"))
     flash_images = idedata.get("extra", {}).get("flash_images", [])
@@ -67,7 +115,7 @@ def main() -> int:
     output = Path(args.output) if args.output else build_dir / "merged-firmware.bin"
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    parts = collect_parts(build_dir, args.app_offset)
+    parts = collect_parts(project_dir, build_dir, args.app_offset)
     command = [
         sys.executable,
         "-m",
