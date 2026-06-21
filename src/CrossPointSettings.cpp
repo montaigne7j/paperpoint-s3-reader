@@ -166,7 +166,11 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, sideButtonLayout, SIDE_BUTTON_LAYOUT_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
-    readAndValidate(inputFile, fontFamily, FONT_FAMILY_COUNT);
+    {
+      uint8_t legacyFontFamily = LEGACY_FONT_NOTOSANS;
+      serialization::readPod(inputFile, legacyFontFamily);
+      fontFamily = legacyFontFamily == LEGACY_FONT_READERDYSLEXIC ? READERDYSLEXIC : NOTOSANS;
+    }
     if (++settingsRead >= fileSettingsCount) break;
     {
       uint8_t legacyOrPixels = READER_FONT_SIZE_DEFAULT;
@@ -234,7 +238,7 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, sleepScreenCoverFilter, SLEEP_SCREEN_COVER_FILTER_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
-    serialization::readPod(inputFile, uiTheme);
+    readAndValidate(inputFile, uiTheme, UI_THEME_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, frontButtonBack, FRONT_BUTTON_HARDWARE_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
@@ -263,28 +267,9 @@ bool CrossPointSettings::loadFromBinaryFile() {
 
 float CrossPointSettings::getReaderLineCompression() const {
   switch (fontFamily) {
-    case BOOKERLY:
-    default:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.95f;
-        case NORMAL:
-        default:
-          return 1.0f;
-        case WIDE:
-          return 1.1f;
-      }
+    case READERDYSLEXIC:
     case NOTOSANS:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.90f;
-        case NORMAL:
-        default:
-          return 0.95f;
-        case WIDE:
-          return 1.0f;
-      }
-    case OPENDYSLEXIC:
+    default:
       switch (lineSpacing) {
         case TIGHT:
           return 0.90f;
@@ -345,20 +330,20 @@ int CrossPointSettings::getReaderFontId() const {
   }
 
   switch (fontFamily) {
-    case BOOKERLY:
-    default:
+    case READERDYSLEXIC:
       switch (sizeBucket) {
         case SMALL:
-          return BOOKERLY_12_FONT_ID;
+          return READERDYSLEXIC_8_FONT_ID;
         case MEDIUM:
         default:
-          return BOOKERLY_14_FONT_ID;
+          return READERDYSLEXIC_10_FONT_ID;
         case LARGE:
-          return BOOKERLY_16_FONT_ID;
+          return READERDYSLEXIC_12_FONT_ID;
         case EXTRA_LARGE:
-          return BOOKERLY_18_FONT_ID;
+          return READERDYSLEXIC_14_FONT_ID;
       }
     case NOTOSANS:
+    default:
       switch (sizeBucket) {
         case SMALL:
           return NOTOSANS_12_FONT_ID;
@@ -369,18 +354,6 @@ int CrossPointSettings::getReaderFontId() const {
           return NOTOSANS_16_FONT_ID;
         case EXTRA_LARGE:
           return NOTOSANS_18_FONT_ID;
-      }
-    case OPENDYSLEXIC:
-      switch (sizeBucket) {
-        case SMALL:
-          return OPENDYSLEXIC_8_FONT_ID;
-        case MEDIUM:
-        default:
-          return OPENDYSLEXIC_10_FONT_ID;
-        case LARGE:
-          return OPENDYSLEXIC_12_FONT_ID;
-        case EXTRA_LARGE:
-          return OPENDYSLEXIC_14_FONT_ID;
       }
   }
 }

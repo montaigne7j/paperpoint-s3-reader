@@ -59,26 +59,6 @@
         background: #fffaf1;
       }
 
-      .feature-list {
-        display: grid;
-        gap: 12px;
-        margin-top: 12px;
-      }
-
-      .feature {
-        border-left: 4px solid #1f4f85;
-        padding-left: 12px;
-      }
-
-      .feature strong {
-        display: block;
-        color: #173d5a;
-      }
-
-      .muted {
-        color: #5c5142;
-      }
-
       .actions {
         display: flex;
         flex-wrap: wrap;
@@ -127,30 +107,8 @@
     <main>
       <div>
         <h1>PaperPoint<br />S3 Reader</h1>
-        <p>中文優先的 M5Paper S3 電子紙閱讀器韌體。</p>
+        <p>中文優先的 M5Paper S3 電子紙閱讀器韌體。此頁提供 1.4.0 版線上安裝。</p>
       </div>
-
-      <section class="panel">
-        <h2>本版功能特色</h2>
-        <div class="feature-list">
-          <div class="feature">
-            <strong>休眠圖片支援 BMP / JPG / PNG</strong>
-            <span class="muted">圖片不必先裁成 540×960；不透明圖片會等比例中央裁切填滿螢幕。</span>
-          </div>
-          <div class="feature">
-            <strong>透明 PNG 可疊在閱讀頁上</strong>
-            <span class="muted">透明休眠圖可選擇使用目前閱讀頁面或白色背景，非閱讀畫面會自動使用白色背景。</span>
-          </div>
-          <div class="feature">
-            <strong>背景快取，關機不等解碼</strong>
-            <span class="muted">Paper S3 閒置時會預先建立電子紙灰階快取；若新圖尚未完成，會使用上一張有效快取或內建休眠圖。</span>
-          </div>
-          <div class="feature">
-            <strong>中文介面與閱讀字型</strong>
-            <span class="muted">預設繁體中文；閱讀內容可使用 SD 卡中的 TTF 字型，系統/UI 字型目前仍不是一般設定項目。</span>
-          </div>
-        </div>
-      </section>
 
       <section class="panel">
         <div class="actions">
@@ -179,21 +137,29 @@
       </section>
 
       <section class="panel">
+        <h2>本版新增重點</h2>
+        <ul>
+          <li>新增「大字」介面主題，放大設定、檔案瀏覽、最近閱讀、閱讀選單與閱讀狀態列。</li>
+          <li>大字主題下，閱讀狀態列的時鐘與章節名稱共用同一位置；兩者只會擇一顯示。</li>
+          <li>內建 PaperPoint Sans TC Medium 繁中字型 fallback，沒有 SD 卡字型也能顯示中文 UI。</li>
+          <li>主要閱讀格式：EPUB / TXT。Wi-Fi 傳輸仍屬未驗證功能。</li>
+        </ul>
+      </section>
+
+      <section class="panel">
         <h2>燒錄完成後的 SD 卡檔案</h2>
         <p>休眠封面與字型請放在 SD 卡根目錄的指定資料夾。</p>
         <ul>
           <li>
-            <code>/.sleep/</code>：休眠圖片可放 <code>.bmp</code>、
-            <code>.jpg</code>、<code>.jpeg</code>、<code>.png</code>。
-            不必預先裁成 <code>540x960</code>；不透明圖片會中央裁切填滿，
-            透明 PNG 會完整縮放置中。WEBP、GIF、APNG、CMYK JPEG 與 16-bit PNG
-            目前不保證支援。
+            <code>/.sleep/</code>：可放 <code>.bmp</code>、<code>.png</code>、
+            <code>.jpg</code> / <code>.jpeg</code>。圖片不必預先裁成
+            <code>540x960</code>；不透明圖片會中央裁切填滿螢幕，透明 PNG 會完整縮放置中。
           </li>
           <li>
             <code>/fonts/</code>：閱讀字型可放 <code>.ttf</code>、
             <code>.bin</code>、<code>.epdf</code>。其中
             <code>.bin</code>/<code>.epdf</code> 檔名需包含尺寸，例如
-            <code>KingHwaOldSong_17_23x30.bin</code>。
+            <code>MyFont_17_23x30.bin</code>。
           </li>
           <li>
             目前設定頁主要調整「閱讀字型」。系統介面/UI 字型還不是一般設定項目，

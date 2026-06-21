@@ -1,3 +1,9 @@
+/*
+ * Generated hyphenation data; do not remove this notice.
+ * Upstream: typst/hypher patterns/hyph-uk.tex at v0.1.7
+ * Licence: LPPL; LICENSES/LPPL-1.3c.txt
+ * Full attribution: HYPHENATION_LICENSES.md
+ */
 #pragma once
 
 #include <cstddef>

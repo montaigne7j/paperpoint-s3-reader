@@ -899,10 +899,14 @@ void ParsedText::layoutAndExtractColumns(
    */
   applyParagraphIndent();
 
+  // A 21x30 fixed-cell CJK glyph needs visible air between vertically
+  // stacked characters.  Previously advance == line height, which made ink
+  // from adjacent characters appear almost connected.
+  constexpr int verticalGlyphGap = 4;
   const int glyphAdvance =
       std::max(
           1,
-          renderer.getLineHeight(fontId)
+          renderer.getLineHeight(fontId) + verticalGlyphGap
       );
 
   const int maxCellsPerColumn =

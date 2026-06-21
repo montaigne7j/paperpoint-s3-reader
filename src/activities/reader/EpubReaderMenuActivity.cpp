@@ -125,6 +125,63 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
   const int hintGutterHeight = isPortraitInverted ? 50 : 0;
   const int contentY = hintGutterHeight;
 
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::LARGE_TEXT) {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    const int headerY = contentY + metrics.topPadding;
+    GUI.drawHeader(renderer, Rect{contentX, headerY, contentWidth, metrics.headerHeight}, title.c_str());
+
+    std::string progressLine;
+    if (totalPages > 0) {
+      progressLine = std::string(tr(STR_CHAPTER_PREFIX)) + std::to_string(currentPage) + "/" +
+                     std::to_string(totalPages) + std::string(tr(STR_PAGES_SEPARATOR));
+    }
+    progressLine += std::string(tr(STR_BOOK_PREFIX)) + std::to_string(bookProgressPercent) + "%";
+
+    constexpr int largeScale = 2;
+    const int progressY = headerY + metrics.headerHeight + metrics.verticalSpacing;
+    const int progressMaxWidth = std::max(1, contentWidth - metrics.contentSidePadding * 2);
+    auto progressText =
+        renderer.truncatedTextScaled(UI_10_FONT_ID, progressLine.c_str(), progressMaxWidth, largeScale);
+    const int progressWidth = renderer.getTextWidthScaled(UI_10_FONT_ID, progressText.c_str(), largeScale);
+    renderer.drawTextScaled(UI_10_FONT_ID, contentX + (contentWidth - progressWidth) / 2, progressY,
+                            progressText.c_str(), largeScale);
+
+    const int listY = progressY + renderer.getLineHeightScaled(UI_10_FONT_ID, largeScale) + metrics.verticalSpacing;
+    const int footerTop = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing;
+    const int listHeight = std::max(1, footerTop - listY);
+
+    GUI.drawList(
+        renderer, Rect{contentX, listY, contentWidth, listHeight}, static_cast<int>(menuItems.size()), selectedIndex,
+        [this](int index) {
+          std::string itemLabel = I18N.get(menuItems[index].labelId);
+          if (menuItems[index].action == MenuAction::READER_SETTINGS) {
+            itemLabel += " ";
+            itemLabel += tr(STR_SETTINGS_TITLE);
+          }
+          return itemLabel;
+        },
+        nullptr, nullptr,
+        [this](int index) -> std::string {
+          if (menuItems[index].action == MenuAction::ROTATE_SCREEN) {
+#if CROSSPOINT_PAPERS3
+            return I18N.get(orientationLabels[orientationLabelIndex(pendingOrientation)]);
+#else
+            return I18N.get(orientationLabels[pendingOrientation]);
+#endif
+          }
+          if (menuItems[index].action == MenuAction::AUTO_PAGE_TURN) {
+            return pageTurnLabels[selectedPageTurnOption];
+          }
+          return "";
+        },
+        true);
+
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
+
 #if CROSSPOINT_PAPERS3
   // EpubReaderMenu is a non-reader activity, so Activity::onEnter() enables
   // footer mode and the existing top-left 64x64 power hotspot. Draw the same

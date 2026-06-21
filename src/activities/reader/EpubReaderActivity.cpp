@@ -26,6 +26,7 @@
 #include "fontIds.h"
 #include "util/ScreenshotUtil.h"
 
+#include <functional>
 #include <vector>
 #include <string>
 #include <utility>
@@ -607,12 +608,26 @@ void EpubReaderActivity::render(RenderLock&& lock) {
                                   SETTINGS.imageRendering, SETTINGS.readingLayout)) {
       LOG_DBG("ERS", "Cache not found, building...");
 
-      const auto popupFn = [this]() { GUI.drawPopup(renderer, tr(STR_INDEXING)); };
+      Rect popupRect{};
+      bool popupShown = false;
+      const auto popupFn = [this, &popupRect, &popupShown]() {
+        if (!popupShown) {
+          popupRect = GUI.drawPopup(renderer, tr(STR_INDEXING));
+          popupShown = true;
+        }
+      };
+      const auto popupProgressFn = [this, &popupRect, &popupShown](int progress) {
+        if (!popupShown) {
+          popupRect = GUI.drawPopup(renderer, tr(STR_INDEXING));
+          popupShown = true;
+        }
+        GUI.fillPopupProgress(renderer, popupRect, progress);
+      };
 
       if (!section->createSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
                                       SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                       viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
-                                      SETTINGS.imageRendering, SETTINGS.readingLayout, popupFn)) {
+                                      SETTINGS.imageRendering, SETTINGS.readingLayout, popupFn, popupProgressFn)) {
         LOG_ERR("ERS", "Failed to persist page data to SD");
         section.reset();
         return;
@@ -739,7 +754,8 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   if (!nextSection.createSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
                                      SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                      viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
-                                     SETTINGS.imageRendering, SETTINGS.readingLayout)) {
+                                     SETTINGS.imageRendering, SETTINGS.readingLayout, std::function<void()>{},
+                                     std::function<void(int)>{}, true)) {
     LOG_ERR("ERS", "Failed silent indexing for chapter: %d", nextSpineIndex);
   }
 }

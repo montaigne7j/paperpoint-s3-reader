@@ -53,11 +53,17 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import configparser
           from pathlib import Path
+
+          config = configparser.ConfigParser()
+          config.read("platformio.ini", encoding="utf-8")
+          firmware_version = config.get("crosspoint", "version", fallback="latest")
+          ref_name = os.environ.get("GITHUB_REF_NAME", "")
 
           manifest_path = Path("docs/install/manifest.json")
           manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-          manifest["version"] = os.environ.get("GITHUB_REF_NAME", "latest")
+          manifest["version"] = ref_name if ref_name and ref_name != "master" else firmware_version
           manifest_path.write_text(
               json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
               encoding="utf-8",

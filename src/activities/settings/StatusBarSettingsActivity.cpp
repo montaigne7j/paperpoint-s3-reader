@@ -107,6 +107,10 @@ void StatusBarSettingsActivity::onEnter() {
     SETTINGS.clockFormat = 0;
   }
 
+  if (SETTINGS.statusBarClock && halClock.isAvailable()) {
+    SETTINGS.statusBarTitle = CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE;
+  }
+
   requestUpdate();
 }
 
@@ -163,12 +167,18 @@ void StatusBarSettingsActivity::handleSelection() {
       break;
     case ITEM_TITLE:
       SETTINGS.statusBarTitle = (SETTINGS.statusBarTitle + 1) % TITLE_ITEMS;
+      if (SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE) {
+        SETTINGS.statusBarClock = 0;
+      }
       break;
     case ITEM_BATTERY:
       SETTINGS.statusBarBattery = (SETTINGS.statusBarBattery + 1) % 2;
       break;
     case ITEM_CLOCK:
       SETTINGS.statusBarClock = (SETTINGS.statusBarClock + 1) % 2;
+      if (SETTINGS.statusBarClock) {
+        SETTINGS.statusBarTitle = CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE;
+      }
       break;
     case ITEM_CLOCK_FORMAT:
       SETTINGS.clockFormat = (SETTINGS.clockFormat + 1) % CLOCK_FORMAT_ITEMS;

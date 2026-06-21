@@ -1,3 +1,9 @@
+/*
+ * Generated hyphenation data; do not remove this notice.
+ * Upstream: typst/hypher patterns/hyph-de-1996.tex at v0.1.7
+ * Licence: MIT; LICENSES/MIT.txt
+ * Full attribution: HYPHENATION_LICENSES.md
+ */
 #pragma once
 
 #include <cstddef>

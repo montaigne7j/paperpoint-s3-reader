@@ -68,7 +68,7 @@ class ExternalFont {
   /**
    * Load font from .bin or .epdf file.
    * @param filepath Full path on SD card (e.g.
-   * "/fonts/KingHwaOldSong_38_33x39.bin")
+   * "/fonts/MyFont_38_33x39.bin")
    * @return true on success
    */
   bool load(const char* filepath, uint8_t ttfPixelSize = 0);

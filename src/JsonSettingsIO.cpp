@@ -116,6 +116,7 @@ bool JsonSettingsIO::loadState(CrossPointState& s, const char* json) {
 
 bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path) {
   JsonDocument doc;
+  doc["settingsSchemaVersion"] = 2;
 
   for (const auto& info : getSettingsList()) {
     if (!info.key) continue;
@@ -161,6 +162,7 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   }
 
   auto clamp = [](uint8_t val, uint8_t maxVal, uint8_t def) -> uint8_t { return val < maxVal ? val : def; };
+  const uint8_t settingsSchemaVersion = doc["settingsSchemaVersion"] | static_cast<uint8_t>(1);
 
   // Legacy migration: if statusBarChapterPageCount is absent this is a pre-refactor settings file.
   // Populate s with migrated values now so the generic loop below picks them up as defaults and clamps them.
@@ -199,6 +201,15 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     } else {
       const uint8_t fieldDefault = s.*(info.valuePtr);  // struct-initializer default, read before we overwrite it
       uint8_t v = doc[info.key] | fieldDefault;
+
+      // Schema 1 values: 0=removed proprietary font, 1=Noto Sans, 2=legacy dyslexia-friendly font.
+      // Schema 2 maps them to Noto Sans or the renamed ReaderDyslexic derivative.
+      if (info.valuePtr == &CrossPointSettings::fontFamily && settingsSchemaVersion < 2) {
+        v = v == CrossPointSettings::LEGACY_FONT_READERDYSLEXIC
+                ? CrossPointSettings::READERDYSLEXIC
+                : CrossPointSettings::NOTOSANS;
+        if (needsResave) *needsResave = true;
+      }
 
       // Reader font size used to be an enum (0..3). Migrate old JSON files to
       // their equivalent runtime TTF pixel sizes before applying VALUE bounds.

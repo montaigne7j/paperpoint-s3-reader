@@ -68,44 +68,22 @@ FontDecompressor fontDecompressor;
 FontCacheManager fontCacheManager(renderer.getFontMap());
 
 // Fonts
-EpdFont bookerly14RegularFont(&bookerly_14_regular);
-EpdFont bookerly14BoldFont(&bookerly_14_bold);
-EpdFont bookerly14ItalicFont(&bookerly_14_italic);
-EpdFont bookerly14BoldItalicFont(&bookerly_14_bolditalic);
-EpdFontFamily bookerly14FontFamily(&bookerly14RegularFont, &bookerly14BoldFont, &bookerly14ItalicFont,
-                                   &bookerly14BoldItalicFont);
-#ifndef OMIT_FONTS
-EpdFont bookerly12RegularFont(&bookerly_12_regular);
-EpdFont bookerly12BoldFont(&bookerly_12_bold);
-EpdFont bookerly12ItalicFont(&bookerly_12_italic);
-EpdFont bookerly12BoldItalicFont(&bookerly_12_bolditalic);
-EpdFontFamily bookerly12FontFamily(&bookerly12RegularFont, &bookerly12BoldFont, &bookerly12ItalicFont,
-                                   &bookerly12BoldItalicFont);
-EpdFont bookerly16RegularFont(&bookerly_16_regular);
-EpdFont bookerly16BoldFont(&bookerly_16_bold);
-EpdFont bookerly16ItalicFont(&bookerly_16_italic);
-EpdFont bookerly16BoldItalicFont(&bookerly_16_bolditalic);
-EpdFontFamily bookerly16FontFamily(&bookerly16RegularFont, &bookerly16BoldFont, &bookerly16ItalicFont,
-                                   &bookerly16BoldItalicFont);
-EpdFont bookerly18RegularFont(&bookerly_18_regular);
-EpdFont bookerly18BoldFont(&bookerly_18_bold);
-EpdFont bookerly18ItalicFont(&bookerly_18_italic);
-EpdFont bookerly18BoldItalicFont(&bookerly_18_bolditalic);
-EpdFontFamily bookerly18FontFamily(&bookerly18RegularFont, &bookerly18BoldFont, &bookerly18ItalicFont,
-                                   &bookerly18BoldItalicFont);
 
-EpdFont notosans12RegularFont(&notosans_12_regular);
-EpdFont notosans12BoldFont(&notosans_12_bold);
-EpdFont notosans12ItalicFont(&notosans_12_italic);
-EpdFont notosans12BoldItalicFont(&notosans_12_bolditalic);
-EpdFontFamily notosans12FontFamily(&notosans12RegularFont, &notosans12BoldFont, &notosans12ItalicFont,
-                                   &notosans12BoldItalicFont);
+// Keep the default reader family available even for reduced OMIT_FONTS builds.
 EpdFont notosans14RegularFont(&notosans_14_regular);
 EpdFont notosans14BoldFont(&notosans_14_bold);
 EpdFont notosans14ItalicFont(&notosans_14_italic);
 EpdFont notosans14BoldItalicFont(&notosans_14_bolditalic);
 EpdFontFamily notosans14FontFamily(&notosans14RegularFont, &notosans14BoldFont, &notosans14ItalicFont,
                                    &notosans14BoldItalicFont);
+
+#ifndef OMIT_FONTS
+EpdFont notosans12RegularFont(&notosans_12_regular);
+EpdFont notosans12BoldFont(&notosans_12_bold);
+EpdFont notosans12ItalicFont(&notosans_12_italic);
+EpdFont notosans12BoldItalicFont(&notosans_12_bolditalic);
+EpdFontFamily notosans12FontFamily(&notosans12RegularFont, &notosans12BoldFont, &notosans12ItalicFont,
+                                   &notosans12BoldItalicFont);
 EpdFont notosans16RegularFont(&notosans_16_regular);
 EpdFont notosans16BoldFont(&notosans_16_bold);
 EpdFont notosans16ItalicFont(&notosans_16_italic);
@@ -119,42 +97,47 @@ EpdFont notosans18BoldItalicFont(&notosans_18_bolditalic);
 EpdFontFamily notosans18FontFamily(&notosans18RegularFont, &notosans18BoldFont, &notosans18ItalicFont,
                                    &notosans18BoldItalicFont);
 
-EpdFont opendyslexic8RegularFont(&opendyslexic_8_regular);
-EpdFont opendyslexic8BoldFont(&opendyslexic_8_bold);
-EpdFont opendyslexic8ItalicFont(&opendyslexic_8_italic);
-EpdFont opendyslexic8BoldItalicFont(&opendyslexic_8_bolditalic);
-EpdFontFamily opendyslexic8FontFamily(&opendyslexic8RegularFont, &opendyslexic8BoldFont, &opendyslexic8ItalicFont,
-                                      &opendyslexic8BoldItalicFont);
-EpdFont opendyslexic10RegularFont(&opendyslexic_10_regular);
-EpdFont opendyslexic10BoldFont(&opendyslexic_10_bold);
-EpdFont opendyslexic10ItalicFont(&opendyslexic_10_italic);
-EpdFont opendyslexic10BoldItalicFont(&opendyslexic_10_bolditalic);
-EpdFontFamily opendyslexic10FontFamily(&opendyslexic10RegularFont, &opendyslexic10BoldFont, &opendyslexic10ItalicFont,
-                                       &opendyslexic10BoldItalicFont);
-EpdFont opendyslexic12RegularFont(&opendyslexic_12_regular);
-EpdFont opendyslexic12BoldFont(&opendyslexic_12_bold);
-EpdFont opendyslexic12ItalicFont(&opendyslexic_12_italic);
-EpdFont opendyslexic12BoldItalicFont(&opendyslexic_12_bolditalic);
-EpdFontFamily opendyslexic12FontFamily(&opendyslexic12RegularFont, &opendyslexic12BoldFont, &opendyslexic12ItalicFont,
-                                       &opendyslexic12BoldItalicFont);
-EpdFont opendyslexic14RegularFont(&opendyslexic_14_regular);
-EpdFont opendyslexic14BoldFont(&opendyslexic_14_bold);
-EpdFont opendyslexic14ItalicFont(&opendyslexic_14_italic);
-EpdFont opendyslexic14BoldItalicFont(&opendyslexic_14_bolditalic);
-EpdFontFamily opendyslexic14FontFamily(&opendyslexic14RegularFont, &opendyslexic14BoldFont, &opendyslexic14ItalicFont,
-                                       &opendyslexic14BoldItalicFont);
+EpdFont readerdyslexic8RegularFont(&readerdyslexic_8_regular);
+EpdFont readerdyslexic8BoldFont(&readerdyslexic_8_bold);
+EpdFont readerdyslexic8ItalicFont(&readerdyslexic_8_italic);
+EpdFont readerdyslexic8BoldItalicFont(&readerdyslexic_8_bolditalic);
+EpdFontFamily readerdyslexic8FontFamily(&readerdyslexic8RegularFont, &readerdyslexic8BoldFont, &readerdyslexic8ItalicFont,
+                                      &readerdyslexic8BoldItalicFont);
+EpdFont readerdyslexic10RegularFont(&readerdyslexic_10_regular);
+EpdFont readerdyslexic10BoldFont(&readerdyslexic_10_bold);
+EpdFont readerdyslexic10ItalicFont(&readerdyslexic_10_italic);
+EpdFont readerdyslexic10BoldItalicFont(&readerdyslexic_10_bolditalic);
+EpdFontFamily readerdyslexic10FontFamily(&readerdyslexic10RegularFont, &readerdyslexic10BoldFont, &readerdyslexic10ItalicFont,
+                                       &readerdyslexic10BoldItalicFont);
+EpdFont readerdyslexic12RegularFont(&readerdyslexic_12_regular);
+EpdFont readerdyslexic12BoldFont(&readerdyslexic_12_bold);
+EpdFont readerdyslexic12ItalicFont(&readerdyslexic_12_italic);
+EpdFont readerdyslexic12BoldItalicFont(&readerdyslexic_12_bolditalic);
+EpdFontFamily readerdyslexic12FontFamily(&readerdyslexic12RegularFont, &readerdyslexic12BoldFont, &readerdyslexic12ItalicFont,
+                                       &readerdyslexic12BoldItalicFont);
+EpdFont readerdyslexic14RegularFont(&readerdyslexic_14_regular);
+EpdFont readerdyslexic14BoldFont(&readerdyslexic_14_bold);
+EpdFont readerdyslexic14ItalicFont(&readerdyslexic_14_italic);
+EpdFont readerdyslexic14BoldItalicFont(&readerdyslexic_14_bolditalic);
+EpdFontFamily readerdyslexic14FontFamily(&readerdyslexic14RegularFont, &readerdyslexic14BoldFont, &readerdyslexic14ItalicFont,
+                                       &readerdyslexic14BoldItalicFont);
 #endif  // OMIT_FONTS
 
 EpdFont smallFont(&notosans_8_regular);
 EpdFontFamily smallFontFamily(&smallFont);
 
-EpdFont ui10RegularFont(&ubuntu_10_regular);
-EpdFont ui10BoldFont(&ubuntu_10_bold);
+EpdFont ui10RegularFont(&ubuntu_derivative_paperpoint_10_regular);
+EpdFont ui10BoldFont(&ubuntu_derivative_paperpoint_10_bold);
 EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont);
 
-EpdFont ui12RegularFont(&ubuntu_12_regular);
-EpdFont ui12BoldFont(&ubuntu_12_bold);
+EpdFont ui12RegularFont(&ubuntu_derivative_paperpoint_12_regular);
+EpdFont ui12BoldFont(&ubuntu_derivative_paperpoint_12_bold);
 EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
+
+// Embedded Traditional Chinese fallback. The sparse/cropped bitmap data is
+// always available, so Chinese UI and EPUB text work without an SD font.
+EpdFont paperpointSansTcMediumFont(&paperpoint_sans_tc_15_5_medium);
+EpdFontFamily paperpointSansTcFallbackFamily(&paperpointSansTcMediumFont);
 
 // measurement of power button press duration calibration value
 unsigned long t1 = 0;
@@ -270,74 +253,19 @@ void setupExternalFonts() {
   // 嘗試恢復 /.crosspoint/font_settings.bin 中的選擇。
   fontManager.loadSettings();
 
-  // 暫時自動指定 Noto 14x20 為 UI 字型。
-  constexpr const char* UI_FONT_FILENAME =
-      "KingHwaOldSong_17_23x30.bin";
-      // "NotoSansCJKTC_14_18x26.bin";
-
-  bool uiFontFound = false;
-
-  for (int i = 0; i < fontManager.getFontCount(); ++i) {
-    const FontInfo* info = fontManager.getFontInfo(i);
-
-    if (info == nullptr) {
-      continue;
+  // The embedded PaperPoint Sans TC font is now the default Chinese UI
+  // fallback. loadSettings() may still restore an explicitly selected external
+  // UI font, but no SD-card font is auto-forced on every boot.
+  if (fontManager.isUiFontEnabled() &&
+      fontManager.getActiveUiFont() != nullptr) {
+    const int uiIndex = fontManager.getUiSelectedIndex();
+    const FontInfo* uiInfo = fontManager.getFontInfo(uiIndex);
+    if (uiInfo != nullptr) {
+      LOG_INF("MAIN", "Saved external UI font active: %s (%dpt, %dx%d)",
+              uiInfo->filename, uiInfo->size, uiInfo->width, uiInfo->height);
     }
-
-    if (strcmp(info->filename, UI_FONT_FILENAME) != 0) {
-      continue;
-    }
-
-    uiFontFound = true;
-
-    const bool uiFontAlreadyActive =
-        fontManager.getUiSelectedIndex() == i &&
-        fontManager.isUiFontEnabled();
-
-    if (uiFontAlreadyActive) {
-      // loadSettings() has already restored and loaded this exact UI font.
-      // Do not parse the same file again and do not rewrite the settings file
-      // on every boot.
-      LOG_INF(
-          "MAIN",
-          "External UI font already active: %s "
-          "(%dpt, %dx%d)",
-          info->filename,
-          info->size,
-          info->width,
-          info->height
-      );
-    } else if (fontManager.previewUiFont(i)) {
-      // Save only when the configured/default UI font actually changed, or
-      // when the saved font could not be restored and had to be loaded again.
-      fontManager.saveSettings();
-
-      LOG_INF(
-          "MAIN",
-          "External UI font active: %s "
-          "(%dpt, %dx%d)",
-          info->filename,
-          info->size,
-          info->width,
-          info->height
-      );
-    } else {
-      LOG_ERR(
-          "MAIN",
-          "Failed to load external UI font: %s",
-          info->filename
-      );
-    }
-
-    break;
-  }
-
-  if (!uiFontFound) {
-    LOG_ERR(
-        "MAIN",
-        "UI font not found: %s",
-        UI_FONT_FILENAME
-    );
+  } else {
+    LOG_INF("MAIN", "Using embedded Traditional Chinese UI fallback");
   }
 
   // Preserve an explicit "Built-in font" selection. Only choose the first
@@ -396,24 +324,21 @@ void setupDisplayAndFonts() {
   }
   fontCacheManager.setFontDecompressor(&fontDecompressor);
   renderer.setFontCacheManager(&fontCacheManager);
-  renderer.insertFont(BOOKERLY_14_FONT_ID, bookerly14FontFamily);
-#ifndef OMIT_FONTS
-  renderer.insertFont(BOOKERLY_12_FONT_ID, bookerly12FontFamily);
-  renderer.insertFont(BOOKERLY_16_FONT_ID, bookerly16FontFamily);
-  renderer.insertFont(BOOKERLY_18_FONT_ID, bookerly18FontFamily);
-
-  renderer.insertFont(NOTOSANS_12_FONT_ID, notosans12FontFamily);
   renderer.insertFont(NOTOSANS_14_FONT_ID, notosans14FontFamily);
+#ifndef OMIT_FONTS
+  renderer.insertFont(NOTOSANS_12_FONT_ID, notosans12FontFamily);
   renderer.insertFont(NOTOSANS_16_FONT_ID, notosans16FontFamily);
   renderer.insertFont(NOTOSANS_18_FONT_ID, notosans18FontFamily);
-  renderer.insertFont(OPENDYSLEXIC_8_FONT_ID, opendyslexic8FontFamily);
-  renderer.insertFont(OPENDYSLEXIC_10_FONT_ID, opendyslexic10FontFamily);
-  renderer.insertFont(OPENDYSLEXIC_12_FONT_ID, opendyslexic12FontFamily);
-  renderer.insertFont(OPENDYSLEXIC_14_FONT_ID, opendyslexic14FontFamily);
+  renderer.insertFont(READERDYSLEXIC_8_FONT_ID, readerdyslexic8FontFamily);
+  renderer.insertFont(READERDYSLEXIC_10_FONT_ID, readerdyslexic10FontFamily);
+  renderer.insertFont(READERDYSLEXIC_12_FONT_ID, readerdyslexic12FontFamily);
+  renderer.insertFont(READERDYSLEXIC_14_FONT_ID, readerdyslexic14FontFamily);
 #endif  // OMIT_FONTS
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
+  renderer.setBuiltinFallbackFont(&paperpointSansTcFallbackFamily);
+  LOG_INF("MAIN", "Built-in Traditional Chinese fallback active: 21x30 source; compact UI/status scaled to 100% at render time");
   LOG_DBG("MAIN", "Fonts setup");
 }
 

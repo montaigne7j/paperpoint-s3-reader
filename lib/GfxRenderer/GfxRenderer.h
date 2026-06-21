@@ -39,6 +39,7 @@ class GfxRenderer {
   uint8_t* frameBuffer = nullptr;
   uint8_t* bwBufferStored = nullptr;  // Single PSRAM allocation for BW buffer backup
   std::map<int, EpdFontFamily> fontMap;
+  const EpdFontFamily* builtinFallbackFont_ = nullptr;
 
   // Mutable because drawText() is const but needs to delegate scan-mode
   // recording to the (non-const) FontCacheManager. Same pragmatic compromise
@@ -67,6 +68,59 @@ class GfxRenderer {
     const char* text,
     EpdFontFamily::Style style
 ) const;
+
+  int getTextWidthBuiltinFallback(
+      int fontId,
+      const EpdFontFamily& primaryFont,
+      const char* text,
+      EpdFontFamily::Style style
+  ) const;
+
+  const EpdFontFamily* getBuiltinFallbackForFontId(int fontId) const;
+
+  bool shouldUseBuiltinFallback(
+      const EpdFontFamily& primaryFont,
+      const EpdFontFamily* fallbackFont,
+      uint32_t codepoint,
+      EpdFontFamily::Style style
+  ) const;
+
+  bool renderBuiltinFallbackGlyphCentered(
+      int cellX,
+      int cellY,
+      int cellWidth,
+      int cellHeight,
+      uint32_t codepoint,
+      bool pixelState,
+      EpdFontFamily::Style style
+  ) const;
+
+  bool renderBuiltinFallbackGlyphRotated90CW(
+      int cellX,
+      int cellY,
+      int cellSize,
+      uint32_t codepoint,
+      bool pixelState,
+      EpdFontFamily::Style style
+  ) const;
+
+  bool renderBuiltinFallbackGlyphScaled(
+      const EpdFontFamily& fallbackFont,
+      uint32_t codepoint,
+      int cursorX,
+      int lineTopY,
+      bool pixelState,
+      EpdFontFamily::Style style
+  ) const;
+
+  bool renderBuiltinFallbackGlyphScaledRotated90CW(
+      const EpdFontFamily& fallbackFont,
+      uint32_t codepoint,
+      int cursorX,
+      int cursorY,
+      bool pixelState,
+      EpdFontFamily::Style style
+  ) const;
 
 bool renderExternalReaderGlyph(
     uint32_t cp,
@@ -137,6 +191,8 @@ void renderExternalGlyph(
   // Setup
   void begin();  // must be called right after display.begin()
   void insertFont(int fontId, EpdFontFamily font);
+  void setBuiltinFallbackFont(const EpdFontFamily* font) { builtinFallbackFont_ = font; }
+  const EpdFontFamily* getBuiltinFallbackFont() const { return builtinFallbackFont_; }
   void setFontCacheManager(FontCacheManager* m) { fontCacheManager_ = m; }
   FontCacheManager* getFontCacheManager() const { return fontCacheManager_; }
   const std::map<int, EpdFontFamily>& getFontMap() const { return fontMap; }
@@ -204,10 +260,16 @@ void renderExternalGlyph(
 
   // Text
   int getTextWidth(int fontId, const char* text, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+  int getTextWidthScaled(int fontId, const char* text, int scale,
+                         EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   void drawCenteredText(int fontId, int y, const char* text, bool black = true,
                         EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+  void drawCenteredTextScaled(int fontId, int y, const char* text, int scale, bool black = true,
+                              EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   void drawText(int fontId, int x, int y, const char* text, bool black = true,
                 EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+  void drawTextScaled(int fontId, int x, int y, const char* text, int scale, bool black = true,
+                      EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
 
   void drawVerticalText(
       int fontId,
@@ -229,8 +291,11 @@ void renderExternalGlyph(
   int getTextAdvanceX(int fontId, const char* text, EpdFontFamily::Style style) const;
   int getFontAscenderSize(int fontId) const;
   int getLineHeight(int fontId) const;
+  int getLineHeightScaled(int fontId, int scale) const;
   std::string truncatedText(int fontId, const char* text, int maxWidth,
                             EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+  std::string truncatedTextScaled(int fontId, const char* text, int maxWidth, int scale,
+                                  EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   /// Word-wrap \p text into at most \p maxLines lines, each no wider than
   /// \p maxWidth pixels. Overflowing words and excess lines are UTF-8-safely
   /// truncated with an ellipsis (U+2026).

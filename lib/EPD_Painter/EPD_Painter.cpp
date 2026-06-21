@@ -1,3 +1,11 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Derived from EPD_Painter by Tony Weston and contributors:
+ * https://github.com/tonywestonuk/EPD_Painter
+ *
+ * Modified for CrossPoint/PaperPoint on 2026-06-20.
+ * See lib/EPD_Painter/NOTICE and lib/EPD_Painter/LICENSE.
+ */
 #include "esp32-hal.h"
 // Shutdown module removed for CrossPoint integration
 #include <driver/periph_ctrl.h>

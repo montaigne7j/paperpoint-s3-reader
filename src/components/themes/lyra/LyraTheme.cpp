@@ -5,6 +5,7 @@
 #include <HalStorage.h>
 #include <I18n.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -165,12 +166,17 @@ void drawLyraListRow(const GfxRenderer& renderer, const Rect rect, const int ite
 
   int rowTextWidth = textWidth;
   int valueWidth = 0;
+  int valueTextWidth = 0;
+  constexpr int valueGap = 12;
+  constexpr int valueRightSafeInset = 8;
   std::string valueText;
   if (rowValue != nullptr) {
+    const int valueColumnWidth = std::min(maxListValueWidth, std::max(70, (textWidth - valueGap) / 2));
     valueText = rowValue(index);
-    valueText = renderer.truncatedText(UI_10_FONT_ID, valueText.c_str(), maxListValueWidth);
-    valueWidth = renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str()) + hPaddingInSelection;
-    rowTextWidth -= valueWidth;
+    valueText = renderer.truncatedText(UI_10_FONT_ID, valueText.c_str(), valueColumnWidth);
+    valueTextWidth = renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str());
+    valueWidth = valueTextWidth + hPaddingInSelection;
+    rowTextWidth = std::max(60, rowTextWidth - valueWidth - valueGap);
   }
 
   auto itemName = rowTitle(index);
@@ -194,14 +200,17 @@ void drawLyraListRow(const GfxRenderer& renderer, const Rect rect, const int ite
   }
 
   if (!valueText.empty()) {
+    const int valueRight =
+        rect.x + contentWidth - LyraMetrics::values.contentSidePadding - hPaddingInSelection - valueRightSafeInset;
+    const int valueX = valueRight - valueTextWidth;
+
     if (index == selectedIndex && highlightValue) {
-      renderer.fillRoundedRect(
-          contentWidth - LyraMetrics::values.contentSidePadding - hPaddingInSelection - valueWidth, itemY,
-          valueWidth + hPaddingInSelection, rowHeight, cornerRadius, Color::Black);
+      renderer.fillRoundedRect(valueX - hPaddingInSelection, itemY, valueWidth + hPaddingInSelection, rowHeight,
+                               cornerRadius, Color::Black);
     }
 
-    renderer.drawText(UI_10_FONT_ID, rect.x + contentWidth - LyraMetrics::values.contentSidePadding - valueWidth,
-                      itemY + textYOffset, valueText.c_str(), !(index == selectedIndex && highlightValue));
+    renderer.drawText(UI_10_FONT_ID, valueX, itemY + textYOffset, valueText.c_str(),
+                      !(index == selectedIndex && highlightValue));
   }
 }
 }  // namespace

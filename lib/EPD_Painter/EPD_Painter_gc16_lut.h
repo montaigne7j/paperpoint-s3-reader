@@ -1,3 +1,13 @@
+/*
+ * SPDX-License-Identifier: BSD-2-Clause
+ * GC16 waveform data adapted from LovyanGFX/M5GFX Panel_EPD.cpp.
+ * Copyright (c) 2020 lovyan03 (https://github.com/lovyan03).
+ * All rights reserved.
+ *
+ * Modified and integrated for CrossPoint/PaperPoint on 2026-06-20.
+ * Full terms: LICENSES/BSD-2-Clause-LovyanGFX.txt
+ */
+
 #ifndef EPD_PAINTER_GC16_LUT_H
 #define EPD_PAINTER_GC16_LUT_H
 
@@ -5,12 +15,6 @@
 #include <cstdint>
 
 /*
- * GC16 waveform adapted from:
- * LovyanGFX / M5GFX 0.2.15
- * src/lgfx/v1/platforms/esp32/Panel_EPD.cpp
- *
- * Original project license: FreeBSD
- *
  * LUT value:
  *   0 = end / neutral
  *   1 = drive toward black

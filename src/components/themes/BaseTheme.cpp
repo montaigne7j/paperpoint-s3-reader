@@ -8,6 +8,7 @@
 #include <Logging.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <string>
 
@@ -44,6 +45,43 @@ void drawBatteryIcon(const GfxRenderer& renderer, int x, int y, int battWidth, i
   }
 
   renderer.fillRect(x + 2, y + 2, filledWidth, rectHeight - 4);
+}
+
+
+
+int uiLineBoxHeight(const std::function<std::string(int index)>& rowSubtitle) {
+  return rowSubtitle != nullptr ? 60 : 30;
+}
+
+void drawProgressRing(const GfxRenderer& renderer, const int cx, const int cy, const int radius,
+                      const int thickness, const int progress) {
+  const int clamped = std::max(0, std::min(100, progress));
+  const float pi = 3.14159265358979323846f;
+
+  auto drawArcPixels = [&](const int startDeg, const int endDeg, const int strokeWidth) {
+    for (int deg = startDeg; deg <= endDeg; ++deg) {
+      const float rad = (static_cast<float>(deg) - 90.0f) * pi / 180.0f;
+      const float cs = std::cos(rad);
+      const float sn = std::sin(rad);
+      for (int t = 0; t < strokeWidth; ++t) {
+        const int r = radius - t;
+        const int x = cx + static_cast<int>(std::lround(cs * static_cast<float>(r)));
+        const int y = cy + static_cast<int>(std::lround(sn * static_cast<float>(r)));
+        renderer.drawPixel(x, y);
+      }
+    }
+  };
+
+  // Thin full outline so the remaining portion is visible.
+  drawArcPixels(0, 359, 1);
+  drawArcPixels(0, 359, 1);
+
+  if (clamped <= 0) {
+    return;
+  }
+
+  const int sweep = static_cast<int>(std::lround(clamped * 3.6f));
+  drawArcPixels(0, std::min(359, sweep), thickness);
 }
 
 int classicListRowHeight(const std::function<std::string(int index)>& rowSubtitle) {
@@ -101,32 +139,45 @@ void drawClassicListRow(const GfxRenderer& renderer, const Rect rect, const int 
   const int rowHeight = classicListRowHeight(rowSubtitle);
   const int itemY = rect.y + (index % pageItems) * rowHeight;
   const int contentWidth = rect.width - 5;
-  const int textWidth =
-      contentWidth - BaseMetrics::values.contentSidePadding * 2 - (rowValue != nullptr ? 60 : 0);
+  constexpr int valueColumnMaxWidth = 170;
+  constexpr int columnGap = 12;
+  constexpr int valueRightSafeInset = 18;
+  const int rightInset = BaseMetrics::values.contentSidePadding + valueRightSafeInset;
+  const int availableWidth =
+      std::max(0, contentWidth - BaseMetrics::values.contentSidePadding - rightInset);
+  const int valueColumnWidth =
+      rowValue != nullptr ? std::min(valueColumnMaxWidth, std::max(80, availableWidth / 2)) : 0;
+  const int valueReservation = rowValue != nullptr ? (valueColumnWidth + columnGap) : 0;
+  const int textWidth = std::max(80, availableWidth - valueReservation);
 
   if (index == selectedIndex) {
-    renderer.fillRect(rect.x, itemY - 2, rect.width, rowHeight);
+    renderer.fillRect(rect.x, itemY - 1, rect.width, rowHeight);
   }
 
+  const auto font = rowSubtitle != nullptr ? UI_12_FONT_ID : UI_10_FONT_ID;
+  const int lineBoxHeight = uiLineBoxHeight(rowSubtitle);
+  const int titleY = itemY + std::max(0, (rowHeight - lineBoxHeight) / 2);
+
   auto itemName = rowTitle(index);
-  auto font = rowSubtitle != nullptr ? UI_12_FONT_ID : UI_10_FONT_ID;
   auto item = renderer.truncatedText(font, itemName.c_str(), textWidth);
-  renderer.drawText(font, rect.x + BaseMetrics::values.contentSidePadding, itemY, item.c_str(),
+  renderer.drawText(font, rect.x + BaseMetrics::values.contentSidePadding, titleY, item.c_str(),
                     index != selectedIndex);
 
   if (rowSubtitle != nullptr) {
     std::string subtitleText = rowSubtitle(index);
     auto subtitle = renderer.truncatedText(UI_10_FONT_ID, subtitleText.c_str(), textWidth);
-    renderer.drawText(UI_10_FONT_ID, rect.x + BaseMetrics::values.contentSidePadding, itemY + 30, subtitle.c_str(),
+    renderer.drawText(UI_10_FONT_ID, rect.x + BaseMetrics::values.contentSidePadding, titleY + 30, subtitle.c_str(),
                       index != selectedIndex);
   }
 
   if (rowValue != nullptr) {
     std::string valueText = rowValue(index);
-    const auto valueTextWidth = renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str());
-    renderer.drawText(UI_10_FONT_ID,
-                      rect.x + contentWidth - BaseMetrics::values.contentSidePadding - valueTextWidth, itemY,
-                      valueText.c_str(), index != selectedIndex);
+    auto truncatedValue = renderer.truncatedText(UI_10_FONT_ID, valueText.c_str(), valueColumnWidth);
+    const int valueTextWidth = renderer.getTextWidth(UI_10_FONT_ID, truncatedValue.c_str());
+    const int valueRight = rect.x + contentWidth - rightInset;
+    const int valueX = valueRight - valueTextWidth;
+    const int valueY = itemY + std::max(0, (rowHeight - uiLineBoxHeight(nullptr)) / 2);
+    renderer.drawText(UI_10_FONT_ID, valueX, valueY, truncatedValue.c_str(), index != selectedIndex);
   }
 }
 }  // namespace
@@ -463,7 +514,8 @@ void BaseTheme::drawTabBar(const GfxRenderer& renderer, const Rect rect, const s
 
   int currentX = rect.x + BaseMetrics::values.contentSidePadding;
 
-  for (const auto& tab : tabs) {
+  for (size_t i = 0; i < tabs.size(); ++i) {
+    const auto& tab = tabs[i];
     const int textWidth =
         renderer.getTextWidth(UI_12_FONT_ID, tab.label, tab.selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
 
@@ -480,7 +532,12 @@ void BaseTheme::drawTabBar(const GfxRenderer& renderer, const Rect rect, const s
     renderer.drawText(UI_12_FONT_ID, currentX, rect.y, tab.label, !(tab.selected && selected),
                       tab.selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
 
-    currentX += textWidth + BaseMetrics::values.tabSpacing;
+    currentX += textWidth;
+    if (i + 1 < tabs.size()) {
+      const int dividerX = currentX + BaseMetrics::values.tabSpacing / 2;
+      renderer.drawLine(dividerX, rect.y + 4, dividerX, rect.y + lineHeight + 2);
+      currentX += BaseMetrics::values.tabSpacing;
+    }
   }
 }
 
@@ -752,12 +809,14 @@ void BaseTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
 
 Rect BaseTheme::drawPopup(const GfxRenderer& renderer, const char* message) const {
   constexpr int margin = 15;
+  constexpr int indicatorBlockHeight = 62;
+  constexpr int minPopupWidth = 220;
   // Scale y position proportionally to screen height (7.5% from top)
   const int y = static_cast<int>(renderer.getScreenHeight() * 0.075f);
   const int textWidth = renderer.getTextWidth(UI_12_FONT_ID, message, EpdFontFamily::BOLD);
-  const int textHeight = renderer.getLineHeight(UI_12_FONT_ID);
-  const int w = textWidth + margin * 2;
-  const int h = textHeight + margin * 2;
+  const int textHeight = std::max(renderer.getLineHeight(UI_12_FONT_ID), 30);
+  const int w = std::max(minPopupWidth, textWidth + margin * 2);
+  const int h = textHeight + margin * 2 + indicatorBlockHeight;
   const int x = (renderer.getScreenWidth() - w) / 2;
 
   renderer.fillRect(x - 2, y - 2, w + 4, h + 4, true);  // frame thickness 2
@@ -771,14 +830,22 @@ Rect BaseTheme::drawPopup(const GfxRenderer& renderer, const char* message) cons
 }
 
 void BaseTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const {
-  constexpr int barHeight = 4;
-  const int barWidth = layout.width - 30;  // twice the margin in drawPopup to match text width
-  const int barX = layout.x + (layout.width - barWidth) / 2;
-  const int barY = layout.y + layout.height - 10;
+  const int clamped = std::max(0, std::min(100, progress));
+  constexpr int progressAreaHeight = 52;
+  constexpr int ringRadius = 18;
+  constexpr int ringThickness = 3;
+  const int progressAreaY = layout.y + layout.height - progressAreaHeight - 6;
+  const int centerX = layout.x + layout.width / 2;
+  const int centerY = progressAreaY + progressAreaHeight / 2;
 
-  int fillWidth = barWidth * progress / 100;
+  renderer.fillRect(layout.x + 8, progressAreaY, layout.width - 16, progressAreaHeight, false);
+  drawProgressRing(renderer, centerX, centerY, ringRadius, ringThickness, clamped);
 
-  renderer.fillRect(barX, barY, fillWidth, barHeight, true);
+  const std::string percentText = std::to_string(clamped) + "%";
+  const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, percentText.c_str());
+  const int textX = centerX - textWidth / 2;
+  const int textY = centerY - std::max(renderer.getLineHeight(SMALL_FONT_ID), 16) / 2 + 1;
+  renderer.drawText(SMALL_FONT_ID, textX, textY, percentText.c_str());
 
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }

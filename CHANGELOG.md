@@ -1,3 +1,34 @@
+## 1.4.0 — 2026-06-21 — Large UI and Traditional Chinese release
+
+- Added the **Large Text** UI theme for settings, file browser, recent books, reader menu, and reader status bar.
+- In the Large Text theme, the reader clock and chapter/book title share the same left status-bar slot; enabling one hides the other.
+- Changed Large Text bottom hints to compact symbols (`<<`, `o`, `^`, `v`) to keep the oversized UI readable.
+- Added the built-in **PaperPoint Sans TC Medium** Traditional Chinese fallback font and made it the built-in UI CJK fallback.
+- Updated the Chinese README and web installer page with version 1.4.0 notes, browser flashing steps, supported sleep image formats, and current feature limitations.
+
+## 2026-06-21 — EPUB image cache reliability fix
+
+- Prevented silent next-chapter indexing from persisting transient image failures as permanent `[Image: alt]` section caches.
+- Added three-attempt retry handling for EPUB PNG/JPEG extraction and image-dimension reads.
+- Increased the section cache format from version 28 to 29 so previously degraded caches rebuild automatically.
+- Kept foreground parsing tolerant for genuinely unsupported or damaged images.
+
+## 2026-06-21 — Built-in CJK compile fix
+
+- Restored the missing `#ifndef OMIT_FONTS` guard removed during the Bookerly cleanup.
+- Kept Noto Sans 14 available outside the optional-font guard so reduced builds retain a default reader font.
+- Moved Noto Sans 14 registration outside the matching `OMIT_FONTS` block.
+- Revalidated all conditional-compilation directives in `src/main.cpp`.
+
+## 2026-06-20 — Licence compliance remediation
+
+- Removed the proprietary built-in reading font and all generated/source references.
+- Migrated the default reader font to Noto Sans with backward-compatible settings conversion.
+- Renamed generated OpenDyslexic and Ubuntu derivatives to comply with font naming terms.
+- Added EPD_Painter, GC16, hyphenation, font, LGPL release, asset, SBOM and third-party notices.
+- Pinned PlatformIO library versions and added automated compliance/SBOM/relink-kit checks.
+- Added packaging of the exact resolved ArduinoWebSockets and Arduino-ESP32 source trees for each binary release.
+
 # Changelog
 
 ## Unreleased
@@ -30,3 +61,12 @@
 
 ### Credits
 - Display driver: [EPD_Painter](https://github.com/nickoala/EPD_Painter) by nickoala
+### Built-in Traditional Chinese font
+
+- Embedded a compact 21×30 **PaperPoint Sans TC Medium** fallback generated from the maintainer-supplied Noto Sans CJK TC Medium raster.
+- Added exact-glyph lookup so proportional Latin families no longer hide missing CJK glyphs behind U+FFFD.
+- Added mixed Latin/CJK measurement and rendering for horizontal and vertical text.
+- Replaced the 5.9 MB direct-index raster at runtime with 31,338 sparse cropped glyphs (about 1.86 MiB including metadata), with no runtime decompression.
+- Stopped auto-forcing the legacy SD-card UI font; saved external choices still override the embedded fallback.
+- Added OFL licence, provenance, generator, SBOM entry and compliance checks.
+- Restored the referenced `partitions.csv` with two 7 MiB OTA application slots so the larger firmware can still use OTA.

@@ -94,9 +94,12 @@ std::string firstSrcsetCandidate(const std::string& srcset) {
 std::string getImageSource(const XML_Char** atts) {
   if (atts == nullptr) return {};
 
-  // Standard XHTML, common lazy-load variants, and SVG image references.
-  static const char* ATTRIBUTES[] = {"data-src", "data-original", "data-original-src",
-                                     "data-lazy-src", "data-echo", "src", "href", "xlink:href"};
+  // Prefer the standard XHTML/SVG source attributes. Lazy-load metadata is
+  // only a fallback because some EPUB generators leave stale or web-only
+  // values in data-src while the packaged PNG/JPEG path in src is correct.
+  static const char* ATTRIBUTES[] = {"src", "href", "xlink:href", "data-src",
+                                     "data-original", "data-original-src",
+                                     "data-lazy-src", "data-echo"};
   for (const char* attribute : ATTRIBUTES) {
     const char* value = getAttribute(atts, attribute);
     if (value != nullptr && value[0] != '\0') return value;
@@ -466,14 +469,53 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
             const std::string cacheBasePath =
                 self->imageBasePath + std::to_string(self->imageCounter++);
             std::string cachedImagePath;
-            const bool extractSuccess = extractSupportedRasterImage(
-                self->epub.get(), resolvedPath, cacheBasePath, &cachedImagePath);
+            bool extractSuccess = false;
+
+            // SD cards and ZIP streams can occasionally fail while a rendered
+            // page still has hot file/cache state. Retry before degrading the
+            // chapter to alt text. The destination is removed by the helper on
+            // each failed attempt, so retries never consume a partial image.
+            for (int attempt = 0; attempt < 3 && !extractSuccess; ++attempt) {
+              if (attempt > 0) {
+                LOG_DBG("EHP", "Retrying image extraction (%d/3): %s", attempt + 1, resolvedPath.c_str());
+                delay(40 * attempt);
+              }
+              extractSuccess = extractSupportedRasterImage(
+                  self->epub.get(), resolvedPath, cacheBasePath, &cachedImagePath);
+            }
+
+            // Keep compatibility with the original parser's simple path join.
+            // A few EPUBs use package-relative paths that are ambiguous after
+            // normalization; retry the historical resolution before falling
+            // back to alt text.
+            if (!extractSuccess) {
+              const std::string legacyPath =
+                  FsHelpers::normalisePath(self->contentBase + src);
+              if (!legacyPath.empty() && legacyPath != resolvedPath) {
+                LOG_DBG("EHP", "Retrying legacy image path: %s", legacyPath.c_str());
+                for (int attempt = 0; attempt < 3 && !extractSuccess; ++attempt) {
+                  if (attempt > 0) delay(40 * attempt);
+                  extractSuccess = extractSupportedRasterImage(
+                      self->epub.get(), legacyPath, cacheBasePath, &cachedImagePath);
+                }
+              }
+            }
 
             if (extractSuccess) {
-              // Get image dimensions
+              // Getting PNG/JPEG dimensions also opens and parses the extracted
+              // file. Retry this independently to tolerate short SD timing faults.
               ImageDimensions dims = {0, 0};
               ImageToFramebufferDecoder* decoder = ImageDecoderFactory::getDecoder(cachedImagePath);
-              if (decoder && decoder->getDimensions(cachedImagePath, dims)) {
+              bool dimensionsReady = false;
+              for (int attempt = 0; decoder && attempt < 3 && !dimensionsReady; ++attempt) {
+                if (attempt > 0) {
+                  LOG_DBG("EHP", "Retrying image dimensions (%d/3): %s", attempt + 1, cachedImagePath.c_str());
+                  delay(30 * attempt);
+                }
+                dims = {0, 0};
+                dimensionsReady = decoder->getDimensions(cachedImagePath, dims);
+              }
+              if (dimensionsReady) {
                 LOG_DBG("EHP", "Image dimensions: %dx%d", dims.width, dims.height);
 
                 int displayWidth = 0;
@@ -718,10 +760,20 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
       if (self->imageRendering == CrossPointSettings::IMAGES_PLACEHOLDER) {
         LOG_DBG("EHP", "Image placeholder requested by setting: %s", src.c_str());
+      } else if (self->imageRendering == CrossPointSettings::IMAGES_DISPLAY && !src.empty()) {
+        // Do not let a transient failure during silent pre-indexing become a
+        // permanent degraded section cache.  Section::createSectionFile() can
+        // reject the build and retry it later in the foreground.
+        self->imageLoadFailure = true;
+        LOG_ERR("EHP", "Image load failed in display mode; marking section cache as degraded: %s", src.c_str());
       }
 
-      // Fallback to alt text if image processing fails or placeholder mode is selected
+      // Fallback to alt text if image processing fails or placeholder mode is selected.
+      // This log is deliberately emitted at the point where [Image: ...] is
+      // created, so regressions can be distinguished from stale page rendering.
       if (!alt.empty()) {
+        LOG_ERR("EHP", "Using image alt fallback: src=%s mode=%u alt=%s",
+                src.c_str(), static_cast<unsigned>(self->imageRendering), alt.c_str());
         alt = "[Image: " + alt + "]";
         self->startNewTextBlock(centeredBlockStyle);
         self->italicUntilDepth = std::min(self->italicUntilDepth, self->depth);
@@ -1379,8 +1431,13 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   }
 
   // Get file size to decide whether to show indexing popup.
-  if (popupFn && file.size() >= MIN_SIZE_FOR_POPUP) {
+  const size_t totalFileSize = file.size();
+  const bool showPopup = popupFn && totalFileSize >= MIN_SIZE_FOR_POPUP;
+  if (showPopup) {
     popupFn();
+    if (popupProgressFn) {
+      popupProgressFn(0);
+    }
   }
 
   XML_SetUserData(parser, this);
@@ -1389,6 +1446,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
 
   // Compute the time taken to parse and build pages
   const uint32_t chapterStartTime = millis();
+  int lastPopupProgress = -1;
   do {
     void* const buf = XML_GetBuffer(parser, PARSE_BUFFER_SIZE);
     if (!buf) {
@@ -1409,6 +1467,14 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
 
     done = file.available() == 0;
 
+    if (showPopup && popupProgressFn && totalFileSize > 0) {
+      const int progress = static_cast<int>((static_cast<uint64_t>(file.position()) * 100ULL) / totalFileSize);
+      if (progress >= lastPopupProgress + 4 || (done && progress != lastPopupProgress)) {
+        popupProgressFn(progress);
+        lastPopupProgress = progress;
+      }
+    }
+
     if (XML_ParseBuffer(parser, static_cast<int>(len), done) == XML_STATUS_ERROR) {
       LOG_ERR("EHP", "Parse error at line %lu:\n%s", XML_GetCurrentLineNumber(parser),
               XML_ErrorString(XML_GetErrorCode(parser)));
@@ -1418,6 +1484,9 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
     }
   } while (!done);
   LOG_DBG("EHP", "Time to parse and build pages: %lu ms", millis() - chapterStartTime);
+  if (showPopup && popupProgressFn) {
+    popupProgressFn(100);
+  }
 
   destroyXmlParser(parser);
   file.close();
@@ -1477,13 +1546,14 @@ void ChapterHtmlSlimParser::addColumnToPage(
     return;
   }
 
+  constexpr int verticalColumnGap = 6;
   const int columnAdvance =
       std::max(
-          1,
+          renderer.getLineHeight(fontId) + verticalColumnGap,
           static_cast<int>(
               renderer.getLineHeight(fontId) *
               lineCompression
-          )
+          ) + verticalColumnGap
       );
 
   /*
@@ -1591,7 +1661,8 @@ void ChapterHtmlSlimParser::makePages() {
     return;
   }
 
-  const int lineOrColumnAdvance =
+  constexpr int verticalColumnGap = 6;
+  const int baseLineAdvance =
       std::max(
           1,
           static_cast<int>(
@@ -1599,6 +1670,11 @@ void ChapterHtmlSlimParser::makePages() {
               lineCompression
           )
       );
+  const int lineOrColumnAdvance =
+      isVerticalLayoutEnabled()
+          ? std::max(renderer.getLineHeight(fontId) + verticalColumnGap,
+                     baseLineAdvance + verticalColumnGap)
+          : baseLineAdvance;
 
   const BlockStyle& blockStyle =
       currentTextBlock->getBlockStyle();

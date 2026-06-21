@@ -1,6 +1,6 @@
 {
   "name": "PaperPoint S3 Reader",
-  "version": "latest",
+  "version": "1.4.0",
   "new_install_prompt_erase": true,
   "builds": [
     {

@@ -1,0 +1,79 @@
+name: Release compliance
+
+"on":
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO
+        run: python -m pip install --disable-pip-version-check "platformio==6.1.19"
+
+      - name: Generate code and validate licensing
+        run: |
+          python scripts/gen_i18n.py
+          python scripts/generate_sbom.py --output SBOM.spdx.json
+          python scripts/validate_embedded_cjk_font.py
+          python scripts/check_license_compliance.py
+
+      - name: Build release firmware
+        run: pio run -e gh_release
+
+      - name: Prepare release artifacts
+        run: |
+          mkdir -p dist/license-bundle
+          python scripts/generate_sbom.py \
+            --firmware .pio/build/gh_release/firmware.bin \
+            --output SBOM.spdx.json
+          python scripts/collect_dependency_licenses.py \
+            --env gh_release \
+            --output dist/dependency-licenses
+          python scripts/package_lgpl_sources.py \
+            --env gh_release \
+            --output dist/lgpl-component-sources.zip
+          python scripts/package_lgpl_relink_kit.py \
+            --env gh_release \
+            --output dist/lgpl-relink-kit.zip
+          git archive --format=zip --output=dist/complete-application-source.zip HEAD
+          cp .pio/build/gh_release/firmware.bin dist/
+          cp SBOM.spdx.json dist/
+          cp SBOM.spdx.json THIRD_PARTY_NOTICES.md \
+            BINARY_RELEASE_LGPL_COMPLIANCE.md RELEASE_COMPLIANCE_CHECKLIST.md \
+            LICENSE_COMPLIANCE_SELF_ASSESSMENT.md HYPHENATION_LICENSES.md \
+            BUILTIN_CJK_FONT.md BUILTIN_CJK_FONT_SELF_ASSESSMENT.md \
+            ASSETS_LICENSES.md LICENSE dist/license-bundle/
+          cp -R LICENSES dist/license-bundle/
+          cp -R dist/dependency-licenses dist/license-bundle/
+          (cd dist && zip -r license-bundle.zip license-bundle)
+          rm -rf dist/license-bundle dist/dependency-licenses
+          sha256sum dist/firmware.bin dist/*.zip dist/SBOM.spdx.json > dist/SHA256SUMS.txt
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-compliance-artifacts
+          path: dist/
+
+      - name: Attach to GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || \
+            gh release create "${GITHUB_REF_NAME}" --generate-notes
+          gh release upload "${GITHUB_REF_NAME}" dist/* --clobber

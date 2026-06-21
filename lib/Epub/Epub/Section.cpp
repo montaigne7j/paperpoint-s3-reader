@@ -10,7 +10,7 @@
 #include "parsers/ChapterHtmlSlimParser.h"
 
 namespace {
-constexpr uint8_t SECTION_FILE_VERSION = 27;
+constexpr uint8_t SECTION_FILE_VERSION = 30;
 constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(uint8_t) +
                                  sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) + sizeof(bool) +
                                  sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint32_t) + sizeof(uint32_t);
@@ -144,7 +144,9 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
                                 const uint8_t paragraphAlignment, const uint16_t viewportWidth,
                                 const uint16_t viewportHeight, const bool hyphenationEnabled, const bool embeddedStyle,
                                 const uint8_t imageRendering, const uint8_t readingLayout,
-                                const std::function<void()>& popupFn) {
+                                const std::function<void()>& popupFn,
+                                const std::function<void(int)>& popupProgressFn,
+                                const bool rejectImageFallback) {
   const auto localPath = epub->getSpineItem(spineIndex).href;
   const auto tmpHtmlPath = epub->getCachePath() + "/.tmp_" + std::to_string(spineIndex) + ".html";
 
@@ -217,9 +219,17 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
       epub, tmpHtmlPath, renderer, fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
       viewportHeight, hyphenationEnabled,
       [this, &lut](std::unique_ptr<Page> page) { lut.emplace_back(this->onPageComplete(std::move(page))); },
-      embeddedStyle, contentBase, imageBasePath, imageRendering, popupFn, cssParser);
+      embeddedStyle, contentBase, imageBasePath, imageRendering, popupFn, popupProgressFn, cssParser);
   Hyphenator::setPreferredLanguage(epub->getLanguage());
   success = visitor.parseAndBuildPages();
+
+  // Silent pre-indexing must never persist a degraded chapter cache.  A transient
+  // SD/ZIP/decoder failure used to be converted into [Image: alt] and then reused
+  // indefinitely.  Reject that cache so the chapter is rebuilt in the foreground.
+  if (success && rejectImageFallback && visitor.hadImageLoadFailure()) {
+    LOG_ERR("SCT", "Rejecting pre-indexed section %d because an image fell back to alt text", spineIndex);
+    success = false;
+  }
 
   Storage.remove(tmpHtmlPath.c_str());
   if (!success) {
