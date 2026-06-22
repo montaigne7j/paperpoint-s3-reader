@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>安裝 PaperPoint S3 Reader</title>
+    <script
+      type="module"
+      src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"
+    ></script>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", "Noto Sans TC", sans-serif;
+        line-height: 1.55;
+        color: #1b1b1b;
+        background: #f6f3eb;
+      }
+      body { margin: 0; }
+      main {
+        box-sizing: border-box;
+        width: min(860px, 100%);
+        min-height: 100vh;
+        margin: 0 auto;
+        padding: 44px 22px;
+        display: grid;
+        align-content: center;
+        gap: 22px;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(2rem, 6vw, 4rem);
+        line-height: 1;
+        letter-spacing: 0;
+      }
+      h2 { margin: 0; font-size: 1.2rem; line-height: 1.25; }
+      p { margin: 0; font-size: 1.05rem; }
+      a { color: #164c82; font-weight: 700; }
+      .version { margin-top: 12px; font-weight: 700; }
+      .panel {
+        border: 1px solid #d7cdbb;
+        border-radius: 8px;
+        padding: 20px;
+        background: #fffaf1;
+      }
+      .actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 14px 18px;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+        color: white;
+        background: #1f4f85;
+      }
+      button:hover { background: #163d68; }
+      code { padding: 2px 5px; border-radius: 4px; background: #eee5d5; }
+      ul, ol { margin: 12px 0 0; padding-left: 1.3rem; }
+      li + li { margin-top: 7px; }
+      .downloads {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        gap: 10px;
+        margin-top: 12px;
+      }
+      .download-link {
+        display: block;
+        border: 1px solid #d7cdbb;
+        border-radius: 8px;
+        padding: 12px;
+        background: #ffffff;
+        text-decoration: none;
+      }
+      .download-link small {
+        display: block;
+        margin-top: 4px;
+        color: #5b554b;
+        font-weight: 400;
+      }
+      esp-web-install-button {
+        --esp-tools-button-color: #1f4f85;
+        --esp-tools-button-text-color: #ffffff;
+        --esp-tools-button-border-radius: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div>
+        <h1>PaperPoint<br />S3 Reader</h1>
+        <p class="version">目前韌體版本：<span id="firmware-version">讀取中</span></p>
+        <p>中文優先的 M5Stack Paper S3 電子紙閱讀器韌體。</p>
+      </div>
+
+      <section class="panel">
+        <h2>線上燒錄</h2>
+        <div class="actions">
+          <esp-web-install-button manifest="manifest.json">
+            <button slot="activate">安裝 / 更新韌體</button>
+            <span slot="unsupported">這個瀏覽器不支援 Web Serial，請改用 Chrome 或 Microsoft Edge。</span>
+            <span slot="not-allowed">瀏覽器已拒絕序列埠權限，請確認此頁面是 HTTPS 或 localhost。</span>
+          </esp-web-install-button>
+        </div>
+        <ol>
+          <li>用 USB-C 傳輸線接上 M5Stack Paper S3。</li>
+          <li>長按 Paper S3 的電源鍵，讓裝置進入可燒錄狀態。</li>
+          <li>按「安裝 / 更新韌體」後選擇序列埠，請選 <code>USB JTAG/serial debug unit</code> 這類名稱的選項。</li>
+          <li>如果連線失敗，請拔掉 USB-C、重新長按電源鍵讓裝置進入燒錄狀態，再接回 USB-C 後重新選擇序列埠。</li>
+        </ol>
+      </section>
+
+      <section class="panel">
+        <h2>本版重點</h2>
+        <ul>
+          <li>預設中文介面，內建 PaperPoint Sans TC fallback，沒有 SD 卡字型也能顯示中文 UI。</li>
+          <li>新增大字介面主題，檔案瀏覽、最近閱讀、章節選單、閱讀選單與閱讀狀態列同步放大。</li>
+          <li>大字閱讀狀態列採左中右配置：左側電量、中間章節頁數或進度百分比、右側時間。</li>
+          <li>改善 EPUB 章節圖片處理，降低圖片造成快取降級的機率。</li>
+          <li>支援閱讀格式：EPUB / TXT。Wi-Fi 傳輸仍屬未驗證功能。</li>
+        </ul>
+      </section>
+
+      <section class="panel">
+        <h2>SD 卡檔案放置</h2>
+        <ul>
+          <li><code>/.sleep/</code>：休眠圖可使用 <code>.bmp</code>、<code>.png</code>、<code>.jpg</code>、<code>.jpeg</code>。建議尺寸為 <code>540x960</code>。</li>
+          <li><code>/fonts/</code>：閱讀字型可使用 <code>.ttf</code>、<code>.bin</code>、<code>.epdf</code>。目前只能調整閱讀字型，不能透過 SD 卡替換系統 UI 字型。</li>
+          <li>書籍檔可放在 SD 卡任意資料夾，檔案瀏覽器會掃描可閱讀格式。</li>
+        </ul>
+      </section>
+
+      <section class="panel">
+        <h2>授權與原始碼</h2>
+        <p>此頁提供的 <code>merged-firmware.bin</code> 是二進位韌體。為了配合 LGPL 元件授權，同版韌體會一起提供可對應的 source、LGPL 元件 source、relink kit、SBOM、授權包與 checksum。</p>
+        <div class="downloads">
+          <a class="download-link" href="compliance/complete-application-source.zip">完整應用程式 source<small>此韌體對應 commit 的 source archive</small></a>
+          <a class="download-link" href="compliance/lgpl-component-sources.zip">LGPL 元件 source<small>Arduino-ESP32、ArduinoWebSockets 等解析後元件 source</small></a>
+          <a class="download-link" href="compliance/lgpl-relink-kit.zip">LGPL relink kit<small>用於替換 LGPL library 後重新連結的物件與建置資料</small></a>
+          <a class="download-link" href="compliance/license-bundle.zip">授權與 notices<small>第三方授權、notices、SBOM 副本與專案授權文件</small></a>
+          <a class="download-link" href="compliance/SBOM.spdx.json">SBOM<small>SPDX JSON 軟體物料清單</small></a>
+          <a class="download-link" href="compliance/SHA256SUMS.txt">SHA-256 checksums<small>韌體與合規下載檔的雜湊值</small></a>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      fetch("manifest.json", { cache: "no-store" })
+        .then((response) => response.json())
+        .then((manifest) => {
+          document.getElementById("firmware-version").textContent = manifest.version || "未標示";
+        })
+        .catch(() => {
+          document.getElementById("firmware-version").textContent = "未標示";
+        });
+    </script>
+  </body>
+</html>

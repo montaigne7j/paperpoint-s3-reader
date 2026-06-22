@@ -177,6 +177,87 @@ BmpReaderError Bitmap::parseHeaders() {
   return BmpReaderError::Ok;
 }
 
+BmpReaderError Bitmap::readNextRawRow(
+    uint8_t* rowBuffer
+) const {
+  if (rowBuffer == nullptr) {
+    return BmpReaderError::BufferTooSmall;
+  }
+
+  if (file.read(
+          rowBuffer,
+          rowBytes
+      ) != rowBytes) {
+    return BmpReaderError::ShortReadRow;
+  }
+
+  return BmpReaderError::Ok;
+}
+
+BmpReaderError Bitmap::readNextLuminanceRow(
+    uint8_t* luminanceRow,
+    uint8_t* rowBuffer
+) const {
+  if (luminanceRow == nullptr || rowBuffer == nullptr) {
+    return BmpReaderError::BufferTooSmall;
+  }
+
+  const BmpReaderError readResult = readNextRawRow(rowBuffer);
+  if (readResult != BmpReaderError::Ok) {
+    return readResult;
+  }
+
+  switch (bpp) {
+    case 32: {
+      const uint8_t* p = rowBuffer;
+      for (int x = 0; x < width; ++x, p += 4) {
+        luminanceRow[x] = static_cast<uint8_t>(
+            (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8);
+      }
+      break;
+    }
+    case 24: {
+      const uint8_t* p = rowBuffer;
+      for (int x = 0; x < width; ++x, p += 3) {
+        luminanceRow[x] = static_cast<uint8_t>(
+            (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8);
+      }
+      break;
+    }
+    case 8:
+      for (int x = 0; x < width; ++x) {
+        luminanceRow[x] = paletteLum[rowBuffer[x]];
+      }
+      break;
+    case 4:
+      for (int x = 0; x < width; ++x) {
+        const uint8_t index = (x & 1)
+            ? static_cast<uint8_t>(rowBuffer[x >> 1] & 0x0F)
+            : static_cast<uint8_t>(rowBuffer[x >> 1] >> 4);
+        luminanceRow[x] = paletteLum[index];
+      }
+      break;
+    case 2:
+      for (int x = 0; x < width; ++x) {
+        const uint8_t index = static_cast<uint8_t>(
+            (rowBuffer[x >> 2] >> (6 - ((x & 3) * 2))) & 0x03);
+        luminanceRow[x] = paletteLum[index];
+      }
+      break;
+    case 1:
+      for (int x = 0; x < width; ++x) {
+        const uint8_t index =
+            (rowBuffer[x >> 3] & (0x80 >> (x & 7))) ? 1 : 0;
+        luminanceRow[x] = paletteLum[index];
+      }
+      break;
+    default:
+      return BmpReaderError::UnsupportedBpp;
+  }
+
+  return BmpReaderError::Ok;
+}
+
 // packed 2bpp output, 0 = black, 1 = dark gray, 2 = light gray, 3 = white
 BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
   // Note: rowBuffer should be pre-allocated by the caller to size 'rowBytes'

@@ -1,0 +1,127 @@
+name: Build Web Installer
+
+on:
+  push:
+    branches: [master]
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+          enable-cache: false
+
+      - name: Install build tools
+        run: |
+          uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+          uv pip install --system -U esptool
+
+      - name: Generate code and validate licensing
+        run: |
+          python scripts/gen_i18n.py
+          python scripts/generate_sbom.py --output SBOM.spdx.json
+          python scripts/validate_embedded_cjk_font.py
+          python scripts/check_license_compliance.py
+
+      - name: Build CrossPoint release firmware
+        run: pio run -e gh_release
+
+      - name: Merge firmware for browser flashing
+        run: |
+          python scripts/merge_firmware.py \
+            --env gh_release \
+            --output docs/install/merged-firmware.bin
+
+      - name: Prepare web installer compliance downloads
+        run: |
+          mkdir -p docs/install/compliance/license-bundle
+          python scripts/generate_sbom.py \
+            --firmware .pio/build/gh_release/firmware.bin \
+            --output docs/install/compliance/SBOM.spdx.json
+          python scripts/collect_dependency_licenses.py \
+            --env gh_release \
+            --output docs/install/compliance/dependency-licenses
+          python scripts/package_lgpl_sources.py \
+            --env gh_release \
+            --output docs/install/compliance/lgpl-component-sources.zip
+          python scripts/package_lgpl_relink_kit.py \
+            --env gh_release \
+            --output docs/install/compliance/lgpl-relink-kit.zip
+          git archive --format=zip --output=docs/install/compliance/complete-application-source.zip HEAD
+          cp .pio/build/gh_release/firmware.bin docs/install/compliance/
+          cp THIRD_PARTY_NOTICES.md BINARY_RELEASE_LGPL_COMPLIANCE.md \
+            RELEASE_COMPLIANCE_CHECKLIST.md LICENSE_COMPLIANCE_SELF_ASSESSMENT.md \
+            HYPHENATION_LICENSES.md BUILTIN_CJK_FONT.md \
+            BUILTIN_CJK_FONT_SELF_ASSESSMENT.md ASSETS_LICENSES.md LICENSE \
+            docs/install/compliance/license-bundle/
+          cp docs/install/compliance/SBOM.spdx.json docs/install/compliance/license-bundle/
+          cp -R LICENSES docs/install/compliance/license-bundle/
+          cp -R docs/install/compliance/dependency-licenses docs/install/compliance/license-bundle/
+          (cd docs/install/compliance && zip -r license-bundle.zip license-bundle)
+          rm -rf docs/install/compliance/license-bundle docs/install/compliance/dependency-licenses
+          (cd docs/install && sha256sum merged-firmware.bin compliance/firmware.bin compliance/*.zip compliance/SBOM.spdx.json > compliance/SHA256SUMS.txt)
+
+      - name: Stamp web installer manifest
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import configparser
+          from pathlib import Path
+
+          config = configparser.ConfigParser()
+          config.read("platformio.ini", encoding="utf-8")
+          firmware_version = config.get("crosspoint", "version", fallback="latest")
+          ref_name = os.environ.get("GITHUB_REF_NAME", "")
+
+          manifest_path = Path("docs/install/manifest.json")
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          manifest["version"] = ref_name if ref_name and ref_name != "master" else firmware_version
+          manifest_path.write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload web installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: paperpoint-s3-web-installer
+          path: docs/install/
+          if-no-files-found: error
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
+        with:
+          enablement: true
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4

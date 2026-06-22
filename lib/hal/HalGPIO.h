@@ -54,6 +54,10 @@ class HalGPIO {
   static constexpr uint8_t BTN_SWIPE_DOWN = 8;  // Explicit swipe-down gesture
   static constexpr uint8_t BTN_TWO_FINGER = 9;  // 2-finger tap (also sets BTN_BACK)
 
+  // On-screen shutdown hotspot used by non-reader UI screens.
+  // Non-reader activities are portrait-only, so this is the top-left 64x64 px area.
+  static constexpr int POWER_HOTSPOT_SIZE = 64;
+
  private:
   // 3-zone vertical split: converts touch X to LEFT/CENTER/RIGHT
   int touchZoneToButton(int16_t touchX, int16_t touchY) const;

@@ -2,9 +2,15 @@
 #include <Arduino.h>
 
 class EPD_Painter;
+class Bitmap;
 
 class HalDisplay {
  public:
+
+  enum class Gc16DitherMode : uint8_t {
+    None = 0,
+    FloydSteinberg,
+  };
   // Constructor
   HalDisplay();
 
@@ -20,6 +26,17 @@ class HalDisplay {
 
   // Initialize the display hardware and driver
   void begin();
+
+  /*
+  * 將實體面板與 EPD_Painter 的
+  * 2bpp internal screenbuffer 全部同步為白色。
+  *
+  * 用於：
+  *   GC16 睡眠畫面喚醒後
+  *   韌體更新後
+  *   driver state 不確定時
+  */
+  bool force2bppWhiteResync();
 
   // Display dimensions (M5PaperS3: 960x540 physical landscape)
   static constexpr uint16_t DISPLAY_WIDTH = 960;
@@ -59,6 +76,40 @@ class HalDisplay {
   void cleanupGrayscaleBuffers(const uint8_t* bwBuffer);
 
   void displayGrayBuffer(bool turnOffScreen = false);
+    /*
+  * 臨時 GC16 實機測試入口。
+  *
+  * 顯示 16 階測試條後，不應再呼叫一般
+  * displayBuffer()，否則現有 2bpp 畫面狀態
+  * 會覆蓋 GC16 畫面。
+  */
+  bool showGc16TestBars(
+      bool clearFirst = true
+  );
+
+  /*
+  * 將 540×960 的 24/32-bit BMP
+  * 轉換為實體 960×540 的 4bpp GC16 buffer。
+  *
+  * 第一階段只接受與 Paper S3 直式畫面完全相同尺寸，
+  * 暫不處理縮放或裁切。
+  */
+  bool showGc16Bitmap(
+      const Bitmap& bitmap,
+      bool clearFirst = true,
+      Gc16DitherMode ditherMode =
+          Gc16DitherMode::FloydSteinberg,
+      bool rotate180 = false
+  );
+
+  // Display a logical portrait 540x960 packed 4bpp buffer. Each byte stores
+  // two pixels, high nibble first, with 0=black and 15=white.
+  bool showGc16LogicalBuffer(
+      const uint8_t* logicalBuffer,
+      size_t logicalBufferSize,
+      bool clearFirst = true,
+      bool rotate180 = false
+  );
 
  private:
   // 8bpp framebuffer in PSRAM — EPD_Painter native format (0=white, 3=black)

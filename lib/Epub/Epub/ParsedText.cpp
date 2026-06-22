@@ -11,6 +11,91 @@
 
 #include "hyphenation/Hyphenator.h"
 
+namespace {
+
+uint32_t toVerticalPresentationCodepoint(
+    const uint32_t codepoint
+) {
+    // 不再替換成 FE10～FE48 的直排專用字元。
+    // 目前外部字型可能沒有這些 glyph，
+    // 旋轉與位置調整交給 GfxRenderer 處理。
+    return codepoint;
+}
+
+std::string encodeUtf8Codepoint(
+    const uint32_t codepoint
+) {
+  std::string result;
+  result.reserve(4);
+
+  if (codepoint <= 0x7F) {
+    result.push_back(
+        static_cast<char>(codepoint)
+    );
+  } else if (codepoint <= 0x7FF) {
+    result.push_back(
+        static_cast<char>(
+            0xC0 | (codepoint >> 6)
+        )
+    );
+
+    result.push_back(
+        static_cast<char>(
+            0x80 | (codepoint & 0x3F)
+        )
+    );
+  } else if (codepoint <= 0xFFFF) {
+    result.push_back(
+        static_cast<char>(
+            0xE0 | (codepoint >> 12)
+        )
+    );
+
+    result.push_back(
+        static_cast<char>(
+            0x80 |
+            ((codepoint >> 6) & 0x3F)
+        )
+    );
+
+    result.push_back(
+        static_cast<char>(
+            0x80 | (codepoint & 0x3F)
+        )
+    );
+  } else if (codepoint <= 0x10FFFF) {
+    result.push_back(
+        static_cast<char>(
+            0xF0 | (codepoint >> 18)
+        )
+    );
+
+    result.push_back(
+        static_cast<char>(
+            0x80 |
+            ((codepoint >> 12) & 0x3F)
+        )
+    );
+
+    result.push_back(
+        static_cast<char>(
+            0x80 |
+            ((codepoint >> 6) & 0x3F)
+        )
+    );
+
+    result.push_back(
+        static_cast<char>(
+            0x80 | (codepoint & 0x3F)
+        )
+    );
+  }
+
+  return result;
+}
+
+}  // namespace
+
 constexpr int MAX_COST = std::numeric_limits<int>::max();
 
 namespace {
@@ -51,6 +136,66 @@ void stripSoftHyphensInPlace(std::string& word) {
   }
 }
 
+bool isCjkLayoutCodepoint(const uint32_t cp) {
+  if (cp >= 0x3400 && cp <= 0x4DBF) return true;
+  if (cp >= 0x4E00 && cp <= 0x9FFF) return true;
+  if (cp >= 0x20000 && cp <= 0x2FA1F) return true;
+
+  if (cp >= 0x3000 && cp <= 0x303F) return true;
+  if (cp >= 0x3040 && cp <= 0x309F) return true;
+  if (cp >= 0x30A0 && cp <= 0x30FF) return true;
+
+  if (cp >= 0x3100 && cp <= 0x312F) return true;
+  if (cp >= 0x31A0 && cp <= 0x31BF) return true;
+
+  if (cp >= 0x3200 && cp <= 0x33FF) return true;
+  if (cp >= 0xFF00 && cp <= 0xFFEF) return true;
+
+  return false;
+}
+
+bool containsCjkLayoutText(const std::string& text) {
+  const uint8_t* ptr =
+      reinterpret_cast<const uint8_t*>(text.c_str());
+
+  uint32_t cp = 0;
+
+  while ((cp = utf8NextCodepoint(&ptr)) != 0) {
+    if (isCjkLayoutCodepoint(cp)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+
+bool isAsciiDigitOrPunctuationForCjkJoin(const uint32_t cp) {
+  if (cp >= '0' && cp <= '9') return true;
+  if ((cp >= 0x21 && cp <= 0x2F) ||
+      (cp >= 0x3A && cp <= 0x40) ||
+      (cp >= 0x5B && cp <= 0x60) ||
+      (cp >= 0x7B && cp <= 0x7E)) {
+    return true;
+  }
+  if (cp >= 0x2000 && cp <= 0x206F) return true;  // U+2026 ellipsis, dashes, quotes, etc.
+  return false;
+}
+
+int tightJoinGap(const uint32_t leftCp, const uint32_t rightCp) {
+  if (leftCp == 0 || rightCp == 0) return 0;
+
+  const bool leftCjk = isCjkLayoutCodepoint(leftCp);
+  const bool rightCjk = isCjkLayoutCodepoint(rightCp);
+  const bool leftAsciiPunct = isAsciiDigitOrPunctuationForCjkJoin(leftCp);
+  const bool rightAsciiPunct = isAsciiDigitOrPunctuationForCjkJoin(rightCp);
+
+  // noSpaceBefore means no full word space, not necessarily zero pixels.  When
+  // compact Latin digits/punctuation touches a CJK glyph, a tiny guard gap keeps
+  // glyph bitmaps from colliding without making normal CJK-CJK text loose.
+  return ((leftAsciiPunct && rightCjk) || (leftCjk && rightAsciiPunct)) ? 2 : 0;
+}
+
 // Returns the advance width for a word while ignoring soft hyphen glyphs and optionally appending a visible hyphen.
 // Uses advance width (sum of glyph advances + kerning) rather than bounding box width so that italic glyph overhangs
 // don't inflate inter-word spacing.
@@ -76,22 +221,58 @@ uint16_t measureWordWidth(const GfxRenderer& renderer, const int fontId, const s
 
 }  // namespace
 
-void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle, const bool underline,
-                         const bool attachToPrevious) {
-  if (word.empty()) return;
+void ParsedText::addWord(
+    std::string word,
+    const EpdFontFamily::Style fontStyle,
+    const bool underline,
+    const bool attachToPrevious,
+    const bool noSpaceBefore
+) {
+  if (word.empty()) {
+    return;
+  }
+
+  EpdFontFamily::Style combinedStyle = fontStyle;
+
+  if (underline) {
+    combinedStyle =
+        static_cast<EpdFontFamily::Style>(
+            combinedStyle | EpdFontFamily::UNDERLINE
+        );
+  }
+
+  /*
+   * noSpaceBefore 目前是由 MAX_WORD_SIZE 的內部 buffer
+   * 分段產生。它不是 EPUB 中真正的 word boundary。
+   *
+   * 若樣式相同，直接把新 chunk 接回上一個 word，
+   * 不建立新的排版 token，也就不會產生人工換行點。
+   */
+  if (noSpaceBefore &&
+      !words.empty() &&
+      !wordStyles.empty() &&
+      wordStyles.back() == combinedStyle) {
+
+    words.back().append(word);
+
+    // 不 push wordStyles、wordContinues、wordNoSpace，
+    // 因為仍然只是同一個 token。
+    return;
+  }
 
   words.push_back(std::move(word));
-  EpdFontFamily::Style combinedStyle = fontStyle;
-  if (underline) {
-    combinedStyle = static_cast<EpdFontFamily::Style>(combinedStyle | EpdFontFamily::UNDERLINE);
-  }
   wordStyles.push_back(combinedStyle);
   wordContinues.push_back(attachToPrevious);
+
+  wordNoSpace.push_back(
+      noSpaceBefore && !attachToPrevious
+  );
 }
 
 // Consumes data to minimize memory usage
 void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
                                        const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
+                                       const uint8_t characterSpacing,
                                        const bool includeLastLine) {
   if (words.empty()) {
     return;
@@ -105,15 +286,41 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
 
   std::vector<size_t> lineBreakIndices;
   if (hyphenationEnabled) {
-    // Use greedy layout that can split words mid-loop when a hyphenated prefix fits.
-    lineBreakIndices = computeHyphenatedLineBreaks(renderer, fontId, pageWidth, wordWidths, wordContinues);
+    lineBreakIndices =
+        computeHyphenatedLineBreaks(
+            renderer,
+            fontId,
+            pageWidth,
+            wordWidths,
+            wordContinues,
+            wordNoSpace
+        );
   } else {
-    lineBreakIndices = computeLineBreaks(renderer, fontId, pageWidth, wordWidths, wordContinues);
+    lineBreakIndices =
+        computeLineBreaks(
+            renderer,
+            fontId,
+            pageWidth,
+            wordWidths,
+            wordContinues,
+            wordNoSpace
+        );
   }
   const size_t lineCount = includeLastLine ? lineBreakIndices.size() : lineBreakIndices.size() - 1;
 
   for (size_t i = 0; i < lineCount; ++i) {
-    extractLine(i, pageWidth, wordWidths, wordContinues, lineBreakIndices, processLine, renderer, fontId);
+    extractLine(
+        i,
+        pageWidth,
+        wordWidths,
+        wordContinues,
+        wordNoSpace,
+        lineBreakIndices,
+        processLine,
+        renderer,
+        fontId,
+        characterSpacing
+    );
   }
 
   // Remove consumed words so size() reflects only remaining words
@@ -122,6 +329,11 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
     words.erase(words.begin(), words.begin() + consumed);
     wordStyles.erase(wordStyles.begin(), wordStyles.begin() + consumed);
     wordContinues.erase(wordContinues.begin(), wordContinues.begin() + consumed);
+
+    wordNoSpace.erase(
+    wordNoSpace.begin(),
+    wordNoSpace.begin() + consumed
+);
   }
 }
 
@@ -136,8 +348,14 @@ std::vector<uint16_t> ParsedText::calculateWordWidths(const GfxRenderer& rendere
   return wordWidths;
 }
 
-std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, const int fontId, const int pageWidth,
-                                                  std::vector<uint16_t>& wordWidths, std::vector<bool>& continuesVec) {
+std::vector<size_t> ParsedText::computeLineBreaks(
+    const GfxRenderer& renderer,
+    const int fontId,
+    const int pageWidth,
+    std::vector<uint16_t>& wordWidths,
+    std::vector<bool>& continuesVec,
+    std::vector<bool>& noSpaceVec
+) {
   if (words.empty()) {
     return {};
   }
@@ -184,12 +402,28 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     for (size_t j = i; j < totalWordCount; ++j) {
       // Add space before word j, unless it's the first word on the line or a continuation
       int gap = 0;
-      if (j > static_cast<size_t>(i) && !continuesVec[j]) {
-        gap =
-            renderer.getSpaceAdvance(fontId, lastCodepoint(words[j - 1]), firstCodepoint(words[j]), wordStyles[j - 1]);
-      } else if (j > static_cast<size_t>(i) && continuesVec[j]) {
-        // Cross-boundary kerning for continuation words (e.g. nonbreaking spaces, attached punctuation)
-        gap = renderer.getKerning(fontId, lastCodepoint(words[j - 1]), firstCodepoint(words[j]), wordStyles[j - 1]);
+
+      if (j > static_cast<size_t>(i)) {
+        if (continuesVec[j]) {
+          // 不加空格，也不能在此邊界換行。
+          gap = renderer.getKerning(
+              fontId,
+              lastCodepoint(words[j - 1]),
+              firstCodepoint(words[j]),
+              wordStyles[j - 1]
+          );
+        } else if (noSpaceVec[j]) {
+          // CJK artificial chunk boundary: no full space, but keep a tiny guard
+          // gap when ASCII digits/punctuation touches CJK to avoid bitmap overlap.
+          gap = tightJoinGap(lastCodepoint(words[j - 1]), firstCodepoint(words[j]));
+        } else {
+          gap = renderer.getSpaceAdvance(
+              fontId,
+              lastCodepoint(words[j - 1]),
+              firstCodepoint(words[j]),
+              wordStyles[j - 1]
+          );
+        }
       }
       currlen += wordWidths[j] + gap;
 
@@ -271,9 +505,15 @@ void ParsedText::applyParagraphIndent() {
 }
 
 // Builds break indices while opportunistically splitting the word that would overflow the current line.
-std::vector<size_t> ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& renderer, const int fontId,
-                                                            const int pageWidth, std::vector<uint16_t>& wordWidths,
-                                                            std::vector<bool>& continuesVec) {
+std::vector<size_t>
+ParsedText::computeHyphenatedLineBreaks(
+    const GfxRenderer& renderer,
+    const int fontId,
+    const int pageWidth,
+    std::vector<uint16_t>& wordWidths,
+    std::vector<bool>& continuesVec,
+    std::vector<bool>& noSpaceVec
+) {
   // Calculate first line indent (only for left/justified text).
   // Positive text-indent (paragraph indent) is suppressed when extraParagraphSpacing is on.
   // Negative text-indent (hanging indent, e.g. margin-left:3em; text-indent:-1em) always applies —
@@ -299,13 +539,27 @@ std::vector<size_t> ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& r
     while (currentIndex < wordWidths.size()) {
       const bool isFirstWord = currentIndex == lineStart;
       int spacing = 0;
-      if (!isFirstWord && !continuesVec[currentIndex]) {
-        spacing = renderer.getSpaceAdvance(fontId, lastCodepoint(words[currentIndex - 1]),
-                                           firstCodepoint(words[currentIndex]), wordStyles[currentIndex - 1]);
-      } else if (!isFirstWord && continuesVec[currentIndex]) {
-        // Cross-boundary kerning for continuation words (e.g. nonbreaking spaces, attached punctuation)
-        spacing = renderer.getKerning(fontId, lastCodepoint(words[currentIndex - 1]),
-                                      firstCodepoint(words[currentIndex]), wordStyles[currentIndex - 1]);
+
+      if (!isFirstWord) {
+        if (continuesVec[currentIndex]) {
+          spacing = renderer.getKerning(
+              fontId,
+              lastCodepoint(words[currentIndex - 1]),
+              firstCodepoint(words[currentIndex]),
+              wordStyles[currentIndex - 1]
+          );
+        } else if (noSpaceVec[currentIndex]) {
+          // No full space at CJK chunk boundaries, but protect Latin digits and
+          // punctuation from visually colliding with the adjacent CJK glyph.
+          spacing = tightJoinGap(lastCodepoint(words[currentIndex - 1]), firstCodepoint(words[currentIndex]));
+        } else {
+          spacing = renderer.getSpaceAdvance(
+              fontId,
+              lastCodepoint(words[currentIndex - 1]),
+              firstCodepoint(words[currentIndex]),
+              wordStyles[currentIndex - 1]
+          );
+        }
       }
       const int candidateWidth = spacing + wordWidths[currentIndex];
 
@@ -369,25 +623,88 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
   }
 
   size_t chosenOffset = 0;
-  int chosenWidth = -1;
-  bool chosenNeedsHyphen = true;
+int chosenWidth = -1;
+bool chosenNeedsHyphen = true;
 
-  // Iterate over each legal breakpoint and retain the widest prefix that still fits.
-  for (const auto& info : breakInfos) {
-    const size_t offset = info.byteOffset;
-    if (offset == 0 || offset >= word.size()) {
-      continue;
+// CJK 的斷點按 byte offset 遞增，而且不需要插入連字號。
+// 使用二分搜尋，避免逐一量測所有前綴。
+const bool useFastCjkSearch =
+    containsCjkLayoutText(word) &&
+    std::all_of(
+        breakInfos.begin(),
+        breakInfos.end(),
+        [](const Hyphenator::BreakInfo& info) {
+          return !info.requiresInsertedHyphen;
+        }
+    );
+
+  if (useFastCjkSearch) {
+    size_t low = 0;
+    size_t high = breakInfos.size();
+
+    while (low < high) {
+      const size_t mid = low + (high - low) / 2;
+      const auto& info = breakInfos[mid];
+      const size_t offset = info.byteOffset;
+
+      if (offset == 0 || offset >= word.size()) {
+        // 正常的 CJK break offset 不應進入這裡。
+        high = mid;
+        continue;
+      }
+
+      const int prefixWidth =
+          measureWordWidth(
+              renderer,
+              fontId,
+              word.substr(0, offset),
+              style,
+              false
+          );
+
+      if (prefixWidth <= availableWidth) {
+        chosenWidth = prefixWidth;
+        chosenOffset = offset;
+        chosenNeedsHyphen = false;
+
+        // 再嘗試更後面的斷點。
+        low = mid + 1;
+      } else {
+        // 前綴太寬，往前半部搜尋。
+        high = mid;
+      }
     }
+  } else {
+    // 英文與其他語言維持原本逐一檢查，
+    // 避免改變既有的連字與 soft-hyphen 行為。
+    for (const auto& info : breakInfos) {
+      const size_t offset = info.byteOffset;
 
-    const bool needsHyphen = info.requiresInsertedHyphen;
-    const int prefixWidth = measureWordWidth(renderer, fontId, word.substr(0, offset), style, needsHyphen);
-    if (prefixWidth > availableWidth || prefixWidth <= chosenWidth) {
-      continue;  // Skip if too wide or not an improvement
+      if (offset == 0 || offset >= word.size()) {
+        continue;
+      }
+
+      const bool needsHyphen =
+          info.requiresInsertedHyphen;
+
+      const int prefixWidth =
+          measureWordWidth(
+              renderer,
+              fontId,
+              word.substr(0, offset),
+              style,
+              needsHyphen
+          );
+
+      if (prefixWidth > availableWidth ||
+          prefixWidth <= chosenWidth) {
+        continue;
+      }
+
+      chosenWidth = prefixWidth;
+      chosenOffset = offset;
+      chosenNeedsHyphen = needsHyphen;
     }
-
-    chosenWidth = prefixWidth;
-    chosenOffset = offset;
-    chosenNeedsHyphen = needsHyphen;
   }
 
   if (chosenWidth < 0) {
@@ -427,6 +744,10 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
   // line, while "kilometer" moves to the next line.
   // wordContinues[wordIndex] is intentionally left unchanged — the prefix keeps its original attachment.
   wordContinues.insert(wordContinues.begin() + wordIndex + 1, false);
+    wordNoSpace.insert(
+      wordNoSpace.begin() + wordIndex + 1,
+      false
+  );
 
   // Update cached widths to reflect the new prefix/remainder pairing.
   wordWidths[wordIndex] = static_cast<uint16_t>(chosenWidth);
@@ -435,10 +756,18 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
   return true;
 }
 
-void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const std::vector<uint16_t>& wordWidths,
-                             const std::vector<bool>& continuesVec, const std::vector<size_t>& lineBreakIndices,
-                             const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
-                             const GfxRenderer& renderer, const int fontId) {
+void ParsedText::extractLine(
+    const size_t breakIndex,
+    const int pageWidth,
+    const std::vector<uint16_t>& wordWidths,
+    const std::vector<bool>& continuesVec,
+    const std::vector<bool>& noSpaceVec,
+    const std::vector<size_t>& lineBreakIndices,
+    const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
+    const GfxRenderer& renderer,
+    const int fontId,
+    const uint8_t characterSpacing
+) {
   const size_t lineBreak = lineBreakIndices[breakIndex];
   const size_t lastBreakAt = breakIndex > 0 ? lineBreakIndices[breakIndex - 1] : 0;
   const size_t lineWordCount = lineBreak - lastBreakAt;
@@ -463,16 +792,32 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
   for (size_t wordIdx = 0; wordIdx < lineWordCount; wordIdx++) {
     lineWordWidthSum += wordWidths[lastBreakAt + wordIdx];
     // Count gaps: each word after the first creates a gap, unless it's a continuation
-    if (wordIdx > 0 && !continuesVec[lastBreakAt + wordIdx]) {
-      actualGapCount++;
-      totalNaturalGaps +=
-          renderer.getSpaceAdvance(fontId, lastCodepoint(words[lastBreakAt + wordIdx - 1]),
-                                   firstCodepoint(words[lastBreakAt + wordIdx]), wordStyles[lastBreakAt + wordIdx - 1]);
-    } else if (wordIdx > 0 && continuesVec[lastBreakAt + wordIdx]) {
-      // Cross-boundary kerning for continuation words (e.g. nonbreaking spaces, attached punctuation)
-      totalNaturalGaps +=
-          renderer.getKerning(fontId, lastCodepoint(words[lastBreakAt + wordIdx - 1]),
-                              firstCodepoint(words[lastBreakAt + wordIdx]), wordStyles[lastBreakAt + wordIdx - 1]);
+    if (wordIdx > 0) {
+      const size_t index =
+          lastBreakAt + wordIdx;
+
+      if (continuesVec[index]) {
+        totalNaturalGaps += renderer.getKerning(
+            fontId,
+            lastCodepoint(words[index - 1]),
+            firstCodepoint(words[index]),
+            wordStyles[index - 1]
+        );
+      } else if (noSpaceVec[index]) {
+        // 不加 full-width 空格，也不參與 justified space 分配；僅在
+        // ASCII/符號緊貼 CJK 時加保護間隙。
+        totalNaturalGaps += tightJoinGap(lastCodepoint(words[index - 1]), firstCodepoint(words[index])) + characterSpacing;
+      } else {
+        actualGapCount++;
+
+        totalNaturalGaps +=
+            renderer.getSpaceAdvance(
+                fontId,
+                lastCodepoint(words[index - 1]),
+                firstCodepoint(words[index]),
+                wordStyles[index - 1]
+            );
+      }
     }
   }
 
@@ -504,24 +849,55 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
     lineXPos.push_back(xpos);
 
     const bool nextIsContinuation = wordIdx + 1 < lineWordCount && continuesVec[lastBreakAt + wordIdx + 1];
+    const bool nextHasNoSpace =
+      wordIdx + 1 < lineWordCount &&
+      noSpaceVec[lastBreakAt + wordIdx + 1];
+
     if (nextIsContinuation) {
-      int advance = wordWidths[lastBreakAt + wordIdx];
-      // Cross-boundary kerning for continuation words (e.g. nonbreaking spaces, attached punctuation)
-      advance +=
-          renderer.getKerning(fontId, lastCodepoint(words[lastBreakAt + wordIdx]),
-                              firstCodepoint(words[lastBreakAt + wordIdx + 1]), wordStyles[lastBreakAt + wordIdx]);
+      int advance =
+          wordWidths[lastBreakAt + wordIdx];
+
+      advance += renderer.getKerning(
+          fontId,
+          lastCodepoint(words[lastBreakAt + wordIdx]),
+          firstCodepoint(
+              words[lastBreakAt + wordIdx + 1]
+          ),
+          wordStyles[lastBreakAt + wordIdx]
+      );
+
       xpos += advance;
+
+    } else if (nextHasNoSpace) {
+      // CJK chunk boundary: no full space, but keep a tiny guard gap when
+      // digits/punctuation touches CJK in horizontal layout.
+      xpos += wordWidths[lastBreakAt + wordIdx] +
+              tightJoinGap(lastCodepoint(words[lastBreakAt + wordIdx]),
+                           firstCodepoint(words[lastBreakAt + wordIdx + 1])) + characterSpacing;
+
     } else {
       int gap = 0;
+
       if (wordIdx + 1 < lineWordCount) {
-        gap = renderer.getSpaceAdvance(fontId, lastCodepoint(words[lastBreakAt + wordIdx]),
-                                       firstCodepoint(words[lastBreakAt + wordIdx + 1]),
-                                       wordStyles[lastBreakAt + wordIdx]);
+        gap = renderer.getSpaceAdvance(
+            fontId,
+            lastCodepoint(words[lastBreakAt + wordIdx]),
+            firstCodepoint(
+                words[lastBreakAt + wordIdx + 1]
+            ),
+            wordStyles[lastBreakAt + wordIdx]
+        );
       }
-      if (blockStyle.alignment == CssTextAlign::Justify && !isLastLine) {
+
+      if (blockStyle.alignment ==
+              CssTextAlign::Justify &&
+          !isLastLine) {
         gap += justifyExtra;
       }
-      xpos += wordWidths[lastBreakAt + wordIdx] + gap;
+
+      xpos +=
+          wordWidths[lastBreakAt + wordIdx] +
+          gap;
     }
   }
 
@@ -538,4 +914,256 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
 
   processLine(
       std::make_shared<TextBlock>(std::move(lineWords), std::move(lineXPos), std::move(lineWordStyles), blockStyle));
+}
+
+void ParsedText::layoutAndExtractColumns(
+    const GfxRenderer& renderer,
+    const int fontId,
+    const uint16_t viewportHeight,
+    const float lineSpacing,
+    const uint8_t characterSpacing,
+    const std::function<void(
+        std::shared_ptr<TextBlock>
+    )>& processColumn
+) {
+  if (words.empty()) {
+    return;
+  }
+
+  /*
+   * 沿用原本段首縮排處理。
+   *
+   * applyParagraphIndent() 可能會在第一個 word 前加入
+   * em-space；下方會把 em-space 當成一個空白直排 cell。
+   */
+  applyParagraphIndent();
+
+  (void)lineSpacing;
+
+  // In vertical layout, line spacing controls the distance between columns,
+  // not the distance between characters inside one column.  Character spacing
+  // alone controls the vertical glyph-to-glyph advance here.  Use a slightly
+  // tighter base than the horizontal line box so 0 px really feels compact.
+  const int baseGlyphAdvance = std::max(1, renderer.getLineHeight(fontId) - 6);
+  const int glyphAdvance = std::max(1, baseGlyphAdvance + static_cast<int>(characterSpacing));
+
+  const int maxCellsPerColumn =
+      std::max(
+          1,
+          static_cast<int>(viewportHeight) /
+              glyphAdvance
+      );
+
+  std::vector<std::string> columnGlyphs;
+  std::vector<int16_t> columnXPos;
+  std::vector<int16_t> columnYPos;
+  std::vector<EpdFontFamily::Style>
+      columnStyles;
+
+  columnGlyphs.reserve(maxCellsPerColumn);
+  columnXPos.reserve(maxCellsPerColumn);
+  columnYPos.reserve(maxCellsPerColumn);
+  columnStyles.reserve(maxCellsPerColumn);
+
+  int currentCell = 0;
+
+  /*
+   * 此欄包含多少個原始 ParsedText word。
+   *
+   * 直排時 words 會拆成 glyph，但 footnote tracking
+   * 仍然需要原始 word 數量。
+   */
+  uint16_t logicalWordsInColumn = 0;
+
+  const auto flushColumn = [&]() {
+    if (!columnGlyphs.empty()) {
+      processColumn(
+          std::make_shared<TextBlock>(
+              std::move(columnGlyphs),
+              std::move(columnXPos),
+              std::move(columnYPos),
+              std::move(columnStyles),
+              blockStyle,
+              TextLayoutMode::Vertical,
+              logicalWordsInColumn
+          )
+      );
+    }
+
+    columnGlyphs.clear();
+    columnXPos.clear();
+    columnYPos.clear();
+    columnStyles.clear();
+
+    columnGlyphs.reserve(maxCellsPerColumn);
+    columnXPos.reserve(maxCellsPerColumn);
+    columnYPos.reserve(maxCellsPerColumn);
+    columnStyles.reserve(maxCellsPerColumn);
+
+    currentCell = 0;
+    logicalWordsInColumn = 0;
+  };
+
+  /*
+   * 往下移動一個空白 cell。
+   *
+   * 用於：
+   * - 英文 word 之間的空格
+   * - 段首 em-space
+   * - 全形空白
+   */
+  const auto advanceBlankCell = [&]() {
+    if (currentCell >= maxCellsPerColumn) {
+      flushColumn();
+    }
+
+    ++currentCell;
+  };
+
+  for (size_t wordIndex = 0;
+       wordIndex < words.size();
+       ++wordIndex) {
+    /*
+     * 一般 word 邊界需要保留一格空白。
+     *
+     * wordContinues：
+     *   不加空格，也不可視為普通 word 邊界。
+     *
+     * wordNoSpace：
+     *   parser buffer 的人工切割，不加空格。
+     */
+    if (wordIndex > 0 &&
+        !wordContinues[wordIndex] &&
+        !wordNoSpace[wordIndex]) {
+      advanceBlankCell();
+    }
+
+    const std::string& word =
+        words[wordIndex];
+
+    const EpdFontFamily::Style style =
+        wordStyles[wordIndex];
+
+    const uint8_t* cursor =
+        reinterpret_cast<const uint8_t*>(
+            word.c_str()
+        );
+
+    bool logicalWordCounted = false;
+
+    while (*cursor != 0) {
+      const uint8_t* glyphStart = cursor;
+
+      const uint32_t codepoint =
+          utf8NextCodepoint(&cursor);
+
+      if (codepoint == 0) {
+        break;
+      }
+
+      const size_t glyphByteLength =
+          static_cast<size_t>(
+              cursor - glyphStart
+          );
+
+      if (glyphByteLength == 0 ||
+          glyphByteLength > 4) {
+        continue;
+      }
+
+      // CR 不處理。
+      if (codepoint == '\r') {
+        continue;
+      }
+
+      // 文字中的換行符號強制開始下一欄。
+      if (codepoint == '\n') {
+        flushColumn();
+        continue;
+      }
+
+      // Soft hyphen 在直排 MVP 中不顯示。
+      if (codepoint == 0x00AD) {
+        continue;
+      }
+
+      /*
+       * 空白字元只佔一格，不建立可見 glyph。
+       *
+       * U+0020：一般空格
+       * U+00A0：NBSP
+       * U+2003：em-space
+       * U+3000：全形空格
+       */
+      if (codepoint == 0x0020 ||
+          codepoint == 0x00A0 ||
+          codepoint == 0x2003 ||
+          codepoint == 0x3000) {
+        advanceBlankCell();
+        continue;
+      }
+
+      /*
+       * Combining mark 優先附加到前一個 glyph，
+       * 不額外占用一格。
+       */
+      if (utf8IsCombiningMark(codepoint) &&
+          !columnGlyphs.empty()) {
+        columnGlyphs.back().append(
+            reinterpret_cast<const char*>(
+                glyphStart
+            ),
+            glyphByteLength
+        );
+        continue;
+      }
+
+      if (currentCell >= maxCellsPerColumn) {
+        flushColumn();
+      }
+
+      /*
+       * 原始 word 只計數一次。
+       *
+       * 若一個很長的中文 chunk 跨越多欄，
+       * logical word count 只會記在第一欄。
+       */
+      if (!logicalWordCounted) {
+        ++logicalWordsInColumn;
+        logicalWordCounted = true;
+      }
+
+      columnGlyphs.emplace_back(
+          reinterpret_cast<const char*>(
+              glyphStart
+          ),
+          glyphByteLength
+      );
+
+      // 一個 TextBlock 代表一欄，所以欄內 X 都是 0。
+      columnXPos.push_back(0);
+
+      columnYPos.push_back(
+          static_cast<int16_t>(
+              currentCell * glyphAdvance
+          )
+      );
+
+      columnStyles.push_back(style);
+
+      ++currentCell;
+    }
+  }
+
+  // 輸出最後尚未滿的欄。
+  flushColumn();
+
+  /*
+   * 所有內容都已轉移到直排 TextBlock。
+   * 清空原始資料，避免下一次重複輸出。
+   */
+  words.clear();
+  wordStyles.clear();
+  wordContinues.clear();
+  wordNoSpace.clear();
 }

@@ -33,6 +33,11 @@ class CrossPointSettings {
     INVERTED_BLACK_AND_WHITE = 2,
     SLEEP_SCREEN_COVER_FILTER_COUNT
   };
+  enum TRANSPARENT_SLEEP_PNG_BACKGROUND {
+    TRANSPARENT_SLEEP_CURRENT_READING_PAGE = 0,
+    TRANSPARENT_SLEEP_WHITE_BACKGROUND = 1,
+    TRANSPARENT_SLEEP_PNG_BACKGROUND_COUNT
+  };
 
   // Status bar enum - legacy
   enum STATUS_BAR_MODE {
@@ -106,10 +111,38 @@ class CrossPointSettings {
   enum SIDE_BUTTON_LAYOUT { PREV_NEXT = 0, NEXT_PREV = 1, SIDE_BUTTON_LAYOUT_COUNT };
 
   // Font family options
-  enum FONT_FAMILY { BOOKERLY = 0, NOTOSANS = 1, OPENDYSLEXIC = 2, FONT_FAMILY_COUNT };
-  // Font size options
-  enum FONT_SIZE { SMALL = 0, MEDIUM = 1, LARGE = 2, EXTRA_LARGE = 3, FONT_SIZE_COUNT };
-  enum LINE_COMPRESSION { TIGHT = 0, NORMAL = 1, WIDE = 2, LINE_COMPRESSION_COUNT };
+  enum FONT_FAMILY { NOTOSANS = 0, READERDYSLEXIC = 1, FONT_FAMILY_COUNT };
+  // Legacy schema values used before the licensed-font cleanup.
+  static constexpr uint8_t LEGACY_FONT_REMOVED = 0;
+  static constexpr uint8_t LEGACY_FONT_NOTOSANS = 1;
+  static constexpr uint8_t LEGACY_FONT_READERDYSLEXIC = 2;
+  // Reader font pixel-size range. Legacy settings used enum values 0..3;
+  // loaders migrate those values to 30/36/40/46 px.
+  static constexpr uint8_t READER_FONT_SIZE_MIN = 20;
+  static constexpr uint8_t READER_FONT_SIZE_MAX = 60;
+  static constexpr uint8_t READER_FONT_SIZE_DEFAULT = 36;
+  enum LEGACY_FONT_SIZE { SMALL = 0, MEDIUM = 1, LARGE = 2, EXTRA_LARGE = 3, FONT_SIZE_COUNT };
+  enum LINE_COMPRESSION {
+    TIGHT = 0,
+    NORMAL = 1,
+    WIDE = 2,
+    LINE_COMPRESSION_COUNT
+  };
+  // Numeric reader spacing.  lineSpacing is a percentage; legacy enum values
+  // 0/1/2 are migrated to 90/100/115.  characterSpacing is pixel spacing
+  // between adjacent glyphs / vertical characters.
+  static constexpr uint8_t READER_LINE_SPACING_MIN = 80;
+  static constexpr uint8_t READER_LINE_SPACING_MAX = 140;
+  static constexpr uint8_t READER_LINE_SPACING_DEFAULT = 100;
+  static constexpr uint8_t READER_CHARACTER_SPACING_MIN = 0;
+  static constexpr uint8_t READER_CHARACTER_SPACING_MAX = 12;
+  static constexpr uint8_t READER_CHARACTER_SPACING_DEFAULT = 0;
+  // Reader text layout direction.
+  enum READING_LAYOUT {
+    HORIZONTAL_LAYOUT = 0,
+    VERTICAL_LAYOUT = 1,
+    READING_LAYOUT_COUNT
+  };
   enum PARAGRAPH_ALIGNMENT {
     JUSTIFIED = 0,
     LEFT_ALIGN = 1,
@@ -146,7 +179,7 @@ class CrossPointSettings {
   enum HIDE_BATTERY_PERCENTAGE { HIDE_NEVER = 0, HIDE_READER = 1, HIDE_ALWAYS = 2, HIDE_BATTERY_PERCENTAGE_COUNT };
 
   // UI Theme
-  enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2 };
+  enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2, LARGE_TEXT = 3, UI_THEME_COUNT };
 
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
@@ -157,6 +190,13 @@ class CrossPointSettings {
   uint8_t sleepScreenCoverMode = FIT;
   // Sleep screen cover filter
   uint8_t sleepScreenCoverFilter = NO_FILTER;
+  // Rotate the final sleep screen by 180 degrees (0 = normal, 1 = inverted).
+  uint8_t sleepScreenRotate180 = 0;
+  // Background used for transparent PNG sleep overlays. Reader pages are
+  // available only when sleeping from a reader context; other activities
+  // always fall back to white.
+  uint8_t transparentSleepPngBackground =
+      TRANSPARENT_SLEEP_CURRENT_READING_PAGE;
   // Status bar settings (statusBar retained for migration only)
   uint8_t statusBar = FULL;
   uint8_t statusBarChapterPageCount = 1;
@@ -195,10 +235,16 @@ class CrossPointSettings {
   uint8_t frontButtonLeft = FRONT_HW_LEFT;
   uint8_t frontButtonRight = FRONT_HW_RIGHT;
   // Reader font settings
-  uint8_t fontFamily = BOOKERLY;
-  uint8_t fontSize = MEDIUM;
-  uint8_t lineSpacing = NORMAL;
+  uint8_t fontFamily = NOTOSANS;
+  uint8_t fontSize = READER_FONT_SIZE_DEFAULT;
+  uint8_t lineSpacing = READER_LINE_SPACING_DEFAULT;
+  uint8_t characterSpacing = READER_CHARACTER_SPACING_DEFAULT;
   uint8_t paragraphAlignment = JUSTIFIED;
+
+  // Reader text layout. Selectable from Settings > Reader > Reading Layout.
+  // Keep Vertical as the default for existing Paper S3 CJK installations.
+  uint8_t readingLayout = VERTICAL_LAYOUT;
+
   // Auto-sleep timeout setting (default 10 minutes)
   uint8_t sleepTimeout = SLEEP_10_MIN;
   // E-ink refresh frequency (default 15 pages)
@@ -255,6 +301,7 @@ class CrossPointSettings {
 
  public:
   float getReaderLineCompression() const;
+  uint8_t getReaderCharacterSpacing() const;
   unsigned long getSleepTimeoutMs() const;
   int getRefreshFrequency() const;
 };

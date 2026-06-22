@@ -1,0 +1,15 @@
+EPD_Painter
+===========
+
+Original project: EPD_Painter by Tony Weston and contributors
+Source: https://github.com/tonywestonuk/EPD_Painter
+License: Apache License 2.0
+
+This copy was modified for the CrossPoint/PaperPoint ESP32-S3 reader on
+2026-06-20. Local changes include integration with the project HAL, removal
+of unused/shutdown modules, Arduino/ESP-IDF compatibility adjustments, and
+GC16 grayscale support. Modified files carry a prominent modification notice.
+
+The GC16 waveform table in EPD_Painter_gc16_lut.h is separately attributed
+and licensed under the BSD-2-Clause/FreeBSD terms in
+LICENSES/BSD-2-Clause-LovyanGFX.txt.

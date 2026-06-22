@@ -4,111 +4,407 @@
 #include <Logging.h>
 #include <Serialization.h>
 
-void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int x, const int y) const {
-  // Validate iterator bounds before rendering
-  if (words.size() != wordXpos.size() || words.size() != wordStyles.size()) {
-    LOG_ERR("TXB", "Render skipped: size mismatch (words=%u, xpos=%u, styles=%u)\n", (uint32_t)words.size(),
-            (uint32_t)wordXpos.size(), (uint32_t)wordStyles.size());
+void TextBlock::render(
+    const GfxRenderer& renderer,
+    const int fontId,
+    const int x,
+    const int y
+) const {
+  if (words.size() != wordXpos.size() ||
+      words.size() != wordStyles.size()) {
+    LOG_ERR(
+        "TXB",
+        "Render skipped: size mismatch "
+        "(words=%u, xpos=%u, styles=%u)",
+        static_cast<uint32_t>(words.size()),
+        static_cast<uint32_t>(wordXpos.size()),
+        static_cast<uint32_t>(wordStyles.size())
+    );
     return;
   }
 
-  for (size_t i = 0; i < words.size(); i++) {
-    const int wordX = wordXpos[i] + x;
-    const EpdFontFamily::Style currentStyle = wordStyles[i];
-    renderer.drawText(fontId, wordX, y, words[i].c_str(), true, currentStyle);
+  if (layoutMode == TextLayoutMode::Vertical) {
+    if (words.size() != wordYpos.size()) {
+      LOG_ERR(
+          "TXB",
+          "Vertical render skipped: "
+          "words=%u, ypos=%u",
+          static_cast<uint32_t>(words.size()),
+          static_cast<uint32_t>(wordYpos.size())
+      );
+      return;
+    }
 
-    if ((currentStyle & EpdFontFamily::UNDERLINE) != 0) {
-      const std::string& w = words[i];
-      const int fullWordWidth = renderer.getTextWidth(fontId, w.c_str(), currentStyle);
-      // y is the top of the text line; add ascender to reach baseline, then offset 2px below
-      const int underlineY = y + renderer.getFontAscenderSize(fontId) + 2;
+    for (size_t i = 0; i < words.size(); ++i) {
+      const int glyphX =
+          x + wordXpos[i];
+
+      const int glyphY =
+          y + wordYpos[i];
+
+      renderer.drawVerticalText(
+          fontId,
+          glyphX,
+          glyphY,
+          words[i].c_str(),
+          true,
+          wordStyles[i]
+      );
+    }
+
+    // 直排底線之後再處理。
+    return;
+  }
+
+  // 以下是原本的橫排 render。
+  for (size_t i = 0; i < words.size(); ++i) {
+    const int wordX =
+        wordXpos[i] + x;
+
+    const EpdFontFamily::Style currentStyle =
+        wordStyles[i];
+
+    renderer.drawText(
+        fontId,
+        wordX,
+        y,
+        words[i].c_str(),
+        true,
+        currentStyle
+    );
+
+    if ((currentStyle &
+         EpdFontFamily::UNDERLINE) != 0) {
+      const std::string& word = words[i];
+
+      const int fullWordWidth =
+          renderer.getTextWidth(
+              fontId,
+              word.c_str(),
+              currentStyle
+          );
+
+      const int underlineY =
+          y +
+          renderer.getFontAscenderSize(fontId) +
+          2;
 
       int startX = wordX;
       int underlineWidth = fullWordWidth;
 
-      // if word starts with em-space ("\xe2\x80\x83"), account for the additional indent before drawing the line
-      if (w.size() >= 3 && static_cast<uint8_t>(w[0]) == 0xE2 && static_cast<uint8_t>(w[1]) == 0x80 &&
-          static_cast<uint8_t>(w[2]) == 0x83) {
-        const char* visiblePtr = w.c_str() + 3;
-        const int prefixWidth = renderer.getTextAdvanceX(fontId, "\xe2\x80\x83", currentStyle);
-        const int visibleWidth = renderer.getTextWidth(fontId, visiblePtr, currentStyle);
+      if (word.size() >= 3 &&
+          static_cast<uint8_t>(word[0]) == 0xE2 &&
+          static_cast<uint8_t>(word[1]) == 0x80 &&
+          static_cast<uint8_t>(word[2]) == 0x83) {
+        const char* visiblePtr =
+            word.c_str() + 3;
+
+        const int prefixWidth =
+            renderer.getTextAdvanceX(
+                fontId,
+                "\xe2\x80\x83",
+                currentStyle
+            );
+
+        const int visibleWidth =
+            renderer.getTextWidth(
+                fontId,
+                visiblePtr,
+                currentStyle
+            );
+
         startX = wordX + prefixWidth;
         underlineWidth = visibleWidth;
       }
 
-      renderer.drawLine(startX, underlineY, startX + underlineWidth, underlineY, true);
+      renderer.drawLine(
+          startX,
+          underlineY,
+          startX + underlineWidth,
+          underlineY,
+          true
+      );
     }
   }
 }
 
 bool TextBlock::serialize(FsFile& file) const {
-  if (words.size() != wordXpos.size() || words.size() != wordStyles.size()) {
-    LOG_ERR("TXB", "Serialization failed: size mismatch (words=%u, xpos=%u, styles=%u)\n", words.size(),
-            wordXpos.size(), wordStyles.size());
+  if (words.size() != wordXpos.size() ||
+      words.size() != wordStyles.size()) {
+    LOG_ERR(
+        "TXB",
+        "Serialization failed: size mismatch "
+        "(words=%u, xpos=%u, styles=%u)",
+        static_cast<unsigned>(words.size()),
+        static_cast<unsigned>(wordXpos.size()),
+        static_cast<unsigned>(wordStyles.size())
+    );
     return false;
   }
 
-  // Word data
-  serialization::writePod(file, static_cast<uint16_t>(words.size()));
-  for (const auto& w : words) serialization::writeString(file, w);
-  for (auto x : wordXpos) serialization::writePod(file, x);
-  for (auto s : wordStyles) serialization::writePod(file, s);
+  const bool vertical =
+      layoutMode == TextLayoutMode::Vertical;
 
-  // Style (alignment + margins/padding/indent)
-  serialization::writePod(file, blockStyle.alignment);
-  serialization::writePod(file, blockStyle.textAlignDefined);
-  serialization::writePod(file, blockStyle.marginTop);
-  serialization::writePod(file, blockStyle.marginBottom);
-  serialization::writePod(file, blockStyle.marginLeft);
-  serialization::writePod(file, blockStyle.marginRight);
-  serialization::writePod(file, blockStyle.paddingTop);
-  serialization::writePod(file, blockStyle.paddingBottom);
-  serialization::writePod(file, blockStyle.paddingLeft);
-  serialization::writePod(file, blockStyle.paddingRight);
-  serialization::writePod(file, blockStyle.textIndent);
-  serialization::writePod(file, blockStyle.textIndentDefined);
+  if (words.size() > 65535) {
+    LOG_ERR(
+        "TXB",
+        "Serialization failed: too many glyphs (%u)",
+        static_cast<unsigned>(words.size())
+    );
+    return false;
+  }
+
+  // Layout header
+  serialization::writePod(
+      file,
+      static_cast<uint8_t>(layoutMode)
+  );
+
+  serialization::writePod(
+      file,
+      logicalWordCount
+  );
+
+  // Word/glyph count
+  const uint16_t wordCount =
+      static_cast<uint16_t>(words.size());
+
+  serialization::writePod(
+      file,
+      wordCount
+  );
+
+  for (const auto& word : words) {
+    serialization::writeString(file, word);
+  }
+
+  for (const int16_t x : wordXpos) {
+    serialization::writePod(file, x);
+  }
+
+  // 橫排不寫 Y vector；直排才寫。
+  if (vertical) {
+    for (const int16_t y : wordYpos) {
+      serialization::writePod(file, y);
+    }
+  }
+
+  for (const auto style : wordStyles) {
+    serialization::writePod(file, style);
+  }
+
+  serialization::writePod(
+      file,
+      blockStyle.alignment
+  );
+  serialization::writePod(
+      file,
+      blockStyle.textAlignDefined
+  );
+  serialization::writePod(
+      file,
+      blockStyle.marginTop
+  );
+  serialization::writePod(
+      file,
+      blockStyle.marginBottom
+  );
+  serialization::writePod(
+      file,
+      blockStyle.marginLeft
+  );
+  serialization::writePod(
+      file,
+      blockStyle.marginRight
+  );
+  serialization::writePod(
+      file,
+      blockStyle.paddingTop
+  );
+  serialization::writePod(
+      file,
+      blockStyle.paddingBottom
+  );
+  serialization::writePod(
+      file,
+      blockStyle.paddingLeft
+  );
+  serialization::writePod(
+      file,
+      blockStyle.paddingRight
+  );
+  serialization::writePod(
+      file,
+      blockStyle.textIndent
+  );
+  serialization::writePod(
+      file,
+      blockStyle.textIndentDefined
+  );
 
   return true;
 }
 
-std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
-  uint16_t wc;
-  std::vector<std::string> words;
-  std::vector<int16_t> wordXpos;
-  std::vector<EpdFontFamily::Style> wordStyles;
-  BlockStyle blockStyle;
+std::unique_ptr<TextBlock>
+TextBlock::deserialize(FsFile& file) {
+  uint8_t layoutModeRaw = 0;
+  uint16_t logicalWordCount = 0;
+  uint16_t storedWordCount = 0;
 
-  // Word count
-  serialization::readPod(file, wc);
+  serialization::readPod(
+      file,
+      layoutModeRaw
+  );
 
-  // Sanity check: prevent allocation of unreasonably large vectors (max 10000 words per block)
-  if (wc > 10000) {
-    LOG_ERR("TXB", "Deserialization failed: word count %u exceeds maximum", wc);
+  if (layoutModeRaw >
+      static_cast<uint8_t>(
+          TextLayoutMode::Vertical)) {
+    LOG_ERR(
+        "TXB",
+        "Deserialization failed: "
+        "invalid layout mode %u",
+        layoutModeRaw
+    );
     return nullptr;
   }
 
-  // Word data
-  words.resize(wc);
-  wordXpos.resize(wc);
-  wordStyles.resize(wc);
-  for (auto& w : words) serialization::readString(file, w);
-  for (auto& x : wordXpos) serialization::readPod(file, x);
-  for (auto& s : wordStyles) serialization::readPod(file, s);
+  const TextLayoutMode layoutMode =
+      static_cast<TextLayoutMode>(
+          layoutModeRaw
+      );
 
-  // Style (alignment + margins/padding/indent)
-  serialization::readPod(file, blockStyle.alignment);
-  serialization::readPod(file, blockStyle.textAlignDefined);
-  serialization::readPod(file, blockStyle.marginTop);
-  serialization::readPod(file, blockStyle.marginBottom);
-  serialization::readPod(file, blockStyle.marginLeft);
-  serialization::readPod(file, blockStyle.marginRight);
-  serialization::readPod(file, blockStyle.paddingTop);
-  serialization::readPod(file, blockStyle.paddingBottom);
-  serialization::readPod(file, blockStyle.paddingLeft);
-  serialization::readPod(file, blockStyle.paddingRight);
-  serialization::readPod(file, blockStyle.textIndent);
-  serialization::readPod(file, blockStyle.textIndentDefined);
+  serialization::readPod(
+      file,
+      logicalWordCount
+  );
 
-  return std::unique_ptr<TextBlock>(
-      new TextBlock(std::move(words), std::move(wordXpos), std::move(wordStyles), blockStyle));
+  serialization::readPod(
+      file,
+      storedWordCount
+  );
+
+  if (storedWordCount > 10000) {
+    LOG_ERR(
+        "TXB",
+        "Deserialization failed: "
+        "word count %u exceeds maximum",
+        storedWordCount
+    );
+    return nullptr;
+  }
+
+  std::vector<std::string> words;
+  std::vector<int16_t> wordXpos;
+  std::vector<int16_t> wordYpos;
+  std::vector<EpdFontFamily::Style>
+      wordStyles;
+
+  words.resize(storedWordCount);
+  wordXpos.resize(storedWordCount);
+  wordStyles.resize(storedWordCount);
+
+  if (layoutMode ==
+      TextLayoutMode::Vertical) {
+    wordYpos.resize(storedWordCount);
+  }
+
+  for (auto& word : words) {
+    serialization::readString(file, word);
+  }
+
+  for (auto& x : wordXpos) {
+    serialization::readPod(file, x);
+  }
+
+  if (layoutMode ==
+      TextLayoutMode::Vertical) {
+    for (auto& y : wordYpos) {
+      serialization::readPod(file, y);
+    }
+  }
+
+  for (auto& style : wordStyles) {
+    serialization::readPod(file, style);
+  }
+
+  BlockStyle blockStyle;
+
+  serialization::readPod(
+      file,
+      blockStyle.alignment
+  );
+  serialization::readPod(
+      file,
+      blockStyle.textAlignDefined
+  );
+  serialization::readPod(
+      file,
+      blockStyle.marginTop
+  );
+  serialization::readPod(
+      file,
+      blockStyle.marginBottom
+  );
+  serialization::readPod(
+      file,
+      blockStyle.marginLeft
+  );
+  serialization::readPod(
+      file,
+      blockStyle.marginRight
+  );
+  serialization::readPod(
+      file,
+      blockStyle.paddingTop
+  );
+  serialization::readPod(
+      file,
+      blockStyle.paddingBottom
+  );
+  serialization::readPod(
+      file,
+      blockStyle.paddingLeft
+  );
+  serialization::readPod(
+      file,
+      blockStyle.paddingRight
+  );
+  serialization::readPod(
+      file,
+      blockStyle.textIndent
+  );
+  serialization::readPod(
+      file,
+      blockStyle.textIndentDefined
+  );
+
+  if (layoutMode ==
+      TextLayoutMode::Vertical) {
+    return std::unique_ptr<TextBlock>(
+        new TextBlock(
+            std::move(words),
+            std::move(wordXpos),
+            std::move(wordYpos),
+            std::move(wordStyles),
+            blockStyle,
+            TextLayoutMode::Vertical,
+            logicalWordCount
+        )
+    );
+  }
+
+  auto result =
+      std::unique_ptr<TextBlock>(
+          new TextBlock(
+              std::move(words),
+              std::move(wordXpos),
+              std::move(wordStyles),
+              blockStyle
+          )
+      );
+
+  result->logicalWordCount =
+      logicalWordCount;
+
+  return result;
 }

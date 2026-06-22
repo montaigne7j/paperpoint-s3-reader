@@ -116,6 +116,7 @@ bool JsonSettingsIO::loadState(CrossPointState& s, const char* json) {
 
 bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path) {
   JsonDocument doc;
+  doc["settingsSchemaVersion"] = 2;
 
   for (const auto& info : getSettingsList()) {
     if (!info.key) continue;
@@ -133,6 +134,12 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
       doc[info.key] = s.*(info.valuePtr);
     }
   }
+
+  // Front button remap.
+  doc["frontButtonBack"] = s.frontButtonBack;
+  doc["frontButtonConfirm"] = s.frontButtonConfirm;
+  doc["frontButtonLeft"] = s.frontButtonLeft;
+  doc["frontButtonRight"] = s.frontButtonRight;
 
   // Front button remap — managed by RemapFrontButtons sub-activity, not in SettingsList.
   doc["frontButtonBack"] = s.frontButtonBack;
@@ -155,6 +162,7 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   }
 
   auto clamp = [](uint8_t val, uint8_t maxVal, uint8_t def) -> uint8_t { return val < maxVal ? val : def; };
+  const uint8_t settingsSchemaVersion = doc["settingsSchemaVersion"] | static_cast<uint8_t>(1);
 
   // Legacy migration: if statusBarChapterPageCount is absent this is a pre-refactor settings file.
   // Populate s with migrated values now so the generic loop below picks them up as defaults and clamps them.
@@ -193,6 +201,41 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     } else {
       const uint8_t fieldDefault = s.*(info.valuePtr);  // struct-initializer default, read before we overwrite it
       uint8_t v = doc[info.key] | fieldDefault;
+
+      // Schema 1 values: 0=removed proprietary font, 1=Noto Sans, 2=legacy dyslexia-friendly font.
+      // Schema 2 maps them to Noto Sans or the renamed ReaderDyslexic derivative.
+      if (info.valuePtr == &CrossPointSettings::fontFamily && settingsSchemaVersion < 2) {
+        v = v == CrossPointSettings::LEGACY_FONT_READERDYSLEXIC
+                ? CrossPointSettings::READERDYSLEXIC
+                : CrossPointSettings::NOTOSANS;
+        if (needsResave) *needsResave = true;
+      }
+
+      // Reader line spacing used to be an enum (0=tight, 1=normal, 2=wide).
+      if (info.valuePtr == &CrossPointSettings::lineSpacing && v <= CrossPointSettings::WIDE) {
+        switch (v) {
+          case CrossPointSettings::TIGHT:
+            v = 90;
+            break;
+          case CrossPointSettings::WIDE:
+            v = 115;
+            break;
+          case CrossPointSettings::NORMAL:
+          default:
+            v = CrossPointSettings::READER_LINE_SPACING_DEFAULT;
+            break;
+        }
+        if (needsResave) *needsResave = true;
+      }
+
+      // Reader font size used to be an enum (0..3). Migrate old JSON files to
+      // their equivalent runtime TTF pixel sizes before applying VALUE bounds.
+      if (info.valuePtr == &CrossPointSettings::fontSize && v <= CrossPointSettings::EXTRA_LARGE) {
+        static constexpr uint8_t LEGACY_TO_PIXELS[] = {30, 36, 40, 46};
+        v = LEGACY_TO_PIXELS[v];
+        if (needsResave) *needsResave = true;
+      }
+
       if (info.type == SettingType::ENUM) {
         v = clamp(v, (uint8_t)info.enumValues.size(), fieldDefault);
       } else if (info.type == SettingType::TOGGLE) {
@@ -209,6 +252,9 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
 
   // Front button remap — managed by RemapFrontButtons sub-activity, not in SettingsList.
   using S = CrossPointSettings;
+
+  // Front button mapping.
+
   s.frontButtonBack =
       clamp(doc["frontButtonBack"] | (uint8_t)S::FRONT_HW_BACK, S::FRONT_BUTTON_HARDWARE_COUNT, S::FRONT_HW_BACK);
   s.frontButtonConfirm = clamp(doc["frontButtonConfirm"] | (uint8_t)S::FRONT_HW_CONFIRM, S::FRONT_BUTTON_HARDWARE_COUNT,

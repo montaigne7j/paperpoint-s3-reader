@@ -7,6 +7,8 @@
 #include <HalStorage.h>
 #include <Logging.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <string>
 
@@ -43,6 +45,140 @@ void drawBatteryIcon(const GfxRenderer& renderer, int x, int y, int battWidth, i
   }
 
   renderer.fillRect(x + 2, y + 2, filledWidth, rectHeight - 4);
+}
+
+
+
+int uiLineBoxHeight(const std::function<std::string(int index)>& rowSubtitle) {
+  return rowSubtitle != nullptr ? 60 : 30;
+}
+
+void drawProgressRing(const GfxRenderer& renderer, const int cx, const int cy, const int radius,
+                      const int thickness, const int progress) {
+  const int clamped = std::max(0, std::min(100, progress));
+  const float pi = 3.14159265358979323846f;
+
+  auto drawArcPixels = [&](const int startDeg, const int endDeg, const int strokeWidth) {
+    for (int deg = startDeg; deg <= endDeg; ++deg) {
+      const float rad = (static_cast<float>(deg) - 90.0f) * pi / 180.0f;
+      const float cs = std::cos(rad);
+      const float sn = std::sin(rad);
+      for (int t = 0; t < strokeWidth; ++t) {
+        const int r = radius - t;
+        const int x = cx + static_cast<int>(std::lround(cs * static_cast<float>(r)));
+        const int y = cy + static_cast<int>(std::lround(sn * static_cast<float>(r)));
+        renderer.drawPixel(x, y);
+      }
+    }
+  };
+
+  // Thin full outline so the remaining portion is visible.
+  drawArcPixels(0, 359, 1);
+  drawArcPixels(0, 359, 1);
+
+  if (clamped <= 0) {
+    return;
+  }
+
+  const int sweep = static_cast<int>(std::lround(clamped * 3.6f));
+  drawArcPixels(0, std::min(359, sweep), thickness);
+}
+
+int classicListRowHeight(const std::function<std::string(int index)>& rowSubtitle) {
+  return rowSubtitle != nullptr ? BaseMetrics::values.listWithSubtitleRowHeight
+                                : BaseMetrics::values.listRowHeight;
+}
+
+void drawClassicListPageIndicator(const GfxRenderer& renderer, const Rect rect, const int itemCount,
+                                  const int pageItems) {
+  if (pageItems <= 0) return;
+
+  const int totalPages = (itemCount + pageItems - 1) / pageItems;
+  if (totalPages <= 1) return;
+
+  constexpr int indicatorWidth = 20;
+  constexpr int arrowSize = 6;
+  constexpr int margin = 15;
+
+  const int centerX = rect.x + rect.width - indicatorWidth / 2 - margin;
+  const int indicatorTop = rect.y;
+  const int indicatorBottom = rect.y + rect.height - arrowSize;
+
+  for (int i = 0; i < arrowSize; ++i) {
+    const int lineWidth = 1 + i * 2;
+    const int startX = centerX - i;
+    renderer.drawLine(startX, indicatorTop + i, startX + lineWidth - 1, indicatorTop + i);
+  }
+
+  for (int i = 0; i < arrowSize; ++i) {
+    const int lineWidth = 1 + (arrowSize - 1 - i) * 2;
+    const int startX = centerX - (arrowSize - 1 - i);
+    renderer.drawLine(startX, indicatorBottom - arrowSize + 1 + i, startX + lineWidth - 1,
+                      indicatorBottom - arrowSize + 1 + i);
+  }
+}
+
+void clearClassicListRow(const GfxRenderer& renderer, const Rect rect, const int rowHeight, const int pageItems,
+                         const int index) {
+  if (pageItems <= 0 || index < 0) return;
+
+  const int itemY = rect.y + (index % pageItems) * rowHeight;
+  const int clearTop = std::max(rect.y, itemY - 2);
+  const int clearBottom = std::min(rect.y + rect.height, itemY + rowHeight);
+  if (clearBottom > clearTop) {
+    renderer.fillRect(rect.x, clearTop, rect.width, clearBottom - clearTop, false);
+  }
+}
+
+void drawClassicListRow(const GfxRenderer& renderer, const Rect rect, const int pageItems, const int index,
+                        const int selectedIndex, const std::function<std::string(int index)>& rowTitle,
+                        const std::function<std::string(int index)>& rowSubtitle,
+                        const std::function<std::string(int index)>& rowValue) {
+  if (pageItems <= 0 || index < 0) return;
+
+  const int rowHeight = classicListRowHeight(rowSubtitle);
+  const int itemY = rect.y + (index % pageItems) * rowHeight;
+  const int contentWidth = rect.width - 5;
+  constexpr int valueColumnMaxWidth = 170;
+  constexpr int columnGap = 12;
+  constexpr int valueRightSafeInset = 18;
+  const int rightInset = BaseMetrics::values.contentSidePadding + valueRightSafeInset;
+  const int availableWidth =
+      std::max(0, contentWidth - BaseMetrics::values.contentSidePadding - rightInset);
+  const int valueColumnWidth =
+      rowValue != nullptr ? std::min(valueColumnMaxWidth, std::max(80, availableWidth / 2)) : 0;
+  const int valueReservation = rowValue != nullptr ? (valueColumnWidth + columnGap) : 0;
+  const int textWidth = std::max(80, availableWidth - valueReservation);
+
+  if (index == selectedIndex) {
+    renderer.fillRect(rect.x, itemY - 1, rect.width, rowHeight);
+  }
+
+  const auto font = rowSubtitle != nullptr ? UI_12_FONT_ID : UI_10_FONT_ID;
+  const int lineBoxHeight = uiLineBoxHeight(rowSubtitle);
+  const int titleY = itemY + std::max(0, (rowHeight - lineBoxHeight) / 2);
+
+  auto itemName = rowTitle(index);
+  auto item = renderer.truncatedText(font, itemName.c_str(), textWidth);
+  renderer.drawText(font, rect.x + BaseMetrics::values.contentSidePadding, titleY, item.c_str(),
+                    index != selectedIndex);
+
+  if (rowSubtitle != nullptr) {
+    std::string subtitleText = rowSubtitle(index);
+    auto subtitle = renderer.truncatedText(UI_10_FONT_ID, subtitleText.c_str(), textWidth);
+    renderer.drawText(UI_10_FONT_ID, rect.x + BaseMetrics::values.contentSidePadding, titleY + 30, subtitle.c_str(),
+                      index != selectedIndex);
+  }
+
+  if (rowValue != nullptr) {
+    std::string valueText = rowValue(index);
+    auto truncatedValue = renderer.truncatedText(UI_10_FONT_ID, valueText.c_str(), valueColumnWidth);
+    const int valueTextWidth = renderer.getTextWidth(UI_10_FONT_ID, truncatedValue.c_str());
+    const int valueRight = rect.x + contentWidth - rightInset;
+    const int valueX = valueRight - valueTextWidth;
+    const int valueY = itemY + std::max(0, (rowHeight - uiLineBoxHeight(nullptr)) / 2);
+    renderer.drawText(UI_10_FONT_ID, valueX, valueY, truncatedValue.c_str(), index != selectedIndex);
+  }
 }
 }  // namespace
 
@@ -132,22 +268,33 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
 
   const int pageHeight = renderer.getScreenHeight();
 #if CROSSPOINT_PAPERS3
-  // Paper S3: 4 tappable buttons across 540px, matching footer touch zones in HalGPIO
+  // Paper S3 has a small non-viewable strip at the physical bottom. Keep the
+  // classic footer inside the visible area so the border/text do not clip.
+  int viewTop = 0;
+  int viewRight = 0;
+  int viewBottom = 0;
+  int viewLeft = 0;
+  renderer.getOrientedViewableTRBL(&viewTop, &viewRight, &viewBottom, &viewLeft);
+  (void)viewTop;
+  (void)viewRight;
+  (void)viewLeft;
+
   constexpr int buttonWidth = 120;
   constexpr int buttonHeight = BaseMetrics::values.buttonHintsHeight;
-  constexpr int buttonY = BaseMetrics::values.buttonHintsHeight;
+  const int buttonY = std::max(0, pageHeight - viewBottom - buttonHeight);
   constexpr int buttonPositions[] = {12, 144, 276, 408};
   const char* labels[] = {btn1, btn2, btn3, btn4};
 
   for (int i = 0; i < 4; i++) {
     if (labels[i] != nullptr && labels[i][0] != '\0') {
       const int x = buttonPositions[i];
-      renderer.fillRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, false);
-      renderer.drawRect(x, pageHeight - buttonY, buttonWidth, buttonHeight);
-      const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, labels[i]);
+      renderer.fillRect(x, buttonY, buttonWidth, buttonHeight, false);
+      renderer.drawRect(x, buttonY, buttonWidth, buttonHeight);
+      const auto label = renderer.truncatedText(UI_10_FONT_ID, labels[i], buttonWidth - 8);
+      const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, label.c_str());
       const int textX = x + (buttonWidth - textWidth) / 2;
-      const int textY = pageHeight - buttonY + (buttonHeight - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
-      renderer.drawText(UI_10_FONT_ID, textX, textY, labels[i]);
+      const int textY = buttonY + std::max(0, (buttonHeight - renderer.getLineHeight(UI_10_FONT_ID)) / 2);
+      renderer.drawText(UI_10_FONT_ID, textX, textY, label.c_str());
     }
   }
 #else
@@ -234,72 +381,86 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
                          const std::function<std::string(int index)>& rowSubtitle,
                          const std::function<UIIcon(int index)>& rowIcon,
                          const std::function<std::string(int index)>& rowValue, bool highlightValue) const {
-  int rowHeight =
-      (rowSubtitle != nullptr) ? BaseMetrics::values.listWithSubtitleRowHeight : BaseMetrics::values.listRowHeight;
-  int pageItems = rect.height / rowHeight;
+  (void)rowIcon;
+  (void)highlightValue;
 
-  const int totalPages = (itemCount + pageItems - 1) / pageItems;
-  if (totalPages > 1) {
-    constexpr int indicatorWidth = 20;
-    constexpr int arrowSize = 6;
-    constexpr int margin = 15;  // Offset from right edge
+  const int rowHeight = classicListRowHeight(rowSubtitle);
+  const int pageItems = rowHeight > 0 ? rect.height / rowHeight : 0;
+  if (pageItems <= 0) return;
 
-    const int centerX = rect.x + rect.width - indicatorWidth / 2 - margin;
-    const int indicatorTop = rect.y;  // Offset to avoid overlapping side button hints
-    const int indicatorBottom = rect.y + rect.height - arrowSize;
+  drawClassicListPageIndicator(renderer, rect, itemCount, pageItems);
 
-    // Draw up arrow at top (^) - narrow point at top, wide base at bottom
-    for (int i = 0; i < arrowSize; ++i) {
-      const int lineWidth = 1 + i * 2;
-      const int startX = centerX - i;
-      renderer.drawLine(startX, indicatorTop + i, startX + lineWidth - 1, indicatorTop + i);
-    }
-
-    // Draw down arrow at bottom (v) - wide base at top, narrow point at bottom
-    for (int i = 0; i < arrowSize; ++i) {
-      const int lineWidth = 1 + (arrowSize - 1 - i) * 2;
-      const int startX = centerX - (arrowSize - 1 - i);
-      renderer.drawLine(startX, indicatorBottom - arrowSize + 1 + i, startX + lineWidth - 1,
-                        indicatorBottom - arrowSize + 1 + i);
-    }
-  }
-
-  // Draw selection
-  int contentWidth = rect.width - 5;
-  if (selectedIndex >= 0) {
-    renderer.fillRect(0, rect.y + selectedIndex % pageItems * rowHeight - 2, rect.width, rowHeight);
-  }
-  // Draw all items
-  const auto pageStartIndex = selectedIndex / pageItems * pageItems;
-  for (int i = pageStartIndex; i < itemCount && i < pageStartIndex + pageItems; i++) {
-    const int itemY = rect.y + (i % pageItems) * rowHeight;
-    int textWidth = contentWidth - BaseMetrics::values.contentSidePadding * 2 - (rowValue != nullptr ? 60 : 0);
-
-    // Draw name
-    auto itemName = rowTitle(i);
-    auto font = (rowSubtitle != nullptr) ? UI_12_FONT_ID : UI_10_FONT_ID;
-    auto item = renderer.truncatedText(font, itemName.c_str(), textWidth);
-    renderer.drawText(font, rect.x + BaseMetrics::values.contentSidePadding, itemY, item.c_str(), i != selectedIndex);
-
-    if (rowSubtitle != nullptr) {
-      // Draw subtitle
-      std::string subtitleText = rowSubtitle(i);
-      auto subtitle = renderer.truncatedText(UI_10_FONT_ID, subtitleText.c_str(), textWidth);
-      renderer.drawText(UI_10_FONT_ID, rect.x + BaseMetrics::values.contentSidePadding, itemY + 30, subtitle.c_str(),
-                        i != selectedIndex);
-    }
-
-    if (rowValue != nullptr) {
-      // Draw value
-      std::string valueText = rowValue(i);
-      const auto valueTextWidth = renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str());
-      renderer.drawText(UI_10_FONT_ID, rect.x + contentWidth - BaseMetrics::values.contentSidePadding - valueTextWidth,
-                        itemY, valueText.c_str(), i != selectedIndex);
-    }
+  const int pageStartIndex = selectedIndex / pageItems * pageItems;
+  for (int i = pageStartIndex; i < itemCount && i < pageStartIndex + pageItems; ++i) {
+    drawClassicListRow(renderer, rect, pageItems, i, selectedIndex, rowTitle, rowSubtitle, rowValue);
   }
 }
 
+void BaseTheme::redrawListSelection(const GfxRenderer& renderer, Rect rect, int itemCount, int oldSelectedIndex,
+                                    int newSelectedIndex,
+                                    const std::function<std::string(int index)>& rowTitle,
+                                    const std::function<std::string(int index)>& rowSubtitle,
+                                    const std::function<UIIcon(int index)>& rowIcon,
+                                    const std::function<std::string(int index)>& rowValue,
+                                    bool highlightValue) const {
+  (void)rowIcon;
+  (void)highlightValue;
+
+  const int rowHeight = classicListRowHeight(rowSubtitle);
+  const int pageItems = rowHeight > 0 ? rect.height / rowHeight : 0;
+  if (pageItems <= 0 || itemCount <= 0 || oldSelectedIndex < 0 || newSelectedIndex < 0 ||
+      oldSelectedIndex >= itemCount || newSelectedIndex >= itemCount) {
+    return;
+  }
+
+  // This API is intentionally limited to selection changes within one page.
+  if (oldSelectedIndex / pageItems != newSelectedIndex / pageItems) return;
+
+  clearClassicListRow(renderer, rect, rowHeight, pageItems, oldSelectedIndex);
+  if (newSelectedIndex != oldSelectedIndex) {
+    clearClassicListRow(renderer, rect, rowHeight, pageItems, newSelectedIndex);
+  }
+
+  // Clearing a top/bottom row may erase part of the page arrows. Restore them
+  // before drawing the selected row so the layering matches a full draw.
+  drawClassicListPageIndicator(renderer, rect, itemCount, pageItems);
+
+  drawClassicListRow(renderer, rect, pageItems, oldSelectedIndex, newSelectedIndex, rowTitle, rowSubtitle, rowValue);
+  if (newSelectedIndex != oldSelectedIndex) {
+    drawClassicListRow(renderer, rect, pageItems, newSelectedIndex, newSelectedIndex, rowTitle, rowSubtitle, rowValue);
+  }
+}
+
+void BaseTheme::drawPowerButton(const GfxRenderer& renderer, const Rect headerRect) {
+  // The 36x36 visible button sits inside HalGPIO's 64x64 touch target.
+  // Keeping the touch target larger than the artwork makes it easy to tap
+  // without taking excessive space from the header.
+  constexpr int buttonSize = 36;
+  constexpr int buttonXOffset = 8;
+  constexpr int buttonYOffset = 2;
+  constexpr int cornerRadius = 6;
+  constexpr int iconRadius = 8;
+  constexpr int iconStroke = 2;
+
+  const int buttonX = headerRect.x + buttonXOffset;
+  const int buttonY = headerRect.y + buttonYOffset;
+  const int centerX = buttonX + buttonSize / 2;
+  const int centerY = buttonY + buttonSize / 2 + 1;
+
+  renderer.fillRect(buttonX, buttonY, buttonSize, buttonSize, false);
+  renderer.drawRoundedRect(buttonX, buttonY, buttonSize, buttonSize, 1, cornerRadius, true);
+
+  // Power symbol: circular ring plus the vertical power stroke.
+  renderer.drawArc(iconRadius, centerX, centerY, 1, 1, iconStroke, true);
+  renderer.drawArc(iconRadius, centerX, centerY, -1, 1, iconStroke, true);
+  renderer.drawArc(iconRadius, centerX, centerY, 1, -1, iconStroke, true);
+  renderer.drawArc(iconRadius, centerX, centerY, -1, -1, iconStroke, true);
+  renderer.fillRect(centerX - 1, centerY - iconRadius - 3, 3, iconRadius + 4, true);
+}
+
 void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle) const {
+  drawPowerButton(renderer, rect);
+
   // Hide last battery draw
   constexpr int maxBatteryWidth = 80;
   renderer.fillRect(rect.x + rect.width - maxBatteryWidth, rect.y + 5, maxBatteryWidth,
@@ -314,7 +475,10 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
                    showBatteryPercentage);
 
   if (title) {
-    int padding = rect.width - batteryX + BaseMetrics::values.batteryWidth;
+    // Reserve equal space on both sides so the centered title cannot overlap
+    // either the battery area or the on-screen power button.
+    int padding = std::max(rect.width - batteryX + BaseMetrics::values.batteryWidth,
+                           HalGPIO::POWER_HOTSPOT_SIZE);
     auto truncatedTitle = renderer.truncatedText(UI_12_FONT_ID, title,
                                                  rect.width - padding * 2 - BaseMetrics::values.contentSidePadding * 2,
                                                  EpdFontFamily::BOLD);
@@ -361,7 +525,8 @@ void BaseTheme::drawTabBar(const GfxRenderer& renderer, const Rect rect, const s
 
   int currentX = rect.x + BaseMetrics::values.contentSidePadding;
 
-  for (const auto& tab : tabs) {
+  for (size_t i = 0; i < tabs.size(); ++i) {
+    const auto& tab = tabs[i];
     const int textWidth =
         renderer.getTextWidth(UI_12_FONT_ID, tab.label, tab.selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
 
@@ -378,7 +543,12 @@ void BaseTheme::drawTabBar(const GfxRenderer& renderer, const Rect rect, const s
     renderer.drawText(UI_12_FONT_ID, currentX, rect.y, tab.label, !(tab.selected && selected),
                       tab.selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
 
-    currentX += textWidth + BaseMetrics::values.tabSpacing;
+    currentX += textWidth;
+    if (i + 1 < tabs.size()) {
+      const int dividerX = currentX + BaseMetrics::values.tabSpacing / 2;
+      renderer.drawLine(dividerX, rect.y + 4, dividerX, rect.y + lineHeight + 2);
+      currentX += BaseMetrics::values.tabSpacing;
+    }
   }
 }
 
@@ -650,12 +820,14 @@ void BaseTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
 
 Rect BaseTheme::drawPopup(const GfxRenderer& renderer, const char* message) const {
   constexpr int margin = 15;
+  constexpr int indicatorBlockHeight = 62;
+  constexpr int minPopupWidth = 220;
   // Scale y position proportionally to screen height (7.5% from top)
   const int y = static_cast<int>(renderer.getScreenHeight() * 0.075f);
   const int textWidth = renderer.getTextWidth(UI_12_FONT_ID, message, EpdFontFamily::BOLD);
-  const int textHeight = renderer.getLineHeight(UI_12_FONT_ID);
-  const int w = textWidth + margin * 2;
-  const int h = textHeight + margin * 2;
+  const int textHeight = std::max(renderer.getLineHeight(UI_12_FONT_ID), 30);
+  const int w = std::max(minPopupWidth, textWidth + margin * 2);
+  const int h = textHeight + margin * 2 + indicatorBlockHeight;
   const int x = (renderer.getScreenWidth() - w) / 2;
 
   renderer.fillRect(x - 2, y - 2, w + 4, h + 4, true);  // frame thickness 2
@@ -669,14 +841,22 @@ Rect BaseTheme::drawPopup(const GfxRenderer& renderer, const char* message) cons
 }
 
 void BaseTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const {
-  constexpr int barHeight = 4;
-  const int barWidth = layout.width - 30;  // twice the margin in drawPopup to match text width
-  const int barX = layout.x + (layout.width - barWidth) / 2;
-  const int barY = layout.y + layout.height - 10;
+  const int clamped = std::max(0, std::min(100, progress));
+  constexpr int progressAreaHeight = 52;
+  constexpr int ringRadius = 18;
+  constexpr int ringThickness = 3;
+  const int progressAreaY = layout.y + layout.height - progressAreaHeight - 6;
+  const int centerX = layout.x + layout.width / 2;
+  const int centerY = progressAreaY + progressAreaHeight / 2;
 
-  int fillWidth = barWidth * progress / 100;
+  renderer.fillRect(layout.x + 8, progressAreaY, layout.width - 16, progressAreaHeight, false);
+  drawProgressRing(renderer, centerX, centerY, ringRadius, ringThickness, clamped);
 
-  renderer.fillRect(barX, barY, fillWidth, barHeight, true);
+  const std::string percentText = std::to_string(clamped) + "%";
+  const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, percentText.c_str());
+  const int textX = centerX - textWidth / 2;
+  const int textY = centerY - std::max(renderer.getLineHeight(SMALL_FONT_ID), 16) / 2 + 1;
+  renderer.drawText(SMALL_FONT_ID, textX, textY, percentText.c_str());
 
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }
@@ -691,7 +871,14 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
 
   // Draw Progress Text
   const auto screenHeight = renderer.getScreenHeight();
-  auto textY = screenHeight - UITheme::getInstance().getStatusBarHeight() - orientedMarginBottom - paddingBottom - 4;
+  const bool showProgressBar =
+      SETTINGS.statusBarProgressBar != CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
+  const int progressBarHeight = (SETTINGS.statusBarProgressBarThickness + 1) * 2;
+  const int progressBarY = screenHeight - orientedMarginBottom - progressBarHeight - paddingBottom;
+  const int statusTextBottomY = showProgressBar
+                                    ? progressBarY - metrics.progressBarMarginTop
+                                    : screenHeight - orientedMarginBottom - paddingBottom - 2;
+  const int textY = statusTextBottomY - renderer.getLineHeight(SMALL_FONT_ID);
   int progressTextWidth = 0;
 
   if (SETTINGS.statusBarBookProgressPercentage || SETTINGS.statusBarChapterPageCount) {
@@ -714,10 +901,8 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   }
 
   // Draw Progress Bar
-  if (SETTINGS.statusBarProgressBar != CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS) {
+  if (showProgressBar) {
     const int progressBarMaxWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;
-    const int progressBarY = renderer.getScreenHeight() - orientedMarginBottom -
-                             ((SETTINGS.statusBarProgressBarThickness + 1) * 2) - paddingBottom;
     size_t progress;
     if (SETTINGS.statusBarProgressBar == CrossPointSettings::STATUS_BAR_PROGRESS_BAR::BOOK_PROGRESS) {
       progress = static_cast<size_t>(bookProgress);
@@ -726,8 +911,7 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
       progress = (pageCount > 0) ? (static_cast<float>(currentPage) / pageCount) * 100 : 0;
     }
     const int barWidth = progressBarMaxWidth * progress / 100;
-    renderer.fillRect(orientedMarginLeft, progressBarY, barWidth, ((SETTINGS.statusBarProgressBarThickness + 1) * 2),
-                      true);
+    renderer.fillRect(orientedMarginLeft, progressBarY, barWidth, progressBarHeight, true);
   }
 
   // Draw Battery
@@ -754,38 +938,106 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
 
   // Draw Title
   if (!title.empty()) {
-    textY -= textYOffset;
-    // Centered chapter title text
-    // Page width minus existing content with 30px padding on each side
-    const int rendererableScreenWidth =
-        renderer.getScreenWidth() - (metrics.statusBarHorizontalMargin * 2) - orientedMarginLeft - orientedMarginRight;
+    /*
+    * 左右狀態資訊使用內建 SMALL_FONT_ID，
+    * 中間章節名稱可能包含中文，因此使用外部 UI 字型。
+    */
+    constexpr int titleFontId = UI_10_FONT_ID;
 
-    const int batterySize = SETTINGS.statusBarBattery ? (showBatteryPercentage ? 50 : 20) : 0;
-    const int titleMarginLeft = batterySize + 30;
-    const int clockReserve = clockTextWidth > 0 ? (clockTextWidth + 10) : 0;
-    const int titleMarginRight = progressTextWidth + clockReserve + 30;
+    const int titleLineHeight =
+        renderer.getLineHeight(titleFontId);
 
-    // Attempt to center title on the screen, but if title is too wide then later we will center it within the
-    // available space.
-    int titleMarginLeftAdjusted = std::max(titleMarginLeft, titleMarginRight);
-    int availableTitleSpace = rendererableScreenWidth - 2 * titleMarginLeftAdjusted;
+    /*
+    * Align the bottom edge of the Chinese title with the Latin status text.
+    * The 21x30 CJK fallback may extend upward above the reserved status-bar
+    * area, which is acceptable; it must not extend downward into the progress
+    * bar and create a ghost line.
+    */
+    const int titleY = statusTextBottomY - titleLineHeight - textYOffset;
 
-    int titleWidth;
-    titleWidth = renderer.getTextWidth(SMALL_FONT_ID, title.c_str());
+    // Page width minus existing content.
+    const int renderableScreenWidth =
+        renderer.getScreenWidth() -
+        (metrics.statusBarHorizontalMargin * 2) -
+        orientedMarginLeft -
+        orientedMarginRight;
+
+    const int batterySize =
+        SETTINGS.statusBarBattery
+            ? (showBatteryPercentage ? 50 : 20)
+            : 0;
+
+    const int titleMarginLeft =
+        batterySize + 30;
+
+    const int clockReserve =
+        clockTextWidth > 0
+            ? clockTextWidth + 10
+            : 0;
+
+    const int titleMarginRight =
+        progressTextWidth +
+        clockReserve +
+        30;
+
+    /*
+    * 優先以畫面中心為基準；
+    * 左右內容不對稱時，改在剩餘空間內置中。
+    */
+    int titleMarginLeftAdjusted =
+        std::max(
+            titleMarginLeft,
+            titleMarginRight
+        );
+
+    int availableTitleSpace =
+        renderableScreenWidth -
+        2 * titleMarginLeftAdjusted;
+
+    int titleWidth =
+        renderer.getTextWidth(
+            titleFontId,
+            title.c_str()
+        );
+
     if (titleWidth > availableTitleSpace) {
-      // Not enough space to center on the screen, center it within the remaining space instead
-      availableTitleSpace = rendererableScreenWidth - titleMarginLeft - titleMarginRight;
-      titleMarginLeftAdjusted = titleMarginLeft;
-    }
-    if (titleWidth > availableTitleSpace) {
-      title = renderer.truncatedText(SMALL_FONT_ID, title.c_str(), availableTitleSpace);
-      titleWidth = renderer.getTextWidth(SMALL_FONT_ID, title.c_str());
+      availableTitleSpace =
+          renderableScreenWidth -
+          titleMarginLeft -
+          titleMarginRight;
+
+      titleMarginLeftAdjusted =
+          titleMarginLeft;
     }
 
-    renderer.drawText(SMALL_FONT_ID,
-                      titleMarginLeftAdjusted + metrics.statusBarHorizontalMargin + orientedMarginLeft +
-                          (availableTitleSpace - titleWidth) / 2,
-                      textY, title.c_str());
+    if (availableTitleSpace < 1) {
+      availableTitleSpace = 1;
+    }
+
+    if (titleWidth > availableTitleSpace) {
+      title =
+          renderer.truncatedText(
+              titleFontId,
+              title.c_str(),
+              availableTitleSpace
+          );
+
+      titleWidth =
+          renderer.getTextWidth(
+              titleFontId,
+              title.c_str()
+          );
+    }
+
+    renderer.drawText(
+        titleFontId,
+        titleMarginLeftAdjusted +
+            metrics.statusBarHorizontalMargin +
+            orientedMarginLeft +
+            (availableTitleSpace - titleWidth) / 2,
+        titleY,
+        title.c_str()
+    );
   }
 }
 

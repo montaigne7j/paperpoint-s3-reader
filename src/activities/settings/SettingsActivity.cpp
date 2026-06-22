@@ -1,7 +1,10 @@
 #include "SettingsActivity.h"
 
 #include <GfxRenderer.h>
+#include <FontManager.h>
 #include <Logging.h>
+
+#include <algorithm>
 
 #include "ButtonRemapActivity.h"
 #include "CalibreSettingsActivity.h"
@@ -11,6 +14,9 @@
 #include "LanguageSelectActivity.h"
 #include "MappedInputManager.h"
 #include "OtaUpdateActivity.h"
+#include "ReaderFontSelectActivity.h"
+#include "ReaderFontSizeActivity.h"
+#include "ReaderValueAdjustActivity.h"
 #include "SettingsList.h"
 #include "StatusBarSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -44,6 +50,8 @@ void SettingsActivity::onEnter() {
   }
 
   // Append device-only ACTION items
+  readerSettings.insert(readerSettings.begin(),
+                        SettingInfo::Action(StrId::STR_READER_FONT_FILE, SettingAction::ReaderFontFile));
   controlsSettings.insert(controlsSettings.begin(),
                           SettingInfo::Action(StrId::STR_REMAP_FRONT_BUTTONS, SettingAction::RemapFrontButtons));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
@@ -54,13 +62,29 @@ void SettingsActivity::onEnter() {
   systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
   readerSettings.push_back(SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
 
-  // Reset selection to first category
-  selectedCategoryIndex = 0;
-  selectedSettingIndex = 0;
+  // Start in the requested category. Reader-menu launches use category 1
+  // and return to the active book instead of navigating to Home.
+  selectedCategoryIndex = std::max(0, std::min(categoryCount - 1, initialCategoryIndex));
+  // Reader-menu launches focus the first Reader setting immediately. Normal
+  // Settings launches keep the category tab focused as before.
+  selectedSettingIndex = returnToCaller ? 1 : 0;
 
-  // Initialize with first category (Display)
-  currentSettings = &displaySettings;
-  settingsCount = static_cast<int>(displaySettings.size());
+  switch (selectedCategoryIndex) {
+    case 1:
+      currentSettings = &readerSettings;
+      break;
+    case 2:
+      currentSettings = &controlsSettings;
+      break;
+    case 3:
+      currentSettings = &systemSettings;
+      break;
+    case 0:
+    default:
+      currentSettings = &displaySettings;
+      break;
+  }
+  settingsCount = static_cast<int>(currentSettings->size());
 
   // Trigger first update
   requestUpdate();
@@ -94,7 +118,11 @@ void SettingsActivity::loop() {
       requestUpdate();
     } else {
       SETTINGS.saveToFile();
-      onGoHome();
+      if (returnToCaller) {
+        finish();
+      } else {
+        onGoHome();
+      }
     }
     return;
   }
@@ -165,8 +193,53 @@ void SettingsActivity::toggleCurrentSetting() {
       const uint8_t currentValue = SETTINGS.*(setting.valuePtr);
       SETTINGS.*(setting.valuePtr) = (currentValue + 1) % static_cast<uint8_t>(setting.enumValues.size());
     }
+
+    if (setting.valuePtr == &CrossPointSettings::readingLayout) {
+      LOG_INF("SET", "Reading layout changed to %s",
+              SETTINGS.readingLayout == CrossPointSettings::VERTICAL_LAYOUT ? "vertical" : "horizontal");
+    }
+
+    if (setting.valuePtr == &CrossPointSettings::fontSize) {
+      FontMgr.reloadReaderFontForSize();
+    }
   } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
-    const int8_t currentValue = SETTINGS.*(setting.valuePtr);
+    if (setting.valuePtr == &CrossPointSettings::fontSize) {
+      // Open a focused numeric picker. +/- applies immediately; Back/Done just returns.
+      startActivityForResult(
+          std::make_unique<ReaderFontSizeActivity>(renderer, mappedInput, SETTINGS.fontSize),
+          [](const ActivityResult&) {});
+      return;
+    }
+
+    if (setting.valuePtr == &CrossPointSettings::lineSpacing) {
+      startActivityForResult(
+          std::make_unique<ReaderValueAdjustActivity>(
+              renderer, mappedInput, StrId::STR_LINE_SPACING, SETTINGS.lineSpacing,
+              CrossPointSettings::READER_LINE_SPACING_MIN, CrossPointSettings::READER_LINE_SPACING_MAX, 5, "%",
+              "直排：調整欄距",
+              [](uint8_t value) {
+                SETTINGS.lineSpacing = value;
+                SETTINGS.saveToFile();
+              }),
+          [](const ActivityResult&) {});
+      return;
+    }
+
+    if (setting.valuePtr == &CrossPointSettings::characterSpacing) {
+      startActivityForResult(
+          std::make_unique<ReaderValueAdjustActivity>(
+              renderer, mappedInput, StrId::STR_CHARACTER_SPACING, SETTINGS.characterSpacing,
+              CrossPointSettings::READER_CHARACTER_SPACING_MIN, CrossPointSettings::READER_CHARACTER_SPACING_MAX, 1, " px",
+              "0 px 為最緊密字距",
+              [](uint8_t value) {
+                SETTINGS.characterSpacing = value;
+                SETTINGS.saveToFile();
+              }),
+          [](const ActivityResult&) {});
+      return;
+    }
+
+    const uint8_t currentValue = SETTINGS.*(setting.valuePtr);
     if (currentValue + setting.valueRange.step > setting.valueRange.max) {
       SETTINGS.*(setting.valuePtr) = setting.valueRange.min;
     } else {
@@ -199,6 +272,9 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::Language:
         startActivityForResult(std::make_unique<LanguageSelectActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::ReaderFontFile:
+        startActivityForResult(std::make_unique<ReaderFontSelectActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::None:
         // Do nothing
@@ -255,15 +331,33 @@ void SettingsActivity::render(RenderLock&&) {
           valueText = I18N.get(setting.enumValues[value]);
         } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
           valueText = std::to_string(SETTINGS.*(setting.valuePtr));
+          if (setting.valuePtr == &CrossPointSettings::fontSize) {
+            valueText += " px";
+          } else if (setting.valuePtr == &CrossPointSettings::lineSpacing) {
+            valueText += "%";
+          } else if (setting.valuePtr == &CrossPointSettings::characterSpacing) {
+            valueText += " px";
+          }
         }
         return valueText;
       },
       true);
 
-  // Draw help text
-  const auto confirmLabel = (selectedSettingIndex == 0)
-                                ? I18N.get(categoryNames[(selectedCategoryIndex + 1) % categoryCount])
-                                : tr(STR_TOGGLE);
+  // Draw help text. Large numeric reader values open a focused +/- picker,
+  // while ordinary toggles/enums still change in place.
+  const char* confirmLabel = nullptr;
+  if (selectedSettingIndex == 0) {
+    confirmLabel = I18N.get(categoryNames[(selectedCategoryIndex + 1) % categoryCount]);
+  } else {
+    const auto& selected = settings[selectedSettingIndex - 1];
+    const bool opensSelector =
+        selected.type == SettingType::ACTION ||
+        (selected.type == SettingType::VALUE &&
+         (selected.valuePtr == &CrossPointSettings::fontSize ||
+          selected.valuePtr == &CrossPointSettings::lineSpacing ||
+          selected.valuePtr == &CrossPointSettings::characterSpacing));
+    confirmLabel = opensSelector ? tr(STR_SELECT) : tr(STR_TOGGLE);
+  }
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

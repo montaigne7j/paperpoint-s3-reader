@@ -17,9 +17,164 @@
 
 namespace {
 constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
+
+size_t getUtf8CharLength(
+    const uint8_t leadByte
+) {
+  if ((leadByte & 0x80U) == 0) {
+    return 1;
+  }
+
+  if ((leadByte & 0xE0U) == 0xC0U) {
+    return 2;
+  }
+
+  if ((leadByte & 0xF0U) == 0xE0U) {
+    return 3;
+  }
+
+  if ((leadByte & 0xF8U) == 0xF0U) {
+    return 4;
+  }
+
+  // 無效 UTF-8 lead byte，至少前進一 byte。
+  return 1;
+}
+
+/*
+ * 找出能放進 maxWidth 的最大 UTF-8 前綴。
+ *
+ * 舊版本會逐字縮短並重複量測，
+ * 中文長行可能需要數百次 getTextWidth()。
+ *
+ * 新版本先建立 UTF-8 字元邊界，再用二分搜尋，
+ * 每次換行只需約 log2(N) 次寬度量測。
+ */
+size_t findTxtWrapPosition(
+    const GfxRenderer& renderer,
+    const int fontId,
+    std::string& text,
+    const int maxWidth
+) {
+  if (text.empty()) {
+    return 0;
+  }
+
+  /*
+   * CHUNK_SIZE 是 8 KB，因此 uint16_t 足以保存
+   * text 內的 byte offset，且比 size_t vector 省記憶體。
+   */
+  std::vector<uint16_t> boundaries;
+  boundaries.reserve(text.size() + 1);
+  boundaries.push_back(0);
+
+  size_t bytePos = 0;
+
+  while (bytePos < text.size()) {
+    size_t charLength =
+        getUtf8CharLength(
+            static_cast<uint8_t>(
+                text[bytePos]
+            )
+        );
+
+    if (bytePos + charLength >
+        text.size()) {
+      charLength = 1;
+    }
+
+    bytePos += charLength;
+
+    boundaries.push_back(
+        static_cast<uint16_t>(bytePos)
+    );
+  }
+
+  if (boundaries.size() < 2) {
+    return text.size();
+  }
+
+  const auto measurePrefix =
+      [&](const size_t prefixBytes) -> int {
+    if (prefixBytes >= text.size()) {
+      return renderer.getTextWidth(
+          fontId,
+          text.c_str()
+      );
+    }
+
+    /*
+     * 暫時在 prefix 結尾放 '\0'，
+     * 避免每次二分搜尋都產生 substr 配置。
+     */
+    const char saved =
+        text[prefixBytes];
+
+    text[prefixBytes] = '\0';
+
+    const int width =
+        renderer.getTextWidth(
+            fontId,
+            text.c_str()
+        );
+
+    text[prefixBytes] = saved;
+
+    return width;
+  };
+
+  size_t low = 1;
+  size_t high = boundaries.size() - 1;
+  size_t bestBytes = 0;
+
+  while (low <= high) {
+    const size_t middle =
+        low + (high - low) / 2;
+
+    const size_t prefixBytes =
+        boundaries[middle];
+
+    if (measurePrefix(prefixBytes) <=
+        maxWidth) {
+      bestBytes = prefixBytes;
+      low = middle + 1;
+    } else {
+      if (middle == 0) {
+        break;
+      }
+
+      high = middle - 1;
+    }
+  }
+
+  /*
+   * 即使單一字元寬於 viewport，也必須至少前進一字，
+   * 否則索引會卡在同一 offset。
+   */
+  if (bestBytes == 0) {
+    bestBytes = boundaries[1];
+  }
+
+  /*
+   * 英文優先在空格換行。
+   * 中文通常沒有半形空格，會直接使用 UTF-8 字元邊界。
+   */
+  if (bestBytes < text.size()) {
+    const size_t spacePos =
+        text.rfind(' ', bestBytes - 1);
+
+    if (spacePos != std::string::npos &&
+        spacePos > 0) {
+      return spacePos;
+    }
+  }
+
+  return bestBytes;
+}
+
 // Cache file magic and version
 constexpr uint32_t CACHE_MAGIC = 0x54585449;  // "TXTI"
-constexpr uint8_t CACHE_VERSION = 2;          // Increment when cache format changes
+constexpr uint8_t CACHE_VERSION = 3;          // Increment when cache format changes
 }  // namespace
 
 void TxtReaderActivity::onEnter() {
@@ -134,42 +289,82 @@ void TxtReaderActivity::initializeReader() {
 }
 
 void TxtReaderActivity::buildPageIndex() {
+  const uint32_t indexStart = millis();
   pageOffsets.clear();
-  pageOffsets.push_back(0);  // First page starts at offset 0
+  pageOffsets.push_back(0);
 
   size_t offset = 0;
-  const size_t fileSize = txt->getFileSize();
+  const size_t fileSize =
+      txt->getFileSize();
 
-  LOG_DBG("TRS", "Building page index for %zu bytes...", fileSize);
+  LOG_DBG(
+      "TRS",
+      "Building page index for %zu bytes...",
+      fileSize
+  );
 
-  GUI.drawPopup(renderer, tr(STR_INDEXING));
+  GUI.drawPopup(
+      renderer,
+      tr(STR_INDEXING)
+  );
+
+  std::vector<std::string> tempLines;
+  tempLines.reserve(
+      static_cast<size_t>(linesPerPage)
+  );
 
   while (offset < fileSize) {
-    std::vector<std::string> tempLines;
+    tempLines.clear();
+
     size_t nextOffset = offset;
 
-    if (!loadPageAtOffset(offset, tempLines, nextOffset)) {
+    if (!loadPageAtOffset(
+            offset,
+            tempLines,
+            nextOffset)) {
       break;
     }
 
     if (nextOffset <= offset) {
-      // No progress made, avoid infinite loop
+      LOG_ERR(
+          "TRS",
+          "Indexing stopped: no progress "
+          "at offset %zu",
+          offset
+      );
       break;
     }
 
     offset = nextOffset;
+
     if (offset < fileSize) {
       pageOffsets.push_back(offset);
     }
 
-    // Yield to other tasks periodically
     if (pageOffsets.size() % 20 == 0) {
       vTaskDelay(1);
     }
   }
 
-  totalPages = pageOffsets.size();
-  LOG_DBG("TRS", "Built page index: %d pages", totalPages);
+  totalPages =
+      static_cast<int>(
+          pageOffsets.size()
+      );
+
+  LOG_DBG(
+      "TRS",
+      "Built page index: %d pages",
+      totalPages
+  );
+
+  LOG_INF(
+      "TRS",
+      "TXT index completed: pages=%d, "
+      "size=%zu bytes, time=%lu ms",
+      totalPages,
+      fileSize,
+      millis() - indexStart
+  );
 }
 
 bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>& outLines, size_t& nextOffset) {
@@ -225,47 +420,58 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
     // Track position within this source line (in bytes from pos)
     size_t lineBytePos = 0;
 
-    // Word wrap if needed
-    while (!line.empty() && static_cast<int>(outLines.size()) < linesPerPage) {
-      int lineWidth = renderer.getTextWidth(cachedFontId, line.c_str());
+    while (!line.empty() &&
+          static_cast<int>(
+              outLines.size()
+          ) < linesPerPage) {
+      const size_t breakPos =
+          findTxtWrapPosition(
+              renderer,
+              cachedFontId,
+              line,
+              viewportWidth
+          );
 
-      if (lineWidth <= viewportWidth) {
-        outLines.push_back(line);
-        lineBytePos = displayLen;  // Consumed entire display content
+      /*
+      * 整段能放進一行。
+      */
+      if (breakPos >= line.size()) {
+        outLines.push_back(
+            std::move(line)
+        );
+
+        lineBytePos = displayLen;
         line.clear();
         break;
       }
 
-      // Find break point
-      size_t breakPos = line.length();
-      while (breakPos > 0 && renderer.getTextWidth(cachedFontId, line.substr(0, breakPos).c_str()) > viewportWidth) {
-        // Try to break at space
-        size_t spacePos = line.rfind(' ', breakPos - 1);
-        if (spacePos != std::string::npos && spacePos > 0) {
-          breakPos = spacePos;
-        } else {
-          // Break at character boundary for UTF-8
-          breakPos--;
-          // Make sure we don't break in the middle of a UTF-8 sequence
-          while (breakPos > 0 && (line[breakPos] & 0xC0) == 0x80) {
-            breakPos--;
-          }
-        }
+      /*
+      * 只複製真正要顯示的這一行。
+      */
+      outLines.emplace_back(
+          line.data(),
+          breakPos
+      );
+
+      size_t consumedBytes =
+          breakPos;
+
+      // 換行點是半形空格時，下一行略過該空格。
+      if (consumedBytes < line.size() &&
+          line[consumedBytes] == ' ') {
+        ++consumedBytes;
       }
 
-      if (breakPos == 0) {
-        breakPos = 1;
-      }
+      lineBytePos += consumedBytes;
 
-      outLines.push_back(line.substr(0, breakPos));
-
-      // Skip space at break point
-      size_t skipChars = breakPos;
-      if (breakPos < line.length() && line[breakPos] == ' ') {
-        skipChars++;
-      }
-      lineBytePos += skipChars;
-      line = line.substr(skipChars);
+      /*
+      * erase() 會在原 string 內移動資料，
+      * 比 line = line.substr(...) 少一次新的 heap allocation。
+      */
+      line.erase(
+          0,
+          consumedBytes
+      );
     }
 
     // Determine how much of the source buffer we consumed

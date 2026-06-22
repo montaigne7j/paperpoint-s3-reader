@@ -1,3 +1,9 @@
+/*
+ * Generated hyphenation data; do not remove this notice.
+ * Upstream: typst/hypher patterns/hyph-en-us.tex at v0.1.7
+ * Licence: Custom permissive; LICENSES/Hyphenation-English-Permission.txt
+ * Full attribution: HYPHENATION_LICENSES.md
+ */
 #pragma once
 
 #include <cstddef>

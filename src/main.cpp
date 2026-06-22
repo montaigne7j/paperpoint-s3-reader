@@ -2,6 +2,7 @@
 #include <Epub.h>
 #include <FontCacheManager.h>
 #include <FontDecompressor.h>
+#include <FontManager.h>
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <HalDisplay.h>
@@ -12,6 +13,7 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <SPI.h>
+#include <SleepImageManager.h>
 #include <builtinFonts/all.h>
 
 #include <cstring>
@@ -28,6 +30,35 @@
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 
+#include <Bitmap.h>
+
+namespace {
+
+/*
+ * GC16 實機測試專用。
+ *
+ * true：
+ *   開機後顯示 16 階灰條，完成後永久停住。
+ *
+ * false：
+ *   正常啟動 CrossPoint。
+ */
+constexpr bool ENABLE_GC16_BOOT_TEST =
+    false;
+
+constexpr bool GC16_TEST_BITMAP =
+    false;
+
+constexpr const char*
+    GC16_TEST_BITMAP_PATH =
+        "/.sleep/"
+        "papers3_sleep_540x960.bmp";
+
+}  // namespace
+
+constexpr bool GC16_ENABLE_FLOYD_STEINBERG =
+    false;
+
 HalDisplay display;
 HalGPIO gpio;
 MappedInputManager mappedInputManager(gpio);
@@ -37,44 +68,22 @@ FontDecompressor fontDecompressor;
 FontCacheManager fontCacheManager(renderer.getFontMap());
 
 // Fonts
-EpdFont bookerly14RegularFont(&bookerly_14_regular);
-EpdFont bookerly14BoldFont(&bookerly_14_bold);
-EpdFont bookerly14ItalicFont(&bookerly_14_italic);
-EpdFont bookerly14BoldItalicFont(&bookerly_14_bolditalic);
-EpdFontFamily bookerly14FontFamily(&bookerly14RegularFont, &bookerly14BoldFont, &bookerly14ItalicFont,
-                                   &bookerly14BoldItalicFont);
-#ifndef OMIT_FONTS
-EpdFont bookerly12RegularFont(&bookerly_12_regular);
-EpdFont bookerly12BoldFont(&bookerly_12_bold);
-EpdFont bookerly12ItalicFont(&bookerly_12_italic);
-EpdFont bookerly12BoldItalicFont(&bookerly_12_bolditalic);
-EpdFontFamily bookerly12FontFamily(&bookerly12RegularFont, &bookerly12BoldFont, &bookerly12ItalicFont,
-                                   &bookerly12BoldItalicFont);
-EpdFont bookerly16RegularFont(&bookerly_16_regular);
-EpdFont bookerly16BoldFont(&bookerly_16_bold);
-EpdFont bookerly16ItalicFont(&bookerly_16_italic);
-EpdFont bookerly16BoldItalicFont(&bookerly_16_bolditalic);
-EpdFontFamily bookerly16FontFamily(&bookerly16RegularFont, &bookerly16BoldFont, &bookerly16ItalicFont,
-                                   &bookerly16BoldItalicFont);
-EpdFont bookerly18RegularFont(&bookerly_18_regular);
-EpdFont bookerly18BoldFont(&bookerly_18_bold);
-EpdFont bookerly18ItalicFont(&bookerly_18_italic);
-EpdFont bookerly18BoldItalicFont(&bookerly_18_bolditalic);
-EpdFontFamily bookerly18FontFamily(&bookerly18RegularFont, &bookerly18BoldFont, &bookerly18ItalicFont,
-                                   &bookerly18BoldItalicFont);
 
-EpdFont notosans12RegularFont(&notosans_12_regular);
-EpdFont notosans12BoldFont(&notosans_12_bold);
-EpdFont notosans12ItalicFont(&notosans_12_italic);
-EpdFont notosans12BoldItalicFont(&notosans_12_bolditalic);
-EpdFontFamily notosans12FontFamily(&notosans12RegularFont, &notosans12BoldFont, &notosans12ItalicFont,
-                                   &notosans12BoldItalicFont);
+// Keep the default reader family available even for reduced OMIT_FONTS builds.
 EpdFont notosans14RegularFont(&notosans_14_regular);
 EpdFont notosans14BoldFont(&notosans_14_bold);
 EpdFont notosans14ItalicFont(&notosans_14_italic);
 EpdFont notosans14BoldItalicFont(&notosans_14_bolditalic);
 EpdFontFamily notosans14FontFamily(&notosans14RegularFont, &notosans14BoldFont, &notosans14ItalicFont,
                                    &notosans14BoldItalicFont);
+
+#ifndef OMIT_FONTS
+EpdFont notosans12RegularFont(&notosans_12_regular);
+EpdFont notosans12BoldFont(&notosans_12_bold);
+EpdFont notosans12ItalicFont(&notosans_12_italic);
+EpdFont notosans12BoldItalicFont(&notosans_12_bolditalic);
+EpdFontFamily notosans12FontFamily(&notosans12RegularFont, &notosans12BoldFont, &notosans12ItalicFont,
+                                   &notosans12BoldItalicFont);
 EpdFont notosans16RegularFont(&notosans_16_regular);
 EpdFont notosans16BoldFont(&notosans_16_bold);
 EpdFont notosans16ItalicFont(&notosans_16_italic);
@@ -88,42 +97,47 @@ EpdFont notosans18BoldItalicFont(&notosans_18_bolditalic);
 EpdFontFamily notosans18FontFamily(&notosans18RegularFont, &notosans18BoldFont, &notosans18ItalicFont,
                                    &notosans18BoldItalicFont);
 
-EpdFont opendyslexic8RegularFont(&opendyslexic_8_regular);
-EpdFont opendyslexic8BoldFont(&opendyslexic_8_bold);
-EpdFont opendyslexic8ItalicFont(&opendyslexic_8_italic);
-EpdFont opendyslexic8BoldItalicFont(&opendyslexic_8_bolditalic);
-EpdFontFamily opendyslexic8FontFamily(&opendyslexic8RegularFont, &opendyslexic8BoldFont, &opendyslexic8ItalicFont,
-                                      &opendyslexic8BoldItalicFont);
-EpdFont opendyslexic10RegularFont(&opendyslexic_10_regular);
-EpdFont opendyslexic10BoldFont(&opendyslexic_10_bold);
-EpdFont opendyslexic10ItalicFont(&opendyslexic_10_italic);
-EpdFont opendyslexic10BoldItalicFont(&opendyslexic_10_bolditalic);
-EpdFontFamily opendyslexic10FontFamily(&opendyslexic10RegularFont, &opendyslexic10BoldFont, &opendyslexic10ItalicFont,
-                                       &opendyslexic10BoldItalicFont);
-EpdFont opendyslexic12RegularFont(&opendyslexic_12_regular);
-EpdFont opendyslexic12BoldFont(&opendyslexic_12_bold);
-EpdFont opendyslexic12ItalicFont(&opendyslexic_12_italic);
-EpdFont opendyslexic12BoldItalicFont(&opendyslexic_12_bolditalic);
-EpdFontFamily opendyslexic12FontFamily(&opendyslexic12RegularFont, &opendyslexic12BoldFont, &opendyslexic12ItalicFont,
-                                       &opendyslexic12BoldItalicFont);
-EpdFont opendyslexic14RegularFont(&opendyslexic_14_regular);
-EpdFont opendyslexic14BoldFont(&opendyslexic_14_bold);
-EpdFont opendyslexic14ItalicFont(&opendyslexic_14_italic);
-EpdFont opendyslexic14BoldItalicFont(&opendyslexic_14_bolditalic);
-EpdFontFamily opendyslexic14FontFamily(&opendyslexic14RegularFont, &opendyslexic14BoldFont, &opendyslexic14ItalicFont,
-                                       &opendyslexic14BoldItalicFont);
+EpdFont readerdyslexic8RegularFont(&readerdyslexic_8_regular);
+EpdFont readerdyslexic8BoldFont(&readerdyslexic_8_bold);
+EpdFont readerdyslexic8ItalicFont(&readerdyslexic_8_italic);
+EpdFont readerdyslexic8BoldItalicFont(&readerdyslexic_8_bolditalic);
+EpdFontFamily readerdyslexic8FontFamily(&readerdyslexic8RegularFont, &readerdyslexic8BoldFont, &readerdyslexic8ItalicFont,
+                                      &readerdyslexic8BoldItalicFont);
+EpdFont readerdyslexic10RegularFont(&readerdyslexic_10_regular);
+EpdFont readerdyslexic10BoldFont(&readerdyslexic_10_bold);
+EpdFont readerdyslexic10ItalicFont(&readerdyslexic_10_italic);
+EpdFont readerdyslexic10BoldItalicFont(&readerdyslexic_10_bolditalic);
+EpdFontFamily readerdyslexic10FontFamily(&readerdyslexic10RegularFont, &readerdyslexic10BoldFont, &readerdyslexic10ItalicFont,
+                                       &readerdyslexic10BoldItalicFont);
+EpdFont readerdyslexic12RegularFont(&readerdyslexic_12_regular);
+EpdFont readerdyslexic12BoldFont(&readerdyslexic_12_bold);
+EpdFont readerdyslexic12ItalicFont(&readerdyslexic_12_italic);
+EpdFont readerdyslexic12BoldItalicFont(&readerdyslexic_12_bolditalic);
+EpdFontFamily readerdyslexic12FontFamily(&readerdyslexic12RegularFont, &readerdyslexic12BoldFont, &readerdyslexic12ItalicFont,
+                                       &readerdyslexic12BoldItalicFont);
+EpdFont readerdyslexic14RegularFont(&readerdyslexic_14_regular);
+EpdFont readerdyslexic14BoldFont(&readerdyslexic_14_bold);
+EpdFont readerdyslexic14ItalicFont(&readerdyslexic_14_italic);
+EpdFont readerdyslexic14BoldItalicFont(&readerdyslexic_14_bolditalic);
+EpdFontFamily readerdyslexic14FontFamily(&readerdyslexic14RegularFont, &readerdyslexic14BoldFont, &readerdyslexic14ItalicFont,
+                                       &readerdyslexic14BoldItalicFont);
 #endif  // OMIT_FONTS
 
 EpdFont smallFont(&notosans_8_regular);
 EpdFontFamily smallFontFamily(&smallFont);
 
-EpdFont ui10RegularFont(&ubuntu_10_regular);
-EpdFont ui10BoldFont(&ubuntu_10_bold);
+EpdFont ui10RegularFont(&ubuntu_derivative_paperpoint_10_regular);
+EpdFont ui10BoldFont(&ubuntu_derivative_paperpoint_10_bold);
 EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont);
 
-EpdFont ui12RegularFont(&ubuntu_12_regular);
-EpdFont ui12BoldFont(&ubuntu_12_bold);
+EpdFont ui12RegularFont(&ubuntu_derivative_paperpoint_12_regular);
+EpdFont ui12BoldFont(&ubuntu_derivative_paperpoint_12_bold);
 EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
+
+// Embedded Traditional Chinese fallback. The sparse/cropped bitmap data is
+// always available, so Chinese UI and EPUB text work without an SD font.
+EpdFont paperpointSansTcMediumFont(&paperpoint_sans_tc_15_5_medium);
+EpdFontFamily paperpointSansTcFallbackFamily(&paperpointSansTcMediumFont);
 
 // measurement of power button press duration calibration value
 unsigned long t1 = 0;
@@ -184,16 +198,118 @@ void waitForPowerRelease() {
 // Enter deep sleep mode
 void enterDeepSleep() {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
-  APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
+#if CROSSPOINT_PAPERS3
+  // Direct sleep from the reader does not pass through a pushed menu, so save
+  // the current page here as well.
+  if (activityManager.isReaderActivity()) {
+    RenderLock snapshotLock;
+    SleepImages.captureReaderFrame(
+        display.getFrameBuffer(),
+        static_cast<uint8_t>(renderer.getOrientation()));
+  }
+#endif
+  APP_STATE.lastSleepFromReader = activityManager.isReaderContextActive();
+  LOG_DBG("SLP", "Sleep reader context: %d", APP_STATE.lastSleepFromReader ? 1 : 0);
   APP_STATE.saveToFile();
+  FontMgr.flushPersistentCaches();
 
   activityManager.goToSleep();
 
+  // display.deepSleep() 會等待背景 EPD waveform 完整結束，
+  // 並依正確順序關閉面板電源；不再依賴固定 delay。
   display.deepSleep();
   LOG_DBG("MAIN", "Power button press calibration value: %lu ms", t2 - t1);
   LOG_DBG("MAIN", "Entering deep sleep");
 
   powerManager.startDeepSleep(gpio);
+}
+void setupExternalFonts() {
+  // 確保 SD 卡根目錄有 /fonts。
+  // 資料夾已存在時可忽略 mkdir 的回傳值。
+  Storage.mkdir("/fonts");
+
+  FontManager& fontManager = FontManager::getInstance();
+
+  // 必須先掃描，loadSettings() 才能用保存的檔名
+  // 對應到這次掃描出的字型 index。
+  fontManager.scanFonts();
+
+  const int fontCount = fontManager.getFontCount();
+
+  LOG_INF(
+      "MAIN",
+      "External font scan complete: %d font(s)",
+      fontCount
+  );
+
+  if (fontCount <= 0) {
+    LOG_INF(
+        "MAIN",
+        "No external fonts found in /fonts; using built-in fonts"
+    );
+    return;
+  }
+
+  // 嘗試恢復 /.crosspoint/font_settings.bin 中的選擇。
+  fontManager.loadSettings();
+
+  // The embedded PaperPoint Sans TC font is now the default Chinese UI
+  // fallback. loadSettings() may still restore an explicitly selected external
+  // UI font, but no SD-card font is auto-forced on every boot.
+  if (fontManager.isUiFontEnabled() &&
+      fontManager.getActiveUiFont() != nullptr) {
+    const int uiIndex = fontManager.getUiSelectedIndex();
+    const FontInfo* uiInfo = fontManager.getFontInfo(uiIndex);
+    if (uiInfo != nullptr) {
+      LOG_INF("MAIN", "Saved external UI font active: %s (%dpt, %dx%d)",
+              uiInfo->filename, uiInfo->size, uiInfo->width, uiInfo->height);
+    }
+  } else {
+    LOG_INF("MAIN", "Using embedded Traditional Chinese UI fallback");
+  }
+
+  // Preserve an explicit "Built-in font" selection. Only choose the first
+  // external font on a truly fresh install with no font settings file.
+  if (!fontManager.hasLoadedSettings() && !fontManager.isExternalFontEnabled()) {
+    // Keep first-boot behaviour fast: prefer an existing bitmap/EPDF reader
+    // font. Runtime TTF remains opt-in from Settings.
+    int initialFontIndex = 0;
+    for (int i = 0; i < fontManager.getFontCount(); ++i) {
+      const FontInfo* info = fontManager.getFontInfo(i);
+      if (info != nullptr && info->type != FontFileType::TrueType) {
+        initialFontIndex = i;
+        break;
+      }
+    }
+
+    LOG_INF("MAIN", "No saved reader font; selecting initial font index %d", initialFontIndex);
+    if (fontManager.previewFont(initialFontIndex)) {
+      fontManager.saveSettings();
+    } else {
+      LOG_ERR("MAIN", "Failed to load initial external font; using built-in font");
+    }
+  }
+
+  const int selectedIndex = fontManager.getSelectedIndex();
+  const FontInfo* selectedFont =
+      fontManager.getFontInfo(selectedIndex);
+
+  if (selectedFont != nullptr &&
+      fontManager.isExternalFontEnabled()) {
+
+    LOG_INF(
+        "MAIN",
+        "External reader font active: %s "
+        "(file=%s, size=%u, cell=%ux%u)",
+        selectedFont->name,
+        selectedFont->filename,
+        selectedFont->size,
+        selectedFont->width,
+        selectedFont->height
+    );
+  } else {
+    LOG_INF("MAIN", "Built-in reader font active");
+  }
 }
 
 void setupDisplayAndFonts() {
@@ -208,24 +324,21 @@ void setupDisplayAndFonts() {
   }
   fontCacheManager.setFontDecompressor(&fontDecompressor);
   renderer.setFontCacheManager(&fontCacheManager);
-  renderer.insertFont(BOOKERLY_14_FONT_ID, bookerly14FontFamily);
-#ifndef OMIT_FONTS
-  renderer.insertFont(BOOKERLY_12_FONT_ID, bookerly12FontFamily);
-  renderer.insertFont(BOOKERLY_16_FONT_ID, bookerly16FontFamily);
-  renderer.insertFont(BOOKERLY_18_FONT_ID, bookerly18FontFamily);
-
-  renderer.insertFont(NOTOSANS_12_FONT_ID, notosans12FontFamily);
   renderer.insertFont(NOTOSANS_14_FONT_ID, notosans14FontFamily);
+#ifndef OMIT_FONTS
+  renderer.insertFont(NOTOSANS_12_FONT_ID, notosans12FontFamily);
   renderer.insertFont(NOTOSANS_16_FONT_ID, notosans16FontFamily);
   renderer.insertFont(NOTOSANS_18_FONT_ID, notosans18FontFamily);
-  renderer.insertFont(OPENDYSLEXIC_8_FONT_ID, opendyslexic8FontFamily);
-  renderer.insertFont(OPENDYSLEXIC_10_FONT_ID, opendyslexic10FontFamily);
-  renderer.insertFont(OPENDYSLEXIC_12_FONT_ID, opendyslexic12FontFamily);
-  renderer.insertFont(OPENDYSLEXIC_14_FONT_ID, opendyslexic14FontFamily);
+  renderer.insertFont(READERDYSLEXIC_8_FONT_ID, readerdyslexic8FontFamily);
+  renderer.insertFont(READERDYSLEXIC_10_FONT_ID, readerdyslexic10FontFamily);
+  renderer.insertFont(READERDYSLEXIC_12_FONT_ID, readerdyslexic12FontFamily);
+  renderer.insertFont(READERDYSLEXIC_14_FONT_ID, readerdyslexic14FontFamily);
 #endif  // OMIT_FONTS
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
+  renderer.setBuiltinFallbackFont(&paperpointSansTcFallbackFamily);
+  LOG_INF("MAIN", "Built-in Traditional Chinese fallback active: PaperPoint Sans TC Medium (21x30); status text bottom-aligned");
   LOG_DBG("MAIN", "Fonts setup");
 }
 
@@ -233,15 +346,19 @@ void setup() {
   t1 = millis();
 
   // Always start Serial first — with ARDUINO_USB_CDC_ON_BOOT=1 it's USB CDC.
-  // We must wait for USB enumeration so isUsbConnected() (which uses Serial)
-  // returns the correct value before getWakeupReason() is called.
   Serial.begin(115200);
+
+#if !CROSSPOINT_PAPERS3
+  // Other boards still use USB enumeration state while determining the wake-up
+  // reason. Paper S3 does not need to block here: its PMIC power-button path
+  // proceeds normally even before the USB CDC host finishes enumerating.
   {
-    unsigned long start = millis();
-    while (!Serial && (millis() - start) < 2000) {
+    const unsigned long serialWaitStart = millis();
+    while (!Serial && (millis() - serialWaitStart) < 2000) {
       delay(10);
     }
   }
+#endif
 
   HalSystem::begin();
   gpio.begin();
@@ -264,6 +381,9 @@ void setup() {
   KOREADER_STORE.loadFromFile();
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
+
+  // SD 卡已完成初始化，現在可以掃描 /fonts。
+  setupExternalFonts();
 
   switch (gpio.getWakeupReason()) {
     case HalGPIO::WakeupReason::PowerButton:
@@ -294,15 +414,120 @@ void setup() {
 
   setupDisplayAndFonts();
 
-#if CROSSPOINT_PAPERS3
-  // Use the user's refresh frequency setting for periodic full refreshes to clear ghosting
-  renderer.setPeriodicFullRefreshInterval(SETTINGS.getRefreshFrequency());
-#endif
+  #if CROSSPOINT_PAPERS3
+  if (ENABLE_GC16_BOOT_TEST) {
+    LOG_INF(
+        "GC16",
+        "Boot GC16 test mode enabled"
+    );
 
-  activityManager.goToBoot();
+    /*
+    * display.begin() 已經完成面板初始化。
+    * 稍微等待，讓 Serial log 與先前白畫面刷新穩定。
+    */
+    delay(250);
 
+    const uint32_t gc16Start =
+        millis();
+
+    bool gc16Success = false;
+
+    if (GC16_TEST_BITMAP) {
+      FsFile gc16File;
+
+      if (!Storage.openFileForRead(
+              "GC16",
+              GC16_TEST_BITMAP_PATH,
+              gc16File)) {
+        LOG_ERR(
+            "GC16",
+            "Failed to open test BMP: %s",
+            GC16_TEST_BITMAP_PATH
+        );
+      } else {
+        Bitmap bitmap(
+            gc16File,
+            false
+        );
+
+        const BmpReaderError parseResult =
+            bitmap.parseHeaders();
+
+        if (parseResult !=
+            BmpReaderError::Ok) {
+          LOG_ERR(
+              "GC16",
+              "BMP parse failed: %s",
+              Bitmap::errorToString(
+                  parseResult
+              )
+          );
+        } else {
+          gc16Success =
+            display.showGc16Bitmap(
+                bitmap,
+                true,
+                GC16_ENABLE_FLOYD_STEINBERG
+                    ? HalDisplay::
+                          Gc16DitherMode::
+                              FloydSteinberg
+                    : HalDisplay::
+                          Gc16DitherMode::
+                              None
+            );
+        }
+
+        gc16File.close();
+      }
+    } else {
+      gc16Success =
+          display.showGc16TestBars(
+              true
+          );
+    }
+
+    LOG_INF(
+        "GC16",
+        "Boot test finished: success=%d, "
+        "time=%lu ms",
+        gc16Success ? 1 : 0,
+        millis() - gc16Start
+    );
+
+    /*
+    * 絕對不要繼續執行：
+    *
+    *   activityManager.goToBoot();
+    *   activityManager.goHome();
+    *   renderer.displayBuffer();
+    *
+    * 因為現有 2bpp screenbuffer 不知道面板目前
+    * 顯示的是 GC16 圖片。
+    */
+    LOG_INF(
+        "GC16",
+        "System halted on GC16 test screen"
+    );
+
+    for (;;) {
+      /*
+      * 不進 deep sleep，也不再更新面板。
+      * delay() 會讓 FreeRTOS idle task 運作，
+      * 避免 watchdog reset。
+      */
+      delay(1000);
+    }
+  }
+  #endif
+
+  // Skip the Boot activity. Loading these small state files before selecting
+  // the initial activity avoids a redundant boot-logo EPD refresh and lets the
+  // first visible screen be Home, Crash Report, or the previously open reader.
   APP_STATE.loadFromFile();
   RECENT_BOOKS.loadFromFile();
+#if CROSSPOINT_PAPERS3
+  SleepImages.begin();
+#endif
 
   if (HalSystem::isRebootFromPanic()) {
     // If we rebooted from a panic, go to crash report screen to show the panic info
@@ -336,9 +561,6 @@ void loop() {
   gpio.update();
 
   renderer.setFadingFix(SETTINGS.fadingFix);
-#if CROSSPOINT_PAPERS3
-  renderer.setPeriodicFullRefreshInterval(SETTINGS.getRefreshFrequency());
-#endif
 
   if (Serial && millis() - lastMemPrint >= 10000) {
     LOG_INF("MEM", "Free: %d bytes, Total: %d bytes, Min Free: %d bytes, MaxAlloc: %d bytes", ESP.getFreeHeap(),
@@ -367,6 +589,9 @@ void loop() {
   if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || activityManager.preventAutoSleep()) {
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
+#if CROSSPOINT_PAPERS3
+    SleepImages.noteUserActivity();
+#endif
   }
 
   static bool screenshotButtonsReleased = true;
@@ -382,6 +607,18 @@ void loop() {
   } else {
     screenshotButtonsReleased = true;
   }
+
+#if CROSSPOINT_PAPERS3
+  // Paper S3 has no readable physical power-button GPIO. The top-left
+  // on-screen power button is therefore mapped to BTN_POWER. On release,
+  // reuse the normal deep-sleep path so the configured sleep picture is
+  // rendered completely before panel and system power are shut down.
+  if (mappedInputManager.wasReleased(MappedInputManager::Button::Power)) {
+    LOG_DBG("SLP", "On-screen power button tapped");
+    enterDeepSleep();
+    return;
+  }
+#endif
 
   // Refresh screen when power button is short-pressed with FORCE_REFRESH setting.
   if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::FORCE_REFRESH &&
@@ -414,6 +651,15 @@ void loop() {
 
   const unsigned long activityStartTime = millis();
   activityManager.loop();
+#if CROSSPOINT_PAPERS3
+  const bool renderBusy = RenderLock::peek();
+  if (renderBusy) {
+    SleepImages.noteUserActivity();
+  }
+  SleepImages.loop(
+      millis() - lastActivityTime,
+      activityManager.preventAutoSleep() || renderBusy);
+#endif
   const unsigned long activityDuration = millis() - activityStartTime;
 
   const unsigned long loopDuration = millis() - loopStartTime;

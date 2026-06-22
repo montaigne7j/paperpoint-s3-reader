@@ -101,6 +101,9 @@ class ActivityManager {
 
   bool preventAutoSleep() const;
   bool isReaderActivity() const;
+  // True when the current screen is a reader or a reader is paused underneath
+  // a pushed sub-activity such as EpubReaderMenu.
+  bool isReaderContextActive() const;
   bool skipLoopDelay() const;
 
   // If immediate is true, the update will be triggered immediately.

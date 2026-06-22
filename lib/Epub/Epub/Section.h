@@ -16,9 +16,10 @@ class Section {
   std::string filePath;
   FsFile file;
 
-  void writeSectionFileHeader(int fontId, float lineCompression, bool extraParagraphSpacing, uint8_t paragraphAlignment,
+  void writeSectionFileHeader(int fontId, float lineCompression, uint8_t characterSpacing,
+                              bool extraParagraphSpacing, uint8_t paragraphAlignment,
                               uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled,
-                              bool embeddedStyle, uint8_t imageRendering);
+                              bool embeddedStyle, uint8_t imageRendering, uint8_t readingLayout);
   uint32_t onPageComplete(std::unique_ptr<Page> page);
 
  public:
@@ -31,13 +32,18 @@ class Section {
         renderer(renderer),
         filePath(epub->getCachePath() + "/sections/" + std::to_string(spineIndex) + ".bin") {}
   ~Section() = default;
-  bool loadSectionFile(int fontId, float lineCompression, bool extraParagraphSpacing, uint8_t paragraphAlignment,
+  bool loadSectionFile(int fontId, float lineCompression, uint8_t characterSpacing,
+                       bool extraParagraphSpacing, uint8_t paragraphAlignment,
                        uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled, bool embeddedStyle,
-                       uint8_t imageRendering);
+                       uint8_t imageRendering, uint8_t readingLayout);
   bool clearCache() const;
-  bool createSectionFile(int fontId, float lineCompression, bool extraParagraphSpacing, uint8_t paragraphAlignment,
+  bool createSectionFile(int fontId, float lineCompression, uint8_t characterSpacing,
+                         bool extraParagraphSpacing, uint8_t paragraphAlignment,
                          uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled, bool embeddedStyle,
-                         uint8_t imageRendering, const std::function<void()>& popupFn = nullptr);
+                         uint8_t imageRendering, uint8_t readingLayout,
+                         const std::function<void()>& popupFn = nullptr,
+                         const std::function<void(int)>& popupProgressFn = nullptr,
+                         bool rejectImageFallback = false);
   std::unique_ptr<Page> loadPageFromSectionFile();
 
   // Look up the page number for an anchor id from the section cache file.

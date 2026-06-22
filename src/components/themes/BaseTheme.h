@@ -77,11 +77,11 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .headerHeight = 45,
                                  .verticalSpacing = 10,
                                  .contentSidePadding = 20,
-                                 .listRowHeight = 30,
+                                 .listRowHeight = 42,
                                  .listWithSubtitleRowHeight = 65,
                                  .menuRowHeight = 45,
                                  .menuSpacing = 8,
-                                 .tabSpacing = 10,
+                                 .tabSpacing = 32,
                                  .tabBarHeight = 50,
                                  .scrollBarWidth = 4,
                                  .scrollBarRightOffset = 5,
@@ -121,6 +121,15 @@ class BaseTheme {
                         const std::function<UIIcon(int index)>& rowIcon = nullptr,
                         const std::function<std::string(int index)>& rowValue = nullptr,
                         bool highlightValue = false) const;
+  // Redraw only the two rows affected by an in-page selection change.
+  // Callers must use drawList() instead when the selection crosses a page.
+  virtual void redrawListSelection(const GfxRenderer& renderer, Rect rect, int itemCount, int oldSelectedIndex,
+                                   int newSelectedIndex,
+                                   const std::function<std::string(int index)>& rowTitle,
+                                   const std::function<std::string(int index)>& rowSubtitle = nullptr,
+                                   const std::function<UIIcon(int index)>& rowIcon = nullptr,
+                                   const std::function<std::string(int index)>& rowValue = nullptr,
+                                   bool highlightValue = false) const;
   virtual void drawHeader(const GfxRenderer& renderer, Rect rect, const char* title,
                           const char* subtitle = nullptr) const;
   virtual void drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label,
@@ -147,4 +156,5 @@ class BaseTheme {
   static constexpr int batteryPercentSpacing = 4;
   static void drawBatteryOutline(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight);
   static void drawBatteryLightningBolt(const GfxRenderer& renderer, int boltX, int boltY);
+  static void drawPowerButton(const GfxRenderer& renderer, Rect headerRect);
 };

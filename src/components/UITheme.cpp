@@ -2,6 +2,7 @@
 
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalClock.h>
 #include <Logging.h>
 
 #include <memory>
@@ -9,6 +10,7 @@
 #include "MappedInputManager.h"
 #include "RecentBooksStore.h"
 #include "components/themes/BaseTheme.h"
+#include "components/themes/LargeTextTheme.h"
 #include "components/themes/lyra/Lyra3CoversTheme.h"
 #include "components/themes/lyra/LyraTheme.h"
 
@@ -44,6 +46,16 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
       LOG_DBG("UI", "Using Lyra 3 Covers theme");
       currentTheme = std::make_unique<Lyra3CoversTheme>();
       currentMetrics = &Lyra3CoversMetrics::values;
+      break;
+    case CrossPointSettings::UI_THEME::LARGE_TEXT:
+      LOG_DBG("UI", "Using Large Text theme");
+      currentTheme = std::make_unique<LargeTextTheme>();
+      currentMetrics = &LargeTextMetrics::values;
+      break;
+    case CrossPointSettings::UI_THEME::UI_THEME_COUNT:
+      LOG_DBG("UI", "Unknown theme; using Lyra theme");
+      currentTheme = std::make_unique<LyraTheme>();
+      currentMetrics = &LyraMetrics::values;
       break;
   }
 }
@@ -93,11 +105,13 @@ UIIcon UITheme::getFileIcon(const std::string& filename) {
 
 int UITheme::getStatusBarHeight() {
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
+  const bool clockVisible = SETTINGS.statusBarClock && halClock.isAvailable();
+  const bool titleVisible = SETTINGS.uiTheme != CrossPointSettings::UI_THEME::LARGE_TEXT &&
+                            SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE;
 
   // Add status bar margin
   const bool showStatusBar = SETTINGS.statusBarChapterPageCount || SETTINGS.statusBarBookProgressPercentage ||
-                             SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE ||
-                             SETTINGS.statusBarBattery;
+                             titleVisible || SETTINGS.statusBarBattery || clockVisible;
   const bool showProgressBar =
       SETTINGS.statusBarProgressBar != CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
   return (showStatusBar ? (metrics.statusBarVerticalMargin) : 0) +

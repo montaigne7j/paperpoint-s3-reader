@@ -1,19 +1,5 @@
 # CrossPoint vs XTOS
 
-Below is like for like comparison of CrossPoint (version 0.5.1) and XTOS (version 3.1.1). CrossPoint is on the left, 
-XTOS is on the right. CrossPoint does not currently support all features of XTOS, so this comparison is just of key 
-features which both firmwares support.
+This historical comparison page used screenshots from the inherited upstream project. Those screenshots were removed from this source tree because their authorship and reuse rights were not fully documented.
 
-## EPUB reading
-
-![](./images/comparison/reading-1.jpg)
-
-![](./images/comparison/reading-2.jpg)
-
-![](./images/comparison/reading-3.jpg)
-
-## Menus
-
-![](./images/comparison/menu.jpg)
-
-![](./images/comparison/chapter-menu.jpg)
+If this comparison is needed again, regenerate the images from a maintainer-owned device or replace this page with a fresh text-only comparison for the current PaperPoint S3 Reader release.

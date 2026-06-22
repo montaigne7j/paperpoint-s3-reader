@@ -85,6 +85,13 @@ int HalGPIO::touchZoneToButton(int16_t touchX, int16_t touchY) const {
 
   if (logicalX < 0 || logicalX >= logicalW || logicalY < 0 || logicalY >= logicalH) return -1;
 
+  // Visible on-screen power button in the top-left corner of non-reader screens.
+  // Check this before suppressing content-area taps in footer mode. Reader screens
+  // keep footerHeight == 0, so normal page-tap zones are not affected.
+  if (footerHeight > 0 && logicalX < POWER_HOTSPOT_SIZE && logicalY < POWER_HOTSPOT_SIZE) {
+    return BTN_POWER;
+  }
+
   // Footer nav bar: bottom footerHeight pixels are split into 4 equal tap zones
   // mapping to Back / Confirm / Up / Down (matches drawButtonHints layout)
   if (footerHeight > 0) {

@@ -5,6 +5,7 @@
 #include <Logging.h>
 #include <Serialization.h>
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 
@@ -36,6 +37,18 @@ constexpr uint8_t SETTINGS_FILE_VERSION = 1;
 constexpr char SETTINGS_FILE_BIN[] = "/.crosspoint/settings.bin";
 constexpr char SETTINGS_FILE_JSON[] = "/.crosspoint/settings.json";
 constexpr char SETTINGS_FILE_BAK[] = "/.crosspoint/settings.bin.bak";
+
+uint8_t legacyLineSpacingToPercent(uint8_t legacy) {
+  switch (legacy) {
+    case CrossPointSettings::TIGHT:
+      return 90;
+    case CrossPointSettings::WIDE:
+      return 115;
+    case CrossPointSettings::NORMAL:
+    default:
+      return CrossPointSettings::READER_LINE_SPACING_DEFAULT;
+  }
+}
 
 // Convert legacy front button layout into explicit logical->hardware mapping.
 void applyLegacyFrontButtonLayout(CrossPointSettings& settings) {
@@ -165,9 +178,34 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, sideButtonLayout, SIDE_BUTTON_LAYOUT_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
-    readAndValidate(inputFile, fontFamily, FONT_FAMILY_COUNT);
+    {
+      uint8_t legacyFontFamily = LEGACY_FONT_NOTOSANS;
+      serialization::readPod(inputFile, legacyFontFamily);
+      fontFamily = legacyFontFamily == LEGACY_FONT_READERDYSLEXIC ? READERDYSLEXIC : NOTOSANS;
+    }
     if (++settingsRead >= fileSettingsCount) break;
-    readAndValidate(inputFile, fontSize, FONT_SIZE_COUNT);
+    {
+      uint8_t legacyOrPixels = READER_FONT_SIZE_DEFAULT;
+      serialization::readPod(inputFile, legacyOrPixels);
+      switch (legacyOrPixels) {
+        case SMALL:
+          fontSize = 30;
+          break;
+        case MEDIUM:
+          fontSize = 36;
+          break;
+        case LARGE:
+          fontSize = 40;
+          break;
+        case EXTRA_LARGE:
+          fontSize = 46;
+          break;
+        default:
+          fontSize = std::min<uint8_t>(READER_FONT_SIZE_MAX,
+                                       std::max<uint8_t>(READER_FONT_SIZE_MIN, legacyOrPixels));
+          break;
+      }
+    }
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, lineSpacing, LINE_COMPRESSION_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
@@ -212,7 +250,7 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, sleepScreenCoverFilter, SLEEP_SCREEN_COVER_FILTER_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
-    serialization::readPod(inputFile, uiTheme);
+    readAndValidate(inputFile, uiTheme, UI_THEME_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, frontButtonBack, FRONT_BUTTON_HARDWARE_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
@@ -229,6 +267,10 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
   } while (false);
 
+  if (lineSpacing < CrossPointSettings::READER_LINE_SPACING_MIN) {
+    lineSpacing = legacyLineSpacingToPercent(lineSpacing);
+  }
+
   if (frontButtonMappingRead) {
     CrossPointSettings::validateFrontButtonMapping(*this);
   } else {
@@ -240,39 +282,14 @@ bool CrossPointSettings::loadFromBinaryFile() {
 }
 
 float CrossPointSettings::getReaderLineCompression() const {
-  switch (fontFamily) {
-    case BOOKERLY:
-    default:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.95f;
-        case NORMAL:
-        default:
-          return 1.0f;
-        case WIDE:
-          return 1.1f;
-      }
-    case NOTOSANS:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.90f;
-        case NORMAL:
-        default:
-          return 0.95f;
-        case WIDE:
-          return 1.0f;
-      }
-    case OPENDYSLEXIC:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.90f;
-        case NORMAL:
-        default:
-          return 0.95f;
-        case WIDE:
-          return 1.0f;
-      }
-  }
+  const uint8_t percent = std::min<uint8_t>(READER_LINE_SPACING_MAX,
+                                            std::max<uint8_t>(READER_LINE_SPACING_MIN, lineSpacing));
+  return static_cast<float>(percent) / 100.0f;
+}
+
+uint8_t CrossPointSettings::getReaderCharacterSpacing() const {
+  return std::min<uint8_t>(READER_CHARACTER_SPACING_MAX,
+                           std::max<uint8_t>(READER_CHARACTER_SPACING_MIN, characterSpacing));
 }
 
 unsigned long CrossPointSettings::getSleepTimeoutMs() const {
@@ -308,22 +325,36 @@ int CrossPointSettings::getRefreshFrequency() const {
 }
 
 int CrossPointSettings::getReaderFontId() const {
+  // Built-in font families only contain four raster sizes. Map the numeric
+  // reader size to the closest legacy bucket. Runtime TTF fonts use the exact
+  // 20..60 px value through FontManager instead.
+  uint8_t sizeBucket = MEDIUM;
+  if (fontSize <= 32) {
+    sizeBucket = SMALL;
+  } else if (fontSize <= 38) {
+    sizeBucket = MEDIUM;
+  } else if (fontSize <= 43) {
+    sizeBucket = LARGE;
+  } else {
+    sizeBucket = EXTRA_LARGE;
+  }
+
   switch (fontFamily) {
-    case BOOKERLY:
-    default:
-      switch (fontSize) {
+    case READERDYSLEXIC:
+      switch (sizeBucket) {
         case SMALL:
-          return BOOKERLY_12_FONT_ID;
+          return READERDYSLEXIC_8_FONT_ID;
         case MEDIUM:
         default:
-          return BOOKERLY_14_FONT_ID;
+          return READERDYSLEXIC_10_FONT_ID;
         case LARGE:
-          return BOOKERLY_16_FONT_ID;
+          return READERDYSLEXIC_12_FONT_ID;
         case EXTRA_LARGE:
-          return BOOKERLY_18_FONT_ID;
+          return READERDYSLEXIC_14_FONT_ID;
       }
     case NOTOSANS:
-      switch (fontSize) {
+    default:
+      switch (sizeBucket) {
         case SMALL:
           return NOTOSANS_12_FONT_ID;
         case MEDIUM:
@@ -333,18 +364,6 @@ int CrossPointSettings::getReaderFontId() const {
           return NOTOSANS_16_FONT_ID;
         case EXTRA_LARGE:
           return NOTOSANS_18_FONT_ID;
-      }
-    case OPENDYSLEXIC:
-      switch (fontSize) {
-        case SMALL:
-          return OPENDYSLEXIC_8_FONT_ID;
-        case MEDIUM:
-        default:
-          return OPENDYSLEXIC_10_FONT_ID;
-        case LARGE:
-          return OPENDYSLEXIC_12_FONT_ID;
-        case EXTRA_LARGE:
-          return OPENDYSLEXIC_14_FONT_ID;
       }
   }
 }

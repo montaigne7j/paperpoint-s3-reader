@@ -1,409 +1,174 @@
-# CrossPoint User Guide
+# PaperPoint S3 Reader 使用說明
 
-Welcome to the **CrossPoint** firmware. This guide outlines the hardware controls, navigation, and reading features of the device.
+PaperPoint S3 Reader 是給 **M5Stack Paper S3 / M5Paper S3** 使用的中文優先電子紙閱讀器韌體。主要用途是閱讀 EPUB、TXT、圖片，以及使用自訂休眠畫面。
 
-- [CrossPoint User Guide](#crosspoint-user-guide)
-  - [1. Hardware Overview](#1-hardware-overview)
-    - [Button Layout](#button-layout)
-  - [2. Power \& Startup](#2-power--startup)
-    - [Power On / Off](#power-on--off)
-    - [First Launch](#first-launch)
-  - [3. Screens](#3-screens)
-    - [3.1 Home Screen](#31-home-screen)
-    - [3.2 Reading Mode](#32-reading-mode)
-    - [3.3 Browse Files Screen](#33-browse-files-screen)
-    - [3.4 Recent Books Screen](#34-recent-books-screen)
-    - [3.5 File Transfer Screen](#35-file-transfer-screen)
-      - [3.5.1 Calibre Wireless Transfers](#351-calibre-wireless-transfers)
-    - [3.6 Settings](#36-settings)
-      - [3.6.1 Display](#361-display)
-      - [3.6.2 Reader](#362-reader)
-      - [3.6.3 Controls](#363-controls)
-      - [3.6.4 System](#364-system)
-      - [3.6.5 KOReader Sync Quick Setup](#365-koreader-sync-quick-setup)
-    - [3.7 Sleep Screen](#37-sleep-screen)
-  - [4. Reading Mode](#4-reading-mode)
-    - [Page Turning](#page-turning)
-    - [Chapter Navigation](#chapter-navigation)
-    - [System Navigation](#system-navigation)
-    - [Supported Languages](#supported-languages)
-  - [5. Chapter Selection Screen](#5-chapter-selection-screen)
-  - [6. Current Limitations \& Roadmap](#6-current-limitations--roadmap)
-  - [7. Troubleshooting Issues \& Escaping Bootloop](#7-troubleshooting-issues--escaping-bootloop)
+## 1. 開始使用
 
+### SD 卡資料夾建議
 
-## 1. Hardware Overview
-
-The M5Stack Paper S3 uses capacitive touch input with the following touch zone layout:
-
-### Button Layout
-| Location        | Buttons                                              |
-| --------------- | ---------------------------------------------------- |
-| **Bottom Edge** | **Back**, **Confirm**, **Left**, **Right**           |
-| **Right Side**  | **Power**, **Volume Up**, **Volume Down**, **Reset** |
-
-Button layout can be customized in the **[Controls Settings](#363-controls)**.
-
-### Taking a Screenshot
-When the Power Button and Volume Down button are pressed at the same time, it will take a screenshot and save it in the folder `screenshots/`.
-
-Alternatively, while reading a book, press the **Confirm** button to open the reader menu and select **Take screenshot**.
-
----
-
-## 2. Power & Startup
-
-### Power On / Off
-
-To turn the device on or off, **press and hold the Power button for approximately half a second**.
-In the **[Controls Settings](#363-controls)** you can configure the power button to turn the device off with a short press instead of a long one.
-
-To reboot the device (for example after a firmware update or if it's frozen), press and release the Reset button, and then quickly press and hold the Power button for a few seconds.
-
-### First Launch
-
-Upon turning the device on for the first time, you will be placed on the **[Home](#31-home-screen)** screen.
-
-> [!NOTE]
-> On subsequent restarts, the firmware will automatically reopen the last book you were reading.
-
----
-
-## 3. Screens
-
-### 3.1 Home Screen
-
-The Home screen is the main entry point to the firmware. From here you can navigate to **[Reading Mode](#4-reading-mode)** with the most recently read book, the **[Browse Files](#33-browse-files-screen)** screen, the **[Recent Books](#34-recent-books-screen)** screen, the **[File Transfer](#35-file-transfer-screen)** screen, or **[Settings](#36-settings)**.
-
-### 3.2 Reading Mode
-
-See [Reading Mode](#4-reading-mode) below for more information.
-
-### 3.3 Browse Files Screen
-
-The Browse Files screen acts as a file and folder browser.
-
-* **Navigate List:** Use **Left** (or **Volume Up**), or **Right** (or **Volume Down**) to move the selection cursor up and down through folders and books. You can also long-press these buttons to scroll a full page up or down.
-* **Open Selection:** Press **Confirm** to open a folder or read a selected book. 
-* **Delete Files:** Hold and release **Confirm** to delete the selected file. You will be given an option to either confirm or cancel deletion. Folder deletion is not supported.
-
-### 3.4 Recent Books Screen
-
-The Recent Books screen lists the most recently opened books in a chronological view, displaying title and author.
-
-### 3.5 File Transfer Screen
-
-The File Transfer screen allows you to upload new e-books to the device. When you enter the screen, you'll be prompted with a WiFi selection dialog and then your X4 will start hosting a web server.
-
-See the [webserver docs](./docs/webserver.md) for more information on how to connect to the web server and upload files.
-
-> [!TIP]
-> Advanced users can also manage files programmatically or via the command line using `curl`. See the [webserver docs](./docs/webserver.md) for details.
-
-### 3.5.1 Calibre Wireless Transfers
-
-CrossPoint supports sending books from Calibre using the CrossPoint Reader device plugin.
-
-1. Install the plugin in Calibre:
-   - Head to https://github.com/crosspoint-reader/calibre-plugins/releases to download the latest version of the crosspoint_reader plugin.
-   - Download the zip file.
-   - Open Calibre → Preferences → Plugins → Load plugin from file → Select the zip file.
-2. On the device: File Transfer → Connect to Calibre → Join a network.
-3. Make sure your computer is on the same WiFi network.
-4. In Calibre, click "Send to device" to transfer books.
-
-### 3.6 Settings
-
-The Settings screen allows you to configure the device's behavior. There are a few settings you can adjust:
-
-#### 3.6.1 Display
-
-- **Sleep Screen**: Which sleep screen to display when the device sleeps:
-  - "Dark" (default) - The default dark Crosspoint logo sleep screen
-  - "Light" - The same default sleep screen, on a white background
-  - "Custom" - Custom images from the SD card; see [Sleep Screen](#37-sleep-screen) below for more information
-  - "Cover" - The book cover image (Note: this is experimental and may not work as expected)
-  - "None" - A blank screen
-  - "Cover + Custom" - The book cover image, falls back to "Custom" behavior
-- **Sleep Screen Cover Mode**: How to display the book cover when "Cover" sleep screen is selected:
-  - "Fit" (default) - Scale the image down to fit centered on the screen, padding with white borders as necessary
-  - "Crop" - Scale the image down and crop as necessary to try to fill the screen (Note: this is experimental and may not work as expected)
-- **Sleep Screen Cover Filter**: What filter will be applied to the book cover when "Cover" sleep screen is selected:
-  - "None" (default) - The cover image will be converted to a grayscale image and displayed as it is
-  - "Contrast" - The image will be displayed as a black & white image without grayscale conversion
-  - "Inverted" - The image will be inverted as in white & black and will be displayed without grayscale conversion
-- **Status Bar**: Configure the status bar displayed while reading:
-  - "None" - No status bar
-  - "No Progress" - Show status bar without reading progress
-  - "Full w/ Percentage" - Show status bar with book progress (as percentage)
-  - "Full w/ Book Bar" - Show status bar with book progress (as bar)
-  - "Book Bar Only" - Show book progress (as bar)
-  - "Full w/ Chapter Bar" - Show status bar with chapter progress (as bar)
-- **Hide Battery %**: Configure where to suppress the battery percentage display in the status bar; the battery icon will still be shown:
-  - "Never" (default) - Always show battery percentage
-  - "In Reader" - Show battery percentage everywhere except in reading mode
-  - "Always" - Always hide battery percentage
-- **Refresh Frequency**: Set how often the screen does a full refresh while reading to reduce ghosting; options are every 1, 5, 10, 15, or 30 pages.
-
-- **UI Theme**: Set which UI theme to use:
-  - "Classic" - The original Crosspoint theme
-  - "Lyra" - The new theme for Crosspoint featuring rounded elements and menu icons
-  - "Lyra Extended" - Lyra, but displays 3 books instead of 1 on the **[Home Screen](#31-home-screen)**
-- **Sunlight Fading Fix**: Configure whether to enable a software-fix for the issue where white X4 models may fade when used in direct sunlight:
-  - "OFF" (default) - Disable the fix
-  - "ON" - Enable the fix
-
-#### 3.6.2 Reader
-- **Reader Font Family**: Choose the font used for reading:
-  - "Bookerly" (default) - Amazon's reading font
-  - "Noto Sans" - Google's sans-serif font
-  - "Open Dyslexic" - Font designed for readers with dyslexia
-- **Reader Font Size**: Adjust the text size for reading; options are "Small", "Medium" (default), "Large", or "X Large".
-
-- **Reader Line Spacing**: Adjust the spacing between lines; options are "Tight", "Normal" (default), or "Wide".
-- **Reader Screen Margin**: Controls the screen margins in Reading Mode between 5 and 40 pixels in 5-pixel increments.
-- **Reader Paragraph Alignment**: Set the alignment of paragraphs; options are "Justified" (default), "Left", "Center", or "Right".
-- **Embedded Style**: Whether to use the EPUB file's embedded HTML and CSS stylisation and formatting; options are "ON" or "OFF".
-- **Hyphenation**: Whether to hyphenate text in Reading Mode; options are "ON" or "OFF".
-- **Reading Orientation**: Set the screen orientation for reading EPUB files:
-  - "Portrait" (default) - Standard portrait orientation
-  - "Landscape CW" - Landscape, rotated clockwise
-  - "Inverted" - Portrait, upside down
-  - "Landscape CCW" - Landscape, rotated counter-clockwise
-- **Extra Paragraph Spacing**: Set how to handle paragraph breaks:
-  - "ON" - Vertical space will be added between paragraphs in Reading Mode
-  - "OFF" - Paragraphs will not have vertical space added, but will have first-line indentation
-- **Text Anti-Aliasing**: Whether to show smooth grey edges (anti-aliasing) on text in reading mode. Note this slows down page turns slightly.
-
-#### 3.6.3 Controls
-
-- **Remap Front Buttons**: A menu for customising the function of each bottom edge button.
-- **Side Button Layout (reader)**: Swap the order of the up and down volume buttons from "Prev/Next" (default) to "Next/Prev". This change is only in effect when reading.
-
-- **Long-press Chapter Skip**: Set whether long-pressing page turn buttons skips to the next/previous chapter:
-  - "Chapter Skip" (default) - Long-pressing skips to next/previous chapter
-  - "Page Scroll" - Long-pressing scrolls a page up/down
-- **Short Power Button Click**: Controls the effect of a short click of the power button:
-  - "Ignore" (default) - Require a long press to turn off the device
-  - "Sleep" - A short press puts the device into sleep mode
-  - "Page Turn" - A short press in reading mode turns to the next page; a long press turns the device off
-
-#### 3.6.4 System
-
-- **Time to Sleep**: Set the duration of inactivity before the device automatically goes to sleep; options are 1, 5, 10 (default), 15 or 30 minutes.
-
-- **WiFi Networks**: Connect to WiFi networks for file transfers and firmware updates.
-- **KOReader Sync**: Options for setting up KOReader for syncing book progress.
-- **OPDS Browser**: Configure OPDS server settings for browsing and downloading books. Set the server URL (for Calibre Content Server, add `/opds` to the end), and optionally configure username and password for servers requiring authentication. Note: Only HTTP Basic authentication is supported. If using Calibre Content Server with authentication enabled, you must set it to use Basic authentication instead of the default Digest authentication.
-- **Clear Reading Cache**: Clear the internal SD card cache.
-- **Check for updates**: Check for Crosspoint firmware updates over WiFi.
-- **Language**: Set the system language (see **[Supported Languages](#supported-languages)** for more information).
-
-#### 3.6.5 KOReader Sync Quick Setup
-
-CrossPoint can sync reading progress with KOReader-compatible sync servers.
-It also interoperates with KOReader apps/devices when they use the same server and credentials.
-
-##### Option A: Free Public Server (`sync.koreader.rocks`)
-
-1. Register a user once (only if needed):
-
-```bash
-USERNAME="user"
-PASSWORD="pass"
-PASSWORD_MD5="$(printf '%s' "$PASSWORD" | openssl md5 | awk '{print $2}')"
-
-curl -i "https://sync.koreader.rocks/users/create" \
-  -H "Accept: application/vnd.koreader.v1+json" \
-  -H "Content-Type: application/json" \
-  --data "{\"username\":\"$USERNAME\",\"password\":\"$PASSWORD_MD5\"}"
+```text
+/books/        EPUB、TXT、圖片檔
+/fonts/        選用的外部 TTF / OTF / BIN 字型
+/.sleep/       自訂休眠圖片
+/.crosspoint/  系統自動建立的快取資料
 ```
 
-Already have KOReader Sync credentials? Skip registration; basic sync only requires using the same existing username/password on all devices.
+即使沒有放外部中文字型，本韌體也內建繁體中文 fallback，可顯示中文 UI、書名、章節與正文。
 
-When this returns `HTTP 402` with `{"code":2002,"message":"Username is already registered."}`, pick a different username or use that existing account.
+### 支援格式
 
-2. On each CrossPoint device:
-   - Go to **Settings -> System -> KOReader Sync**.
-   - Set **Username** and **Password** (enter the plain password; CrossPoint computes MD5 internally, and use the same values on all devices).
-   - Set **Sync Server URL** to `https://sync.koreader.rocks`, or leave it empty (both use the same default KOReader sync server).
-   - Run **Authenticate**.
+| 類型 | 副檔名 | 備註 |
+|---|---|---|
+| 電子書 | `.epub` | 支援 EPUB 2/3，中文直排與橫排 |
+| 文字 | `.txt` | 適合純文字小說 |
+| 圖片 | `.bmp`, `.jpg`, `.jpeg`, `.png` | 可作為瀏覽圖片或休眠圖 |
+| 字型 | `.ttf`, `.otf`, `.bin` | 放在 `/fonts/`，可於閱讀設定選擇 |
 
-3. While reading, press **Confirm** to open the reader menu, then select **Sync Progress**.
-   - Choose **Apply Remote** to jump to remote progress.
-   - Choose **Upload Local** to push current progress.
+## 2. 首頁
 
-##### Option B: Self-Hosted Server (Docker Compose)
+首頁可進入檔案瀏覽、最近閱讀、檔案傳輸與設定。
 
-1. Start a sync server:
+![首頁畫面示意](docs/assets/guide/home_screen.png)
 
-```bash
-mkdir -p kosync-quickstart
-cd kosync-quickstart
+底部四個按鍵區在多數非閱讀畫面都有效：
 
-cat > compose.yaml <<'YAML'
-services:
-  kosync:
-    image: koreader/kosync:latest
-    ports:
-      - "7200:7200"
-      - "17200:17200"
-    volumes:
-      - ./data/redis:/var/lib/redis
-    environment:
-      - ENABLE_USER_REGISTRATION=true
-    restart: unless-stopped
-YAML
+| 按鍵 | 功能 |
+|---|---|
+| 返回 | 回上一層或離開目前畫面 |
+| 選擇 / 切換 | 開啟項目、確認或切換設定 |
+| 上 | 選取上一項 |
+| 下 | 選取下一項 |
 
-# Docker
-docker compose up -d
+## 3. 檔案瀏覽與最近閱讀
 
-# Podman (alternative)
-podman compose up -d
+在首頁選擇 **瀏覽檔案** 可從 SD 卡開書；選擇 **最近閱讀** 可回到最近開啟過的書。建議將書籍放在 `/books/`，但韌體也可以瀏覽 SD 卡其他資料夾。
+
+檔案瀏覽器已針對 Paper S3 做局部刷新，移動選取列時只重畫新舊選取列，減少電子紙等待時間。
+
+## 4. 閱讀頁觸控區
+
+閱讀頁不顯示底部按鍵，而是使用全螢幕觸控區。
+
+![閱讀觸控區示意](docs/assets/guide/reader_touch_zones.png)
+
+| 區域 / 手勢 | 功能 |
+|---|---|
+| 左側 | 上一頁 |
+| 右側 | 下一頁 |
+| 中間偏上 | 直接進入「設定 > 閱讀器」 |
+| 中間偏下 | 開啟閱讀選單 |
+| 雙指點擊 | 離開閱讀頁 |
+| 向上 / 向下滑動 | 翻頁 |
+
+## 5. 閱讀選單
+
+在閱讀頁點中間偏下，可開啟閱讀選單。
+
+![閱讀選單示意](docs/assets/guide/reader_menu.png)
+
+常用項目：
+
+| 項目 | 功能 |
+|---|---|
+| 選擇章節 | 開啟章節目錄，可跳到指定章節 |
+| 返回首頁 | 離開目前閱讀頁，回首頁 |
+| 閱讀設定 | 進入閱讀器設定頁 |
+| 畫面方向 | 切換閱讀方向 |
+| 自動翻頁 | 設定每分鐘翻頁速度 |
+| 跳到百分比 | 跳到書籍進度百分比 |
+| 截圖 | 儲存目前畫面截圖 |
+| 同步進度 | KOReader Sync 進度同步 |
+| 刪除快取 | 清除目前書籍快取並重建 |
+
+## 6. 閱讀器設定
+
+從首頁進入 **設定 > 閱讀器**，或在閱讀頁點中間偏上可直接進入。
+
+![閱讀器設定示意](docs/assets/guide/settings_reader.png)
+
+常用設定：
+
+| 設定 | 說明 |
+|---|---|
+| 閱讀字型 | 選擇內建字型或 `/fonts/` 外部字型 |
+| 閱讀字級 | 以 px 數字調整正文大小 |
+| 閱讀行距 | 以百分比調整橫排列距與直排欄距 |
+| 閱讀字距 | 以 px 調整文字間距，直排時影響同欄字距 |
+| 閱讀布局 | 橫排 / 直排 |
+| 圖片顯示 | 顯示圖片、只顯示佔位、或隱藏圖片 |
+| 嵌入樣式 | 是否使用 EPUB 內建 CSS 樣式 |
+| 禁用斷字 | 控制英文斷字行為 |
+
+### 數值調整畫面
+
+字級、行距、字距會進入獨立調整畫面，用 `- / +` 修改。修改後會立即寫入設定，不需要再按「選擇」才套用。
+
+![數值調整示意](docs/assets/guide/reader_value_adjust.png)
+
+建議初始值：
+
+| 項目 | 建議值 | 說明 |
+|---|---:|---|
+| 閱讀字級 | 30–34 px | Paper S3 直向閱讀較舒服 |
+| 閱讀行距 | 100% | 橫排列距 / 直排欄距的基準 |
+| 閱讀字距 | 0–2 px | 想要緊密可用 0 px，想要舒適可用 2 px 以上 |
+
+## 7. 中文直排與圖片
+
+直排模式下，圖片預設會單獨置中成頁，避免圖片壓縮同頁文字高度，造成跨頁欄高不一致。
+
+```text
+文字頁 → 圖片頁 → 文字頁
 ```
 
-> [!NOTE]
-> `ENABLE_USER_REGISTRATION=true` is convenient for first setup. After creating your users, set it to `false` (or remove it) to avoid unexpected registrations.
+這種方式會多一些頁數，但直排閱讀穩定性與版面一致性較好。
 
-2. Verify the server:
+## 8. 休眠圖片
 
-```bash
-curl -H "Accept: application/vnd.koreader.v1+json" "http://<server-ip>:17200/healthcheck"
-# Expected: {"state":"OK"}
+自訂休眠圖片放在：
+
+```text
+/.sleep/
 ```
 
-3. Register a user once.
-CrossPoint authenticates against KOReader Sync (`koreader/kosync`) using an MD5 key, so register using the MD5 of your password:
+支援 `.bmp`, `.jpg`, `.jpeg`, `.png`。不透明圖片會保持比例後中央裁切填滿畫面；透明 PNG 會保持完整比例置中，透明區域可露出目前閱讀頁或白色背景。
 
-> [!WARNING]
-> Sending a reusable MD5-derived password over plain HTTP is insecure.
-> Create unique sync-only credentials and do not reuse main account passwords.
-> Prefer `https://<server-ip>:7200` whenever traffic leaves a fully trusted LAN or when using untrusted networks.
-> Use `curl -k` only for self-signed certificate testing.
+## 9. 快取與效能
 
-```bash
-USERNAME="user"
-PASSWORD="pass"
-PASSWORD_MD5="$(printf '%s' "$PASSWORD" | openssl md5 | awk '{print $2}')"
+韌體會把 EPUB 章節、圖片與閱讀進度快取到：
 
-curl -i "http://<server-ip>:17200/users/create" \
-  -H "Accept: application/vnd.koreader.v1+json" \
-  -H "Content-Type: application/json" \
-  --data "{\"username\":\"$USERNAME\",\"password\":\"$PASSWORD_MD5\"}"
+```text
+/.crosspoint/
 ```
 
-If this returns `HTTP 402` with `{"code":2002,"message":"Username is already registered."}`, the account already exists.
+快取可讓第二次開啟同章更快。若更換字級、行距、字距、閱讀布局或圖片設定，章節快取會自動失效並重建。
 
-4. On each CrossPoint device:
-   - Go to **Settings -> System -> KOReader Sync**.
-   - Set **Username** and **Password** (enter the plain password; CrossPoint computes MD5 internally, and use the same values on all devices).
-   - Set **Sync Server URL** to `http://<server-ip>:17200`.
-   - Run **Authenticate**.
+如果遇到舊版快取造成顯示異常，可在設定內清除閱讀快取，或手動刪除 SD 卡的 `/.crosspoint/`。
 
-If you use the HTTPS listener, use `https://<server-ip>:7200` (`curl -k` only for self-signed certificate testing).
+## 10. Wi‑Fi 傳輸與 OTA
 
-5. While reading, press **Confirm** to open the reader menu, then select **Sync Progress**.
-   - Choose **Apply Remote** to jump to remote progress.
-   - Choose **Upload Local** to push current progress.
+首頁的檔案傳輸可啟動 Wi‑Fi 上傳頁面。OTA 更新與 KOReader Sync 也需要 Wi‑Fi。這些網路功能保留自 CrossPoint Reader 架構，目前 Paper S3 版本仍建議視為進階 / 實驗功能，發布前請以實機再測。
 
-### 3.7 Sleep Screen
+## 11. 常見問題
 
-The **Sleep Screen** setting controls what is displayed when the device goes to sleep:
+### 中文變成方塊或缺字
 
-| Mode | Behavior |
-|------|----------|
-| **Dark** (default) | The CrossPoint logo on a dark background. |
-| **Light** | The CrossPoint logo on a white background. |
-| **Custom** | A custom image from the SD card (see below). Falls back to **Dark** if no custom image is found. |
-| **Cover** | The cover of the currently open book. Falls back to **Dark** if no book is open. |
-| **Cover + Custom** | The cover of the currently open book. Falls back to **Custom** behavior if no book is open. |
-| **None** | A blank screen. |
+先確認是否刷入含內建中文字型的版本。若使用外部字型，請確認字型放在 `/fonts/`，並在設定中選取。
 
-#### Cover settings
+### 開書後一直「正在建立索引」
 
-When using **Cover** or **Cover + Custom**, two additional settings apply:
+第一次開啟、變更閱讀排版參數、或新版本提升 Section cache 版本後，章節會重新建立快取。後續再開同一章通常會變快。
 
-- **Sleep Screen Cover Mode**: **Fit** (scale to fit, white borders) or **Crop** (scale and crop to fill the screen).
-- **Sleep Screen Cover Filter**: **None** (grayscale), **Contrast** (black & white), or **Inverted** (inverted black & white).
+### 圖片顯示成 `[Image: alt]`
 
-#### Custom images
+可先清除該書快取再開啟。新版已避免背景預建章節時把暫時失敗的圖片 fallback 固化進快取。
 
-To use custom sleep images, set the sleep screen mode to **Custom** or **Cover + Custom**, then place images on the SD card:
+### 想回到乾淨狀態
 
-- **Multiple Images (recommended):** Create a `.sleep` directory in the root of the SD card and place any number of `.bmp` images inside. One will be randomly selected each time the device sleeps. (A directory named `sleep` is also accepted as a fallback.)
-- **Single Image:** Place a file named `sleep.bmp` in the root directory. This is used as a fallback if no valid images are found in the `.sleep`/`sleep` directory.
+關機後取出 SD 卡，刪除：
 
-> [!TIP]
-> For best results:
-> - Use uncompressed BMP files with 24-bit color depth
-> - Use a resolution of 540x960 pixels to match the device's screen resolution.
-
----
-
-## 4. Reading Mode
-
-Once you have opened a book, the button layout changes to facilitate reading.
-
-### Page Turning
-| Action            | Buttons                              |
-| ----------------- | ------------------------------------ |
-| **Previous Page** | Press **Left** _or_ **Volume Up**    |
-| **Next Page**     | Press **Right** _or_ **Volume Down** |
-
-The role of the volume (side) buttons can be swapped in the **[Controls Settings](#363-controls)**.
-
-If the **Short Power Button Click** setting is set to "Page Turn", you can also turn to the next page by briefly pressing the Power button.
-
-### Chapter Navigation
-* **Next Chapter:** Press and **hold** the **Right** (or **Volume Down**) button briefly, then release.
-* **Previous Chapter:** Press and **hold** the **Left** (or **Volume Up**) button briefly, then release.
-
-This feature can be disabled in the **[Controls Settings](#363-controls)** to help avoid changing chapters by mistake.
-
-
-### System Navigation
-* **Return to Home:** Press the **Back** button to close the book and return to the **[Home](#31-home-screen)** screen.
-* **Return to Browse Files:** Press and hold the **Back** button to close the book and return to the **[Browse Files](#33-browse-files-screen)** screen.
-* **Chapter Menu:** Press **Confirm** to open the **[Table of Contents/Chapter Selection](#5-chapter-selection-screen)** screen.
-
-### Supported Languages
-
-CrossPoint renders text using the following Unicode character blocks, enabling support for a wide range of languages:
-
-*   **Latin Script (Basic, Supplement, Extended-A):** Covers English, German, French, Spanish, Portuguese, Italian, Dutch, Swedish, Norwegian, Danish, Finnish, Polish, Czech, Hungarian, Romanian, Slovak, Slovenian, Turkish, and others.
-*   **Cyrillic Script (Standard and Extended):** Covers Russian, Ukrainian, Belarusian, Bulgarian, Serbian, Macedonian, Kazakh, Kyrgyz, Mongolian, and others.
-
-What is not supported: Chinese, Japanese, Korean, Vietnamese, Hebrew, Arabic, Greek and Farsi.
-
----
-
-## 5. Chapter Selection Screen
-
-Accessible by pressing **Confirm** while inside a book.
-
-1.  Use **Left** (or **Volume Up**), or **Right** (or **Volume Down**) to highlight the desired chapter.
-2.  Press **Confirm** to jump to that chapter.
-3.  *Alternatively, press **Back** to cancel and return to your current page.*
-
----
-
-## 6. Current Limitations & Roadmap
-
-Please note that this firmware is currently in active development. The following features are **not yet supported** but are planned for future updates:
-
-* **Images:** Embedded images in e-books will not render.
-* **Cover Images:** Large cover images embedded into EPUB require several seconds (~10s for ~2000 pixel tall image) to convert for sleep screen and home screen thumbnail. Consider optimizing the EPUB with e.g. https://github.com/bigbag/epub-to-xtc-converter to speed this up.
-
----
-
-## 7. Troubleshooting Issues & Escaping Bootloop
-
-If an issue or crash is encountered while using Crosspoint, feel free to raise an issue ticket and attach the serial monitor logs. The logs can be obtained by connecting the device to a computer and starting a serial monitor. Either [Serial Monitor](https://www.serialmonitor.org/) or the following command can be used:
-
-```
-pio device monitor
+```text
+/.crosspoint/
 ```
 
-If the device is stuck in a bootloop, press and release the Reset button. Then, press and hold on to the configured Back button and the Power Button to boot to the Home Screen.
-
-There can be issues with broken cache or config. In this case, delete the `.crosspoint` directory on your SD card (or consider deleting only `settings.bin`, `state.bin`, or `epub_*` cache directories in the `.crosspoint/` folder).
+再插回裝置開機。

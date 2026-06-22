@@ -34,24 +34,88 @@ struct PageTurnResult {
   bool next;
 };
 
-inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
-  const bool usePress = !SETTINGS.longPressChapterSkip;
-  const bool prev = usePress ? (input.wasPressed(MappedInputManager::Button::PageBack) ||
-                                input.wasPressed(MappedInputManager::Button::Left))
-                             : (input.wasReleased(MappedInputManager::Button::PageBack) ||
-                                input.wasReleased(MappedInputManager::Button::Left));
-  const bool powerTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
-                         input.wasReleased(MappedInputManager::Button::Power);
-  const bool next = usePress ? (input.wasPressed(MappedInputManager::Button::PageForward) || powerTurn ||
-                                input.wasPressed(MappedInputManager::Button::Right))
-                             : (input.wasReleased(MappedInputManager::Button::PageForward) || powerTurn ||
-                                input.wasReleased(MappedInputManager::Button::Right));
-  return {prev, next};
+inline PageTurnResult detectPageTurn(
+    const MappedInputManager& input,
+    const bool reverseHorizontalZones = false
+) {
+  const bool usePress =
+      !SETTINGS.longPressChapterSkip;
+
+  const bool pageBack =
+      usePress
+          ? input.wasPressed(
+                MappedInputManager::Button::PageBack
+            )
+          : input.wasReleased(
+                MappedInputManager::Button::PageBack
+            );
+
+  const bool pageForward =
+      usePress
+          ? input.wasPressed(
+                MappedInputManager::Button::PageForward
+            )
+          : input.wasReleased(
+                MappedInputManager::Button::PageForward
+            );
+
+  const bool left =
+      usePress
+          ? input.wasPressed(
+                MappedInputManager::Button::Left
+            )
+          : input.wasReleased(
+                MappedInputManager::Button::Left
+            );
+
+  const bool right =
+      usePress
+          ? input.wasPressed(
+                MappedInputManager::Button::Right
+            )
+          : input.wasReleased(
+                MappedInputManager::Button::Right
+            );
+
+  const bool powerTurn =
+      SETTINGS.shortPwrBtn ==
+          CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
+      input.wasReleased(
+          MappedInputManager::Button::Power
+      );
+
+  /*
+   * 橫排：
+   *   左 = 上一頁
+   *   右 = 下一頁
+   *
+   * 直排：
+   *   右 = 上一頁
+   *   左 = 下一頁
+   *
+   * PageBack / PageForward 與滑動語意維持不變。
+   */
+  const bool previous =
+      pageBack ||
+      (reverseHorizontalZones ? right : left);
+
+  const bool next =
+      pageForward ||
+      powerTurn ||
+      (reverseHorizontalZones ? left : right);
+
+  return {
+      previous,
+      next
+  };
 }
 
 inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntilFullRefresh) {
   if (pagesUntilFullRefresh <= 1) {
-    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    // Refresh frequency is a reader-page setting. Keep the full refresh
+    // local to reader page turns instead of applying a global render counter
+    // that also affects menus and the file browser.
+    renderer.displayBuffer(HalDisplay::FULL_REFRESH);
     pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
   } else {
     renderer.displayBuffer();

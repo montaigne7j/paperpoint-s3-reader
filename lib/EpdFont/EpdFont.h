@@ -12,6 +12,12 @@ class EpdFont {
 
   const EpdGlyph* getGlyph(uint32_t cp) const;
 
+  /// Look up only the requested codepoint. Unlike getGlyph(), this does not
+  /// substitute U+FFFD when the codepoint is absent. It is used by the
+  /// built-in CJK fallback selector so the fallback itself cannot mask a
+  /// genuinely missing glyph with its replacement box.
+  const EpdGlyph* getGlyphExact(uint32_t cp) const;
+
   /// Returns the kerning adjustment (4.4 fixed-point in pixels) between two codepoints.
   /// Returns 0 if no kerning data exists for the pair.
   int8_t getKerning(uint32_t leftCp, uint32_t rightCp) const;

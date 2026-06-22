@@ -5,8 +5,10 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <PNGdec.h>
+#include <esp_heap_caps.h>
 
-#include <cstdlib>
+#include <cstdint>
+#include <cstring>
 #include <new>
 
 #include "DitherUtils.h"
@@ -88,6 +90,85 @@ int32_t pngSeekWithHandle(PNGFILE* pFile, int32_t pos) {
 // is only consumed while actually decoding/querying PNG images.
 constexpr size_t PNG_DECODER_APPROX_SIZE = 44 * 1024;                          // ~42 KB + overhead
 constexpr size_t MIN_FREE_HEAP_FOR_PNG = PNG_DECODER_APPROX_SIZE + 16 * 1024;  // decoder + 16 KB headroom
+constexpr size_t PNG_INTERNAL_HEAP_HEADROOM = 8 * 1024;
+
+uint32_t readBigEndian32(const uint8_t* bytes) {
+  return (static_cast<uint32_t>(bytes[0]) << 24) | (static_cast<uint32_t>(bytes[1]) << 16) |
+         (static_cast<uint32_t>(bytes[2]) << 8) | static_cast<uint32_t>(bytes[3]);
+}
+
+bool validatePngHeaderDimensions(const int width, const int height) {
+  constexpr int MAX_SOURCE_PIXELS = 2048 * 1536;
+  constexpr int MAX_IMAGE_DIMENSION = 32767;
+  if (width <= 0 || height <= 0 || width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+    LOG_ERR("PNG", "Invalid PNG dimensions from IHDR: %dx%d", width, height);
+    return false;
+  }
+  if (static_cast<int64_t>(width) * height > MAX_SOURCE_PIXELS) {
+    LOG_ERR("PNG", "PNG too large from IHDR: %dx%d, max supported: %d pixels", width, height, MAX_SOURCE_PIXELS);
+    return false;
+  }
+  return true;
+}
+
+bool readPngHeaderDimensions(const std::string& imagePath, ImageDimensions& out) {
+  FsFile file;
+  if (!Storage.openFileForRead("PNG", imagePath, file)) {
+    return false;
+  }
+
+  uint8_t header[24] = {};
+  const int bytesRead = file.read(header, sizeof(header));
+  file.close();
+  if (bytesRead != static_cast<int>(sizeof(header))) {
+    return false;
+  }
+
+  static constexpr uint8_t PNG_SIGNATURE[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
+  if (std::memcmp(header, PNG_SIGNATURE, sizeof(PNG_SIGNATURE)) != 0) {
+    return false;
+  }
+
+  const uint32_t ihdrLength = readBigEndian32(header + 8);
+  if (ihdrLength != 13 || std::memcmp(header + 12, "IHDR", 4) != 0) {
+    return false;
+  }
+
+  const int width = static_cast<int>(readBigEndian32(header + 16));
+  const int height = static_cast<int>(readBigEndian32(header + 20));
+  if (!validatePngHeaderDimensions(width, height)) {
+    return false;
+  }
+
+  out.width = width;
+  out.height = height;
+  LOG_DBG("PNG", "Image dimensions from IHDR: %dx%d", out.width, out.height);
+  return true;
+}
+
+PNG* allocatePngDecoder() {
+  void* memory = heap_caps_malloc(sizeof(PNG), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!memory) {
+    memory = heap_caps_malloc(sizeof(PNG), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  }
+  if (!memory) {
+    return nullptr;
+  }
+  return new (memory) PNG();
+}
+
+void freePngDecoder(PNG* png) {
+  if (!png) return;
+  png->~PNG();
+  heap_caps_free(png);
+}
+
+bool hasPngDecodeMemory() {
+  const size_t freeHeap = ESP.getFreeHeap();
+  const size_t freePsram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+  return freeHeap >= MIN_FREE_HEAP_FOR_PNG ||
+         (freeHeap >= PNG_INTERNAL_HEAP_HEADROOM && freePsram >= PNG_DECODER_APPROX_SIZE);
+}
 
 // PNGdec keeps TWO scanlines in its internal ucPixels buffer (current + previous)
 // and each scanline includes a leading filter byte.
@@ -239,13 +320,19 @@ int pngDrawCallback(PNGDRAW* pDraw) {
 }  // namespace
 
 bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath, ImageDimensions& out) {
-  size_t freeHeap = ESP.getFreeHeap();
-  if (freeHeap < MIN_FREE_HEAP_FOR_PNG) {
-    LOG_ERR("PNG", "Not enough heap for PNG decoder (%u free, need %u)", freeHeap, MIN_FREE_HEAP_FOR_PNG);
+  if (readPngHeaderDimensions(imagePath, out)) {
+    return true;
+  }
+
+  if (!hasPngDecodeMemory()) {
+    const size_t freeHeap = ESP.getFreeHeap();
+    const size_t freePsram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    LOG_ERR("PNG", "Not enough memory for PNG decoder dimensions (%u heap, %u psram)",
+            static_cast<unsigned>(freeHeap), static_cast<unsigned>(freePsram));
     return false;
   }
 
-  PNG* png = new (std::nothrow) PNG();
+  PNG* png = allocatePngDecoder();
   if (!png) {
     LOG_ERR("PNG", "Failed to allocate PNG decoder for dimensions");
     return false;
@@ -256,7 +343,7 @@ bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath
 
   if (rc != 0) {
     LOG_ERR("PNG", "Failed to open PNG for dimensions: %d", rc);
-    delete png;
+    freePngDecoder(png);
     return false;
   }
 
@@ -264,7 +351,7 @@ bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath
   out.height = png->getHeight();
 
   png->close();
-  delete png;
+  freePngDecoder(png);
   return true;
 }
 
@@ -272,14 +359,16 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
                                                     const RenderConfig& config) {
   LOG_DBG("PNG", "Decoding PNG: %s", imagePath.c_str());
 
-  size_t freeHeap = ESP.getFreeHeap();
-  if (freeHeap < MIN_FREE_HEAP_FOR_PNG) {
-    LOG_ERR("PNG", "Not enough heap for PNG decoder (%u free, need %u)", freeHeap, MIN_FREE_HEAP_FOR_PNG);
+  if (!hasPngDecodeMemory()) {
+    const size_t freeHeap = ESP.getFreeHeap();
+    const size_t freePsram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    LOG_ERR("PNG", "Not enough memory for PNG decoder (%u heap, %u psram)", static_cast<unsigned>(freeHeap),
+            static_cast<unsigned>(freePsram));
     return false;
   }
 
-  // Heap-allocate PNG decoder (~42 KB) - freed at end of function
-  PNG* png = new (std::nothrow) PNG();
+  // PNGdec is large; place it in PSRAM when available so EPUB layout heap stays usable.
+  PNG* png = allocatePngDecoder();
   if (!png) {
     LOG_ERR("PNG", "Failed to allocate PNG decoder");
     return false;
@@ -295,13 +384,13 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
                      pngDrawCallback);
   if (rc != PNG_SUCCESS) {
     LOG_ERR("PNG", "Failed to open PNG: %d", rc);
-    delete png;
+    freePngDecoder(png);
     return false;
   }
 
   if (!validateImageDimensions(png->getWidth(), png->getHeight(), "PNG")) {
     png->close();
-    delete png;
+    freePngDecoder(png);
     return false;
   }
 
@@ -337,7 +426,7 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
             requiredInternal, ctx.srcWidth, pixelType, PNG_MAX_BUFFERED_PIXELS);
     LOG_ERR("PNG", "Aborting decode to avoid PNGdec internal buffer overflow");
     png->close();
-    delete png;
+    freePngDecoder(png);
     return false;
   }
 
@@ -347,11 +436,14 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
 
   // Allocate grayscale line buffer on demand (~3.2 KB) - freed after decode
   const size_t grayBufSize = PNG_MAX_BUFFERED_PIXELS / 2;
-  ctx.grayLineBuffer = static_cast<uint8_t*>(malloc(grayBufSize));
+  ctx.grayLineBuffer = static_cast<uint8_t*>(heap_caps_malloc(grayBufSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!ctx.grayLineBuffer) {
+    ctx.grayLineBuffer = static_cast<uint8_t*>(heap_caps_malloc(grayBufSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+  }
   if (!ctx.grayLineBuffer) {
     LOG_ERR("PNG", "Failed to allocate gray line buffer");
     png->close();
-    delete png;
+    freePngDecoder(png);
     return false;
   }
 
@@ -368,18 +460,18 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   rc = png->decode(&ctx, 0);
   unsigned long decodeTime = millis() - decodeStart;
 
-  free(ctx.grayLineBuffer);
+  heap_caps_free(ctx.grayLineBuffer);
   ctx.grayLineBuffer = nullptr;
 
   if (rc != PNG_SUCCESS) {
     LOG_ERR("PNG", "Decode failed: %d", rc);
     png->close();
-    delete png;
+    freePngDecoder(png);
     return false;
   }
 
   png->close();
-  delete png;
+  freePngDecoder(png);
   LOG_DBG("PNG", "PNG decoding complete - render time: %lu ms", decodeTime);
 
   // Write cache file if caching was enabled and buffer was allocated

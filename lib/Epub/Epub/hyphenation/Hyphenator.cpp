@@ -55,6 +55,70 @@ size_t byteOffsetForIndex(const std::vector<CodepointInfo>& cps, const size_t in
   return (index < cps.size()) ? cps[index].byteOffset : (cps.empty() ? 0 : cps.back().byteOffset);
 }
 
+bool isCjkLineBreakCodepoint(const uint32_t cp) {
+  // CJK Unified Ideographs
+  if (cp >= 0x4E00 && cp <= 0x9FFF) return true;
+
+  // CJK Extension A
+  if (cp >= 0x3400 && cp <= 0x4DBF) return true;
+
+  // CJK Extension B-F and compatibility supplement
+  if (cp >= 0x20000 && cp <= 0x2FA1F) return true;
+
+  // CJK punctuation
+  if (cp >= 0x3000 && cp <= 0x303F) return true;
+
+  // Hiragana
+  if (cp >= 0x3040 && cp <= 0x309F) return true;
+
+  // Katakana
+  if (cp >= 0x30A0 && cp <= 0x30FF) return true;
+
+  // Bopomofo
+  if (cp >= 0x3100 && cp <= 0x312F) return true;
+  if (cp >= 0x31A0 && cp <= 0x31BF) return true;
+
+  // CJK compatibility
+  if (cp >= 0x3200 && cp <= 0x33FF) return true;
+
+  // Full-width forms
+  if (cp >= 0xFF00 && cp <= 0xFFEF) return true;
+
+  return false;
+}
+
+std::vector<Hyphenator::BreakInfo> buildCjkBreakInfos(
+    const std::vector<CodepointInfo>& codepoints
+) {
+  std::vector<Hyphenator::BreakInfo> breaks;
+
+  if (codepoints.size() < 2) {
+    return breaks;
+  }
+
+  breaks.reserve(codepoints.size() - 1);
+
+  // Break offset points to the first byte of the character
+  // that will appear on the next line.
+  for (size_t i = 1; i < codepoints.size(); ++i) {
+    const uint32_t left = codepoints[i - 1].value;
+    const uint32_t right = codepoints[i].value;
+
+    // Allow a break when either side is CJK.
+    // requiresInsertedHyphen=false:
+    // Chinese line wrapping must not insert '-'.
+    if (isCjkLineBreakCodepoint(left) ||
+        isCjkLineBreakCodepoint(right)) {
+      breaks.push_back({
+          codepoints[i].byteOffset,
+          false
+      });
+    }
+  }
+
+  return breaks;
+}
+
 // Builds a vector of break information from explicit hyphen markers in the given codepoints.
 // Only hyphens that appear between two alphabetic characters are considered valid breaks.
 //
@@ -179,6 +243,15 @@ std::vector<Hyphenator::BreakInfo> Hyphenator::breakOffsets(const std::string& w
   // Convert to codepoints and normalize word boundaries.
   auto cps = collectCodepoints(word);
   trimSurroundingPunctuationAndFootnote(cps);
+
+  // Chinese/Japanese text normally has no spaces.
+  // Provide a legal no-hyphen line-break position at each CJK boundary.
+  auto cjkBreaks = buildCjkBreakInfos(cps);
+
+  if (!cjkBreaks.empty()) {
+    return cjkBreaks;
+  }
+
   const auto* hyphenator = cachedHyphenator_;
 
   // Detect apostrophe-like separators early; used by both branches below.

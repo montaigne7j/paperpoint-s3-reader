@@ -4,6 +4,8 @@
 #include <Logging.h>
 #include <Serialization.h>
 
+#include <string>
+
 #include "../converters/DitherUtils.h"
 #include "../converters/ImageDecoderFactory.h"
 
@@ -19,13 +21,16 @@ bool ImageBlock::imageExists() const { return Storage.exists(imagePath.c_str());
 
 namespace {
 
-std::string getCachePath(const std::string& imagePath) {
-  // Replace extension with .pxc (pixel cache)
+std::string getCachePath(const std::string& imagePath, const int width, const int height) {
+  // Replace extension with a size-qualified .pxc (pixel cache).  A shared EPUB
+  // image can be used at different display sizes; keeping width/height in the
+  // key prevents chapters from overwriting each other's pixel cache.
+  const std::string sizeSuffix = "_" + std::to_string(width) + "x" + std::to_string(height) + ".pxc";
   size_t dotPos = imagePath.rfind('.');
   if (dotPos != std::string::npos) {
-    return imagePath.substr(0, dotPos) + ".pxc";
+    return imagePath.substr(0, dotPos) + sizeSuffix;
   }
-  return imagePath + ".pxc";
+  return imagePath + sizeSuffix;
 }
 
 bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x, int y, int expectedWidth,
@@ -101,7 +106,7 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
   }
 
   // Try to render from cache first
-  std::string cachePath = getCachePath(imagePath);
+  std::string cachePath = getCachePath(imagePath, width, height);
   if (renderFromCache(renderer, cachePath, x, y, width, height)) {
     return;  // Successfully rendered from cache
   }

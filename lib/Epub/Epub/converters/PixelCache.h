@@ -2,6 +2,7 @@
 
 #include <HalStorage.h>
 #include <Logging.h>
+#include <esp_heap_caps.h>
 #include <stdint.h>
 
 #include <cstring>
@@ -34,7 +35,10 @@ struct PixelCache {
       LOG_ERR("IMG", "Cache buffer too large: %d bytes for %dx%d (limit %d)", bufferSize, w, h, MAX_CACHE_BYTES);
       return false;
     }
-    buffer = (uint8_t*)malloc(bufferSize);
+    buffer = static_cast<uint8_t*>(heap_caps_malloc(bufferSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!buffer) {
+      buffer = static_cast<uint8_t*>(heap_caps_malloc(bufferSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    }
     if (buffer) {
       memset(buffer, 0, bufferSize);
       LOG_DBG("IMG", "Allocated cache buffer: %d bytes for %dx%d", bufferSize, w, h);
@@ -75,7 +79,7 @@ struct PixelCache {
 
   ~PixelCache() {
     if (buffer) {
-      free(buffer);
+      heap_caps_free(buffer);
       buffer = nullptr;
     }
   }

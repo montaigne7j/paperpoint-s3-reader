@@ -1,3 +1,11 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Derived from EPD_Painter by Tony Weston and contributors:
+ * https://github.com/tonywestonuk/EPD_Painter
+ *
+ * Modified for CrossPoint/PaperPoint on 2026-06-20.
+ * See lib/EPD_Painter/NOTICE and lib/EPD_Painter/LICENSE.
+ */
 #ifndef EPD_Painter_H
 #define EPD_Painter_H
 
@@ -11,6 +19,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+
+#include <cstddef>
+#include <cstdint>
 
 // I2C — TwoWire for Arduino, ESP-IDF master API otherwise
 #ifdef ARDUINO
@@ -36,6 +47,16 @@ class EPD_Painter {
     int tps_addr = -1;
   };
   enum class Quality { QUALITY_HIGH, QUALITY_NORMAL, QUALITY_FAST };
+
+  enum class Gc16Result : uint8_t {
+    Success = 0,
+    NotInitialized,
+    InvalidArgument,
+    InvalidBufferSize,
+    UnsupportedDevice,
+    UnsupportedGeometry,
+    AllocationFailed,
+  };
 
   enum class Rotation {
     ROTATION_0,  // landscape — normal orientation
@@ -82,10 +103,43 @@ class EPD_Painter {
   bool begin();
   bool end();
 
+  // Block until the background paint task is completely idle.
+  // paint() only waits until the framebuffer has been picked up, not until
+  // the complete waveform has finished.
+  void waitUntilIdle();
+
   void clear();
   void fxClear();
   void paint(uint8_t* framebuffer);
   void paintPacked(const uint8_t* packed);
+    /*
+  * 顯示實體面板方向的 4bpp GC16 圖片。
+  *
+  * Buffer 格式：
+  *   960 × 540
+  *   每 byte 兩個像素
+  *   高 nibble = 偶數 X
+  *   低 nibble = 奇數 X
+  *
+  * 灰階值：
+  *   0  = 黑
+  *   15 = 白
+  *
+  * 第一版只支援全螢幕同步刷新。
+  */
+  Gc16Result paintGc16Full(
+      const uint8_t* packed4bpp,
+      size_t packedSize,
+      bool clearFirst = true
+  );
+
+  /*
+  * 產生並顯示 16 條灰階測試條。
+  * 顯示後應重新啟動裝置，不立即切回一般 UI。
+  */
+  Gc16Result paintGc16TestBars(
+      bool clearFirst = true
+  );
   void unpaintPacked(const uint8_t* packed);
   void paintLater(uint8_t* framebuffer);
   void setInterlaceMode(bool mode) { interlace_mode = mode; }
@@ -141,25 +195,80 @@ class EPD_Painter {
   // ---- Power management ----
   class PanelPowerGuard {
    public:
-    PanelPowerGuard(EPD_Painter& d) : disp(d) {
+    explicit PanelPowerGuard(EPD_Painter& d) : disp(d) {
       initOnce(d);
+
       xSemaphoreTake(power_mtx, portMAX_DELAY);
-      if (state == 0) d.powerOn();
-      state = 5;
+
+      owner = &d;
+
+      if (!powered) {
+        d.powerOn();
+        powered = true;
+      }
+
+      ++activeUsers;
+
+      // A live guard means a waveform is still using the panel. Never let
+      // the delayed power-off task count down while an operation is active.
+      idleTicks = 0;
+
+      xSemaphoreGive(power_mtx);
+    }
+
+    ~PanelPowerGuard() {
+      if (power_mtx == nullptr) return;
+
+      xSemaphoreTake(power_mtx, portMAX_DELAY);
+
+      if (activeUsers > 0) {
+        --activeUsers;
+      }
+
+      if (activeUsers == 0 && powered) {
+        idleTicks = IDLE_OFF_TICKS;
+      }
+
+      xSemaphoreGive(power_mtx);
+    }
+
+    // Used by EPD_Painter::end() before the board PMIC is switched off.
+    // This gives the panel a deterministic power-down sequence instead of
+    // relying on an arbitrary timer phase or an abrupt board power cut.
+    static void shutdown(EPD_Painter& d) {
+      if (power_mtx == nullptr) {
+        d.powerOff();
+        return;
+      }
+
+      xSemaphoreTake(power_mtx, portMAX_DELAY);
+
+      activeUsers = 0;
+      idleTicks = 0;
+
+      if (powered) {
+        d.powerOff();
+        powered = false;
+      }
+
       xSemaphoreGive(power_mtx);
     }
 
    private:
     EPD_Painter& disp;
 
+    static constexpr uint8_t IDLE_OFF_TICKS = 5;
+
     static inline TaskHandle_t task = nullptr;
     static inline EPD_Painter* owner = nullptr;
     static inline SemaphoreHandle_t power_mtx = nullptr;
-    static inline uint8_t state = 0;
+    static inline uint8_t activeUsers = 0;
+    static inline uint8_t idleTicks = 0;
+    static inline bool powered = false;
 
     static void initOnce(EPD_Painter& d) {
       struct Init {
-        Init(EPD_Painter& d) {
+        explicit Init(EPD_Painter& d) {
           power_mtx = xSemaphoreCreateMutex();
           owner = &d;
           xTaskCreate(taskEntry, "panel_idle_off", 2048, nullptr, 1, &task);
@@ -171,11 +280,18 @@ class EPD_Painter {
     static void taskEntry(void*) {
       for (;;) {
         vTaskDelay(pdMS_TO_TICKS(1000));
+
         xSemaphoreTake(power_mtx, portMAX_DELAY);
-        if (state > 0) {
-          state--;
-          if (state == 0) owner->powerOff();
+
+        if (powered && activeUsers == 0 && idleTicks > 0) {
+          --idleTicks;
+
+          if (idleTicks == 0) {
+            owner->powerOff();
+            powered = false;
+          }
         }
+
         xSemaphoreGive(power_mtx);
       }
     }

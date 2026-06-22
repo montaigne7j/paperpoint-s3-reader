@@ -1,3 +1,11 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Derived from EPD_Painter by Tony Weston and contributors:
+ * https://github.com/tonywestonuk/EPD_Painter
+ *
+ * Modified for CrossPoint/PaperPoint on 2026-06-20.
+ * See lib/EPD_Painter/NOTICE and lib/EPD_Painter/LICENSE.
+ */
 #ifndef EPD_PAINTER_DEVICES_H
 #define EPD_PAINTER_DEVICES_H
 
