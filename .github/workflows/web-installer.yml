@@ -2,7 +2,7 @@ name: Build Web Installer
 
 on:
   push:
-    branches: [master]
+    branches: [main]
     tags:
       - "v*"
   workflow_dispatch:
@@ -99,7 +99,9 @@ jobs:
 
           manifest_path = Path("docs/install/manifest.json")
           manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-          manifest["version"] = ref_name if ref_name and ref_name != "master" else firmware_version
+          manifest["version"] = (
+              ref_name if ref_name and ref_name not in {"main", "master"} else firmware_version
+          )
           manifest_path.write_text(
               json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
               encoding="utf-8",
