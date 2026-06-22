@@ -1,3 +1,37 @@
+
+## 1.5.0 — 2026-06-22 — Reader value adjust compile fix
+
+- Fixed `ReaderValueAdjustActivity` dynamic title translation by replacing `tr(titleId)` with `I18N.get(titleId)`.
+
+
+## 2026-06-21 — Reader spacing/status-bar fix v2
+
+- Reverted global compact scaling of `UI_10_FONT_ID` / `SMALL_FONT_ID` CJK fallback glyphs.
+- Fixed reader status-bar CJK ghosting by bottom-aligning status title text instead of shrinking global UI fonts.
+- Separated vertical column spacing from vertical character spacing.
+- Made reader font size, line spacing, and character spacing +/- pickers apply immediately.
+- Bumped EPUB section cache version to 36.
+
+
+## 2026-06-21 — Reader spacing and Paper S3 shortcut tuning
+
+- Restored compact runtime CJK scaling for UI_10/SMALL fonts and expanded status bar vertical reserve to reduce Chinese status-bar bottom ghosting.
+- Converted reader line spacing to numeric percent and added separate numeric reader character spacing.
+- Applied vertical layout spacing to both vertical character advance and column advance.
+- Removed non-applicable side-button layout and short-press power-button behavior settings from the settings list.
+- Added reader touch shortcuts: middle-upper opens Settings > Reader, middle-lower opens reader page menu.
+- Moved Go Home directly below Select Chapter in the reader menu.
+- Bumped EPUB section cache version to 35.
+
+## 1.5.0 — 2026-06-22 — Chapter cache performance and vertical image layout fix
+
+- Added detailed Section cache mismatch logs so cache invalidation shows the exact changed parameter.
+- Added EPUB-wide shared image extraction cache for repeated resources such as chapter ornaments.
+- Added size-qualified `.pxc` image render cache names so one source image can be cached at multiple display sizes safely.
+- Changed vertical reading layout images to standalone centered image pages.
+- Reduced indexing popup refresh frequency; small chapters now use a static popup only.
+- Delayed silent next-chapter indexing until the reader has been idle near the end of a chapter.
+
 ## 1.4.0 — 2026-06-21 — Large UI and Traditional Chinese release
 
 - Added the **Large Text** UI theme for settings, file browser, recent books, reader menu, and reader status bar.
@@ -15,7 +49,7 @@
 
 ## 2026-06-21 — Built-in CJK compile fix
 
-- Restored the missing `#ifndef OMIT_FONTS` guard removed during the Bookerly cleanup.
+- Restored the missing `#ifndef OMIT_FONTS` guard removed during the legacy font cleanup.
 - Kept Noto Sans 14 available outside the optional-font guard so reduced builds retain a default reader font.
 - Moved Noto Sans 14 registration outside the matching `OMIT_FONTS` block.
 - Revalidated all conditional-compilation directives in `src/main.cpp`.

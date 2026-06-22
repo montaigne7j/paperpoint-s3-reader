@@ -13,64 +13,39 @@
         color-scheme: light;
         font-family:
           Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-          "Segoe UI", sans-serif;
-        line-height: 1.5;
+          "Segoe UI", "Noto Sans TC", sans-serif;
+        line-height: 1.55;
         color: #1b1b1b;
         background: #f6f3eb;
       }
-
-      body {
-        margin: 0;
-      }
-
+      body { margin: 0; }
       main {
         box-sizing: border-box;
-        width: min(760px, 100%);
+        width: min(860px, 100%);
         min-height: 100vh;
         margin: 0 auto;
-        padding: 48px 24px;
+        padding: 44px 22px;
         display: grid;
         align-content: center;
-        gap: 24px;
+        gap: 22px;
       }
-
       h1 {
         margin: 0;
         font-size: clamp(2rem, 6vw, 4rem);
         line-height: 1;
         letter-spacing: 0;
       }
-
-      h2 {
-        margin: 0;
-        font-size: 1.2rem;
-        line-height: 1.2;
-      }
-
-      p {
-        margin: 0;
-        font-size: 1.05rem;
-      }
-
-      .version {
-        margin-top: 12px;
-        font-weight: 700;
-      }
-
+      h2 { margin: 0; font-size: 1.2rem; line-height: 1.25; }
+      p { margin: 0; font-size: 1.05rem; }
+      a { color: #164c82; font-weight: 700; }
+      .version { margin-top: 12px; font-weight: 700; }
       .panel {
         border: 1px solid #d7cdbb;
         border-radius: 8px;
         padding: 20px;
         background: #fffaf1;
       }
-
-      .actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px;
-        align-items: center;
-      }
-
+      .actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
       button {
         border: 0;
         border-radius: 8px;
@@ -81,26 +56,30 @@
         color: white;
         background: #1f4f85;
       }
-
-      button:hover {
-        background: #163d68;
+      button:hover { background: #163d68; }
+      code { padding: 2px 5px; border-radius: 4px; background: #eee5d5; }
+      ul, ol { margin: 12px 0 0; padding-left: 1.3rem; }
+      li + li { margin-top: 7px; }
+      .downloads {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        gap: 10px;
+        margin-top: 12px;
       }
-
-      code {
-        padding: 2px 5px;
-        border-radius: 4px;
-        background: #eee5d5;
+      .download-link {
+        display: block;
+        border: 1px solid #d7cdbb;
+        border-radius: 8px;
+        padding: 12px;
+        background: #ffffff;
+        text-decoration: none;
       }
-
-      ul {
-        margin: 12px 0 0;
-        padding-left: 1.3rem;
+      .download-link small {
+        display: block;
+        margin-top: 4px;
+        color: #5b554b;
+        font-weight: 400;
       }
-
-      li + li {
-        margin-top: 6px;
-      }
-
       esp-web-install-button {
         --esp-tools-button-color: #1f4f85;
         --esp-tools-button-text-color: #ffffff;
@@ -112,67 +91,70 @@
     <main>
       <div>
         <h1>PaperPoint<br />S3 Reader</h1>
-        <p class="version">目前韌體版本：1.4.0</p>
-        <p>中文優先的 M5Paper S3 電子紙閱讀器韌體。</p>
+        <p class="version">目前韌體版本：<span id="firmware-version">讀取中</span></p>
+        <p>中文優先的 M5Stack Paper S3 電子紙閱讀器韌體。</p>
       </div>
 
       <section class="panel">
+        <h2>線上燒錄</h2>
         <div class="actions">
           <esp-web-install-button manifest="manifest.json">
             <button slot="activate">安裝 / 更新韌體</button>
-            <span slot="unsupported">
-              請使用支援 Web Serial 的 Chrome 或 Microsoft Edge 桌面版瀏覽器。
-            </span>
-            <span slot="not-allowed">
-              這個安裝頁需要透過 HTTPS 或 localhost 開啟。
-            </span>
+            <span slot="unsupported">這個瀏覽器不支援 Web Serial，請改用 Chrome 或 Microsoft Edge。</span>
+            <span slot="not-allowed">瀏覽器已拒絕序列埠權限，請確認此頁面是 HTTPS 或 localhost。</span>
           </esp-web-install-button>
         </div>
-        <ul>
+        <ol>
           <li>用 USB-C 傳輸線接上 M5Stack Paper S3。</li>
-          <li>長按電源鍵，讓 Paper S3 開機並被電腦偵測。</li>
-          <li>
-            按下「安裝 / 更新韌體」後，選擇名稱包含
-            <code>USB JTAG/serial debug unit</code> 的序列埠。
-          </li>
-          <li>
-            若沒有看到序列埠或連線失敗，請確認使用的是可傳輸資料的 USB-C 線，
-            重新長按電源鍵開機，或拔插 USB-C 後再試一次。
-          </li>
+          <li>長按 Paper S3 的電源鍵，讓裝置進入可燒錄狀態。</li>
+          <li>按「安裝 / 更新韌體」後選擇序列埠，請選 <code>USB JTAG/serial debug unit</code> 這類名稱的選項。</li>
+          <li>如果連線失敗，請拔掉 USB-C、重新長按電源鍵讓裝置進入燒錄狀態，再接回 USB-C 後重新選擇序列埠。</li>
+        </ol>
+      </section>
+
+      <section class="panel">
+        <h2>本版重點</h2>
+        <ul>
+          <li>預設中文介面，內建 PaperPoint Sans TC fallback，沒有 SD 卡字型也能顯示中文 UI。</li>
+          <li>新增大字介面主題，檔案瀏覽、最近閱讀、章節選單、閱讀選單與閱讀狀態列同步放大。</li>
+          <li>大字閱讀狀態列採左中右配置：左側電量、中間章節頁數或進度百分比、右側時間。</li>
+          <li>改善 EPUB 章節圖片處理，降低圖片造成快取降級的機率。</li>
+          <li>支援閱讀格式：EPUB / TXT。Wi-Fi 傳輸仍屬未驗證功能。</li>
         </ul>
       </section>
 
       <section class="panel">
-        <h2>本版新增重點</h2>
+        <h2>SD 卡檔案放置</h2>
         <ul>
-          <li>新增「大字」介面主題，放大設定、檔案瀏覽、最近閱讀、閱讀選單與閱讀狀態列。</li>
-          <li>大字主題下，閱讀狀態列的時鐘與章節名稱共用同一位置；兩者只會擇一顯示。</li>
-          <li>內建 PaperPoint Sans TC Medium 繁中字型 fallback，沒有 SD 卡字型也能顯示中文 UI。</li>
-          <li>主要閱讀格式：EPUB / TXT。Wi-Fi 傳輸仍屬未驗證功能。</li>
+          <li><code>/.sleep/</code>：休眠圖可使用 <code>.bmp</code>、<code>.png</code>、<code>.jpg</code>、<code>.jpeg</code>。建議尺寸為 <code>540x960</code>。</li>
+          <li><code>/fonts/</code>：閱讀字型可使用 <code>.ttf</code>、<code>.bin</code>、<code>.epdf</code>。目前只能調整閱讀字型，不能透過 SD 卡替換系統 UI 字型。</li>
+          <li>書籍檔可放在 SD 卡任意資料夾，檔案瀏覽器會掃描可閱讀格式。</li>
         </ul>
       </section>
 
       <section class="panel">
-        <h2>燒錄完成後的 SD 卡檔案</h2>
-        <p>休眠封面與字型請放在 SD 卡根目錄的指定資料夾。</p>
-        <ul>
-          <li>
-            <code>/.sleep/</code>：可放 <code>.bmp</code>、<code>.png</code>、
-            <code>.jpg</code> / <code>.jpeg</code>。圖片不必預先裁成
-            <code>540x960</code>；不透明圖片會中央裁切填滿螢幕，透明 PNG 會完整縮放置中。
-          </li>
-          <li>
-            <code>/fonts/</code>：閱讀字型可放 <code>.ttf</code>、
-            <code>.bin</code>、<code>.epdf</code>。其中
-            <code>.bin</code>/<code>.epdf</code> 檔名需包含尺寸，例如
-            <code>MyFont_17_23x30.bin</code>。
-          </li>
-          <li>
-            目前設定頁主要調整「閱讀字型」。系統介面/UI 字型還不是一般設定項目，
-            <code>.ttf</code> 也不會拿來當 UI 字型。
-          </li>
-        </ul>
+        <h2>授權與原始碼</h2>
+        <p>此頁提供的 <code>merged-firmware.bin</code> 是二進位韌體。為了配合 LGPL 元件授權，同版韌體會一起提供可對應的 source、LGPL 元件 source、relink kit、SBOM、授權包與 checksum。</p>
+        <div class="downloads">
+          <a class="download-link" href="compliance/complete-application-source.zip">完整應用程式 source<small>此韌體對應 commit 的 source archive</small></a>
+          <a class="download-link" href="compliance/lgpl-component-sources.zip">LGPL 元件 source<small>Arduino-ESP32、ArduinoWebSockets 等解析後元件 source</small></a>
+          <a class="download-link" href="compliance/lgpl-relink-kit.zip">LGPL relink kit<small>用於替換 LGPL library 後重新連結的物件與建置資料</small></a>
+          <a class="download-link" href="compliance/license-bundle.zip">授權與 notices<small>第三方授權、notices、SBOM 副本與專案授權文件</small></a>
+          <a class="download-link" href="compliance/SBOM.spdx.json">SBOM<small>SPDX JSON 軟體物料清單</small></a>
+          <a class="download-link" href="compliance/SHA256SUMS.txt">SHA-256 checksums<small>韌體與合規下載檔的雜湊值</small></a>
+        </div>
       </section>
     </main>
+
+    <script>
+      fetch("manifest.json", { cache: "no-store" })
+        .then((response) => response.json())
+        .then((manifest) => {
+          document.getElementById("firmware-version").textContent = manifest.version || "未標示";
+        })
+        .catch(() => {
+          document.getElementById("firmware-version").textContent = "未標示";
+        });
+    </script>
   </body>
 </html>

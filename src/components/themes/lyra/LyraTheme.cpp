@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -45,6 +46,30 @@ constexpr int listIconSize = 24;
 constexpr int listSubtitleFontId = UI_10_FONT_ID;
 constexpr int mainMenuColumns = 2;
 int coverWidth = 0;
+void drawPopupProgressRing(const GfxRenderer& renderer, const int cx, const int cy, const int radius,
+                           const int thickness, const int progress, const bool state) {
+  const int clamped = std::max(0, std::min(100, progress));
+  constexpr float pi = 3.14159265358979323846f;
+
+  auto drawArcPixels = [&](const int startDeg, const int endDeg, const int strokeWidth, const bool pixelState) {
+    for (int deg = startDeg; deg <= endDeg; ++deg) {
+      const float rad = (static_cast<float>(deg) - 90.0f) * pi / 180.0f;
+      const float cs = std::cos(rad);
+      const float sn = std::sin(rad);
+      for (int t = 0; t < strokeWidth; ++t) {
+        const int r = radius - t;
+        const int x = cx + static_cast<int>(std::lround(cs * static_cast<float>(r)));
+        const int y = cy + static_cast<int>(std::lround(sn * static_cast<float>(r)));
+        renderer.drawPixel(x, y, pixelState);
+      }
+    }
+  };
+
+  drawArcPixels(0, 359, 1, state);
+  if (clamped <= 0) return;
+  const int sweep = static_cast<int>(std::lround(clamped * 3.6f));
+  drawArcPixels(0, std::min(359, sweep), thickness, state);
+}
 
 const uint8_t* iconForName(UIIcon icon, int size) {
   if (size == 24) {
@@ -651,10 +676,11 @@ Rect LyraTheme::drawPopup(const GfxRenderer& renderer, const char* message) cons
   // Scale y position proportionally to screen height (16.5% from top)
   const int y = static_cast<int>(renderer.getScreenHeight() * 0.165f);
   constexpr int outline = 2;
+  constexpr int indicatorBlockHeight = 58;
   const int textWidth = renderer.getTextWidth(UI_12_FONT_ID, message, EpdFontFamily::REGULAR);
   const int textHeight = renderer.getLineHeight(UI_12_FONT_ID);
   const int w = textWidth + popupMarginX * 2;
-  const int h = textHeight + popupMarginY * 2;
+  const int h = textHeight + popupMarginY * 2 + indicatorBlockHeight;
   const int x = (renderer.getScreenWidth() - w) / 2;
 
   renderer.fillRoundedRect(x - outline, y - outline, w + outline * 2, h + outline * 2, cornerRadius + outline,
@@ -670,21 +696,25 @@ Rect LyraTheme::drawPopup(const GfxRenderer& renderer, const char* message) cons
 }
 
 void LyraTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const {
-  constexpr int barHeight = 4;
+  constexpr int progressAreaHeight = 52;
+  constexpr int ringRadius = 18;
+  constexpr int ringThickness = 3;
+  const int clamped = std::max(0, std::min(100, progress));
+  const int progressAreaY = layout.y + layout.height - progressAreaHeight - popupMarginY / 2;
+  const int centerX = layout.x + layout.width / 2;
+  const int centerY = progressAreaY + progressAreaHeight / 2;
 
-  // Twice the margin in drawPopup to match text width
-  const int barWidth = layout.width - popupMarginX * 2;
-  const int barX = layout.x + (layout.width - barWidth) / 2;
-  // Center inside the margin of drawPopup. The - 1 is added to account for the - 2 in drawPopup.
-  const int barY = layout.y + layout.height - popupMarginY / 2 - barHeight / 2 - 1;
+  renderer.fillRect(layout.x + popupMarginX, progressAreaY, layout.width - popupMarginX * 2, progressAreaHeight, true);
+  drawPopupProgressRing(renderer, centerX, centerY, ringRadius, ringThickness, clamped, false);
 
-  int fillWidth = barWidth * progress / 100;
-
-  renderer.fillRect(barX, barY, fillWidth, barHeight, false);
+  const std::string percentText = std::to_string(clamped) + "%";
+  const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, percentText.c_str());
+  const int textX = centerX - textWidth / 2;
+  const int textY = centerY - std::max(renderer.getLineHeight(SMALL_FONT_ID), 16) / 2 + 1;
+  renderer.drawText(SMALL_FONT_ID, textX, textY, percentText.c_str(), false);
 
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }
-
 void LyraTheme::drawTextField(const GfxRenderer& renderer, Rect rect, const int textWidth) const {
   int lineY = rect.y + rect.height + renderer.getLineHeight(UI_12_FONT_ID) + LyraMetrics::values.verticalSpacing;
   int lineW = textWidth + hPaddingInSelection * 2;

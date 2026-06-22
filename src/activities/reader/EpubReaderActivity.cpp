@@ -114,6 +114,37 @@ void EpubReaderActivity::onExit() {
   epub.reset();
 }
 
+void EpubReaderActivity::openReaderSettings() {
+  onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction::READER_SETTINGS);
+}
+
+void EpubReaderActivity::openReaderMenu() {
+  if (!epub) {
+    return;
+  }
+  const int currentPage = section ? section->currentPage + 1 : 0;
+  const int totalPages = section ? section->pageCount : 0;
+  float bookProgress = 0.0f;
+  if (epub->getBookSize() > 0 && section && section->pageCount > 0) {
+    const float chapterProgress = static_cast<float>(section->currentPage) / static_cast<float>(section->pageCount);
+    bookProgress = epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
+  }
+  const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
+  startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
+                             renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent,
+                             SETTINGS.orientation, !currentPageFootnotes.empty()),
+                         [this](const ActivityResult& result) {
+                           // Always apply orientation change even if the menu was cancelled.
+                           const auto& menu = std::get<MenuResult>(result.data);
+                           applyOrientation(menu.orientation);
+                           mappedInput.setTouchOrientation(menu.orientation);
+                           toggleAutoPageTurn(menu.pageTurnOption);
+                           if (!result.isCancelled) {
+                             onReaderMenuConfirm(static_cast<EpubReaderMenuActivity::MenuAction>(menu.action));
+                           }
+                         });
+}
+
 void EpubReaderActivity::loop() {
   if (!epub) {
     // Should never happen
@@ -157,29 +188,30 @@ void EpubReaderActivity::loop() {
   }
 #endif
 
+#if CROSSPOINT_PAPERS3
+  // Reader quick touch zones:
+  // - middle upper area: open Settings > Reader directly
+  // - middle lower area: open the reader page menu
+  if (mappedInput.wasTapped()) {
+    const int16_t tx = mappedInput.getTouchX();
+    const int16_t ty = mappedInput.getTouchY();
+    const int screenW = renderer.getScreenWidth();
+    const int screenH = renderer.getScreenHeight();
+    if (tx >= screenW / 3 && tx <= (screenW * 2) / 3) {
+      if (ty < screenH / 2) {
+        openReaderSettings();
+      } else {
+        openReaderMenu();
+      }
+      return;
+    }
+  }
+#endif
+
   // Enter reader menu activity.
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    const int currentPage = section ? section->currentPage + 1 : 0;
-    const int totalPages = section ? section->pageCount : 0;
-    float bookProgress = 0.0f;
-    if (epub->getBookSize() > 0 && section && section->pageCount > 0) {
-      const float chapterProgress = static_cast<float>(section->currentPage) / static_cast<float>(section->pageCount);
-      bookProgress = epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
-    }
-    const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
-    startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
-                               renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent,
-                               SETTINGS.orientation, !currentPageFootnotes.empty()),
-                           [this](const ActivityResult& result) {
-                             // Always apply orientation change even if the menu was cancelled
-                             const auto& menu = std::get<MenuResult>(result.data);
-                             applyOrientation(menu.orientation);
-                             mappedInput.setTouchOrientation(menu.orientation);
-                             toggleAutoPageTurn(menu.pageTurnOption);
-                             if (!result.isCancelled) {
-                               onReaderMenuConfirm(static_cast<EpubReaderMenuActivity::MenuAction>(menu.action));
-                             }
-                           });
+    openReaderMenu();
+    return;
   }
 
   // Long press BACK (1s+) goes to file selection
@@ -210,8 +242,17 @@ void EpubReaderActivity::loop() {
       );
       
   if (!prevTriggered && !nextTriggered) {
+    if (pendingNextChapterPreindex &&
+        (millis() - nextChapterPreindexAt) >= 3500UL &&
+        !RenderLock::peek()) {
+      pendingNextChapterPreindex = false;
+      RenderLock lock(*this);
+      silentIndexNextChapterIfNeeded(pendingPreindexViewportWidth, pendingPreindexViewportHeight);
+    }
     return;
   }
+
+  pendingNextChapterPreindex = false;
 
   // At end of the book, forward button goes home and back button returns to last page
   if (currentSpineIndex > 0 && currentSpineIndex >= epub->getSpineItemsCount()) {
@@ -603,7 +644,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     const uint16_t viewportHeight = renderer.getScreenHeight() - orientedMarginTop - orientedMarginBottom;
 
     if (!section->loadSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
-                                  SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
+                                  SETTINGS.getReaderCharacterSpacing(), SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                   viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
                                   SETTINGS.imageRendering, SETTINGS.readingLayout)) {
       LOG_DBG("ERS", "Cache not found, building...");
@@ -625,7 +666,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       };
 
       if (!section->createSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
-                                      SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
+                                      SETTINGS.getReaderCharacterSpacing(), SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                       viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
                                       SETTINGS.imageRendering, SETTINGS.readingLayout, popupFn, popupProgressFn)) {
         LOG_ERR("ERS", "Failed to persist page data to SD");
@@ -717,7 +758,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
   }
-  silentIndexNextChapterIfNeeded(renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight,
+  scheduleSilentIndexNextChapter(renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight,
                                  renderer.getScreenHeight() - orientedMarginTop - orientedMarginBottom);
   saveProgress(currentSpineIndex, section->currentPage, section->pageCount);
 
@@ -727,13 +768,38 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   }
 }
 
+void EpubReaderActivity::scheduleSilentIndexNextChapter(const uint16_t viewportWidth,
+                                                          const uint16_t viewportHeight) {
+  pendingNextChapterPreindex = false;
+  if (!epub || !section || section->pageCount < 2) {
+    return;
+  }
+
+  // Schedule pre-indexing near chapter end, but do not run it immediately after
+  // page render.  Running it immediately made the penultimate page feel slow.
+  if (section->currentPage < section->pageCount - 2) {
+    return;
+  }
+
+  const int nextSpineIndex = currentSpineIndex + 1;
+  if (nextSpineIndex < 0 || nextSpineIndex >= epub->getSpineItemsCount()) {
+    return;
+  }
+
+  pendingNextChapterPreindex = true;
+  nextChapterPreindexAt = millis();
+  pendingPreindexViewportWidth = viewportWidth;
+  pendingPreindexViewportHeight = viewportHeight;
+  LOG_DBG("ERS", "Scheduled silent indexing for chapter %d after idle delay", nextSpineIndex);
+}
+
 void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportWidth, const uint16_t viewportHeight) {
   if (!epub || !section || section->pageCount < 2) {
     return;
   }
 
-  // Build the next chapter cache while the penultimate page is on screen.
-  if (section->currentPage != section->pageCount - 2) {
+  // Build the next chapter cache only while user is near chapter end.
+  if (section->currentPage < section->pageCount - 2) {
     return;
   }
 
@@ -744,7 +810,7 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
 
   Section nextSection(epub, nextSpineIndex, renderer);
   if (nextSection.loadSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
-                                  SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
+                                  SETTINGS.getReaderCharacterSpacing(), SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
                                   viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
                                   SETTINGS.imageRendering, SETTINGS.readingLayout)) {
     return;
@@ -752,7 +818,8 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
 
   LOG_DBG("ERS", "Silently indexing next chapter: %d", nextSpineIndex);
   if (!nextSection.createSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
-                                     SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
+                                     SETTINGS.getReaderCharacterSpacing(), SETTINGS.extraParagraphSpacing,
+                                     SETTINGS.paragraphAlignment, viewportWidth,
                                      viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
                                      SETTINGS.imageRendering, SETTINGS.readingLayout, std::function<void()>{},
                                      std::function<void(int)>{}, true)) {

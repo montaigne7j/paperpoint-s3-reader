@@ -128,6 +128,15 @@ class CrossPointSettings {
     WIDE = 2,
     LINE_COMPRESSION_COUNT
   };
+  // Numeric reader spacing.  lineSpacing is a percentage; legacy enum values
+  // 0/1/2 are migrated to 90/100/115.  characterSpacing is pixel spacing
+  // between adjacent glyphs / vertical characters.
+  static constexpr uint8_t READER_LINE_SPACING_MIN = 80;
+  static constexpr uint8_t READER_LINE_SPACING_MAX = 140;
+  static constexpr uint8_t READER_LINE_SPACING_DEFAULT = 100;
+  static constexpr uint8_t READER_CHARACTER_SPACING_MIN = 0;
+  static constexpr uint8_t READER_CHARACTER_SPACING_MAX = 12;
+  static constexpr uint8_t READER_CHARACTER_SPACING_DEFAULT = 0;
   // Reader text layout direction.
   enum READING_LAYOUT {
     HORIZONTAL_LAYOUT = 0,
@@ -228,7 +237,8 @@ class CrossPointSettings {
   // Reader font settings
   uint8_t fontFamily = NOTOSANS;
   uint8_t fontSize = READER_FONT_SIZE_DEFAULT;
-  uint8_t lineSpacing = NORMAL;
+  uint8_t lineSpacing = READER_LINE_SPACING_DEFAULT;
+  uint8_t characterSpacing = READER_CHARACTER_SPACING_DEFAULT;
   uint8_t paragraphAlignment = JUSTIFIED;
 
   // Reader text layout. Selectable from Settings > Reader > Reading Layout.
@@ -291,6 +301,7 @@ class CrossPointSettings {
 
  public:
   float getReaderLineCompression() const;
+  uint8_t getReaderCharacterSpacing() const;
   unsigned long getSleepTimeoutMs() const;
   int getRefreshFrequency() const;
 };

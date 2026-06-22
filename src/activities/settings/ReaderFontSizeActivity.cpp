@@ -2,6 +2,7 @@
 
 #include <GfxRenderer.h>
 #include <I18n.h>
+#include <FontManager.h>
 
 #include <algorithm>
 #include <string>
@@ -16,6 +17,13 @@ void ReaderFontSizeActivity::onEnter() {
   Activity::onEnter();
   value = std::min<uint8_t>(CrossPointSettings::READER_FONT_SIZE_MAX,
                             std::max<uint8_t>(CrossPointSettings::READER_FONT_SIZE_MIN, value));
+  if (SETTINGS.fontSize != value) {
+    SETTINGS.fontSize = value;
+    if (!FontMgr.reloadReaderFontForSize()) {
+      FontMgr.invalidateReaderLayoutCaches();
+    }
+    SETTINGS.saveToFile();
+  }
   requestUpdate();
 }
 
@@ -27,19 +35,17 @@ void ReaderFontSizeActivity::adjust(const int delta) {
                                    CrossPointSettings::READER_FONT_SIZE_MAX);
   if (next == value) return;
   value = static_cast<uint8_t>(next);
+  SETTINGS.fontSize = value;
+  if (!FontMgr.reloadReaderFontForSize()) {
+    FontMgr.invalidateReaderLayoutCaches();
+  }
+  SETTINGS.saveToFile();
   requestUpdate();
 }
 
 void ReaderFontSizeActivity::loop() {
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    ActivityResult result;
-    result.isCancelled = true;
-    setResult(std::move(result));
-    finish();
-    return;
-  }
-
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
+      mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     setResult(FontSizeResult{value});
     finish();
     return;
@@ -96,7 +102,7 @@ void ReaderFontSizeActivity::render(RenderLock&&) {
   const int noteY = std::min(pageHeight - metrics.buttonHintsHeight - 80, barY + 105);
   renderer.drawCenteredText(UI_10_FONT_ID, noteY, "TTF uses the exact pixel size");
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), "-", "+");
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_DONE), "-", "+");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

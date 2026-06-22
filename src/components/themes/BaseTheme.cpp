@@ -268,22 +268,33 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
 
   const int pageHeight = renderer.getScreenHeight();
 #if CROSSPOINT_PAPERS3
-  // Paper S3: 4 tappable buttons across 540px, matching footer touch zones in HalGPIO
+  // Paper S3 has a small non-viewable strip at the physical bottom. Keep the
+  // classic footer inside the visible area so the border/text do not clip.
+  int viewTop = 0;
+  int viewRight = 0;
+  int viewBottom = 0;
+  int viewLeft = 0;
+  renderer.getOrientedViewableTRBL(&viewTop, &viewRight, &viewBottom, &viewLeft);
+  (void)viewTop;
+  (void)viewRight;
+  (void)viewLeft;
+
   constexpr int buttonWidth = 120;
   constexpr int buttonHeight = BaseMetrics::values.buttonHintsHeight;
-  constexpr int buttonY = BaseMetrics::values.buttonHintsHeight;
+  const int buttonY = std::max(0, pageHeight - viewBottom - buttonHeight);
   constexpr int buttonPositions[] = {12, 144, 276, 408};
   const char* labels[] = {btn1, btn2, btn3, btn4};
 
   for (int i = 0; i < 4; i++) {
     if (labels[i] != nullptr && labels[i][0] != '\0') {
       const int x = buttonPositions[i];
-      renderer.fillRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, false);
-      renderer.drawRect(x, pageHeight - buttonY, buttonWidth, buttonHeight);
-      const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, labels[i]);
+      renderer.fillRect(x, buttonY, buttonWidth, buttonHeight, false);
+      renderer.drawRect(x, buttonY, buttonWidth, buttonHeight);
+      const auto label = renderer.truncatedText(UI_10_FONT_ID, labels[i], buttonWidth - 8);
+      const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, label.c_str());
       const int textX = x + (buttonWidth - textWidth) / 2;
-      const int textY = pageHeight - buttonY + (buttonHeight - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
-      renderer.drawText(UI_10_FONT_ID, textX, textY, labels[i]);
+      const int textY = buttonY + std::max(0, (buttonHeight - renderer.getLineHeight(UI_10_FONT_ID)) / 2);
+      renderer.drawText(UI_10_FONT_ID, textX, textY, label.c_str());
     }
   }
 #else
@@ -860,7 +871,14 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
 
   // Draw Progress Text
   const auto screenHeight = renderer.getScreenHeight();
-  auto textY = screenHeight - UITheme::getInstance().getStatusBarHeight() - orientedMarginBottom - paddingBottom - 4;
+  const bool showProgressBar =
+      SETTINGS.statusBarProgressBar != CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
+  const int progressBarHeight = (SETTINGS.statusBarProgressBarThickness + 1) * 2;
+  const int progressBarY = screenHeight - orientedMarginBottom - progressBarHeight - paddingBottom;
+  const int statusTextBottomY = showProgressBar
+                                    ? progressBarY - metrics.progressBarMarginTop
+                                    : screenHeight - orientedMarginBottom - paddingBottom - 2;
+  const int textY = statusTextBottomY - renderer.getLineHeight(SMALL_FONT_ID);
   int progressTextWidth = 0;
 
   if (SETTINGS.statusBarBookProgressPercentage || SETTINGS.statusBarChapterPageCount) {
@@ -883,10 +901,8 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   }
 
   // Draw Progress Bar
-  if (SETTINGS.statusBarProgressBar != CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS) {
+  if (showProgressBar) {
     const int progressBarMaxWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;
-    const int progressBarY = renderer.getScreenHeight() - orientedMarginBottom -
-                             ((SETTINGS.statusBarProgressBarThickness + 1) * 2) - paddingBottom;
     size_t progress;
     if (SETTINGS.statusBarProgressBar == CrossPointSettings::STATUS_BAR_PROGRESS_BAR::BOOK_PROGRESS) {
       progress = static_cast<size_t>(bookProgress);
@@ -895,8 +911,7 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
       progress = (pageCount > 0) ? (static_cast<float>(currentPage) / pageCount) * 100 : 0;
     }
     const int barWidth = progressBarMaxWidth * progress / 100;
-    renderer.fillRect(orientedMarginLeft, progressBarY, barWidth, ((SETTINGS.statusBarProgressBarThickness + 1) * 2),
-                      true);
+    renderer.fillRect(orientedMarginLeft, progressBarY, barWidth, progressBarHeight, true);
   }
 
   // Draw Battery
@@ -929,20 +944,16 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     */
     constexpr int titleFontId = UI_10_FONT_ID;
 
-    const int smallLineHeight =
-        renderer.getLineHeight(SMALL_FONT_ID);
-
     const int titleLineHeight =
         renderer.getLineHeight(titleFontId);
 
     /*
-    * 原本 textY 是依 SMALL_FONT_ID 計算。
-    * 中文 UI 字型較高，因此向上修正，讓兩者垂直中心對齊。
+    * Align the bottom edge of the Chinese title with the Latin status text.
+    * The 21x30 CJK fallback may extend upward above the reserved status-bar
+    * area, which is acceptable; it must not extend downward into the progress
+    * bar and create a ghost line.
     */
-    const int titleY =
-        textY -
-        textYOffset +
-        (smallLineHeight - titleLineHeight) / 2;
+    const int titleY = statusTextBottomY - titleLineHeight - textYOffset;
 
     // Page width minus existing content.
     const int renderableScreenWidth =

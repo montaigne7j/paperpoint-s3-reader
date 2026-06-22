@@ -169,6 +169,33 @@ bool containsCjkLayoutText(const std::string& text) {
   return false;
 }
 
+
+bool isAsciiDigitOrPunctuationForCjkJoin(const uint32_t cp) {
+  if (cp >= '0' && cp <= '9') return true;
+  if ((cp >= 0x21 && cp <= 0x2F) ||
+      (cp >= 0x3A && cp <= 0x40) ||
+      (cp >= 0x5B && cp <= 0x60) ||
+      (cp >= 0x7B && cp <= 0x7E)) {
+    return true;
+  }
+  if (cp >= 0x2000 && cp <= 0x206F) return true;  // U+2026 ellipsis, dashes, quotes, etc.
+  return false;
+}
+
+int tightJoinGap(const uint32_t leftCp, const uint32_t rightCp) {
+  if (leftCp == 0 || rightCp == 0) return 0;
+
+  const bool leftCjk = isCjkLayoutCodepoint(leftCp);
+  const bool rightCjk = isCjkLayoutCodepoint(rightCp);
+  const bool leftAsciiPunct = isAsciiDigitOrPunctuationForCjkJoin(leftCp);
+  const bool rightAsciiPunct = isAsciiDigitOrPunctuationForCjkJoin(rightCp);
+
+  // noSpaceBefore means no full word space, not necessarily zero pixels.  When
+  // compact Latin digits/punctuation touches a CJK glyph, a tiny guard gap keeps
+  // glyph bitmaps from colliding without making normal CJK-CJK text loose.
+  return ((leftAsciiPunct && rightCjk) || (leftCjk && rightAsciiPunct)) ? 2 : 0;
+}
+
 // Returns the advance width for a word while ignoring soft hyphen glyphs and optionally appending a visible hyphen.
 // Uses advance width (sum of glyph advances + kerning) rather than bounding box width so that italic glyph overhangs
 // don't inflate inter-word spacing.
@@ -245,6 +272,7 @@ void ParsedText::addWord(
 // Consumes data to minimize memory usage
 void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
                                        const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
+                                       const uint8_t characterSpacing,
                                        const bool includeLastLine) {
   if (words.empty()) {
     return;
@@ -290,7 +318,8 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
         lineBreakIndices,
         processLine,
         renderer,
-        fontId
+        fontId,
+        characterSpacing
     );
   }
 
@@ -384,8 +413,9 @@ std::vector<size_t> ParsedText::computeLineBreaks(
               wordStyles[j - 1]
           );
         } else if (noSpaceVec[j]) {
-          // CJK 人工分段：不加空格，但允許換行。
-          gap = 0;
+          // CJK artificial chunk boundary: no full space, but keep a tiny guard
+          // gap when ASCII digits/punctuation touches CJK to avoid bitmap overlap.
+          gap = tightJoinGap(lastCodepoint(words[j - 1]), firstCodepoint(words[j]));
         } else {
           gap = renderer.getSpaceAdvance(
               fontId,
@@ -519,8 +549,9 @@ ParsedText::computeHyphenatedLineBreaks(
               wordStyles[currentIndex - 1]
           );
         } else if (noSpaceVec[currentIndex]) {
-          // CJK chunk 邊界沒有空格，但仍是合法換行點。
-          spacing = 0;
+          // No full space at CJK chunk boundaries, but protect Latin digits and
+          // punctuation from visually colliding with the adjacent CJK glyph.
+          spacing = tightJoinGap(lastCodepoint(words[currentIndex - 1]), firstCodepoint(words[currentIndex]));
         } else {
           spacing = renderer.getSpaceAdvance(
               fontId,
@@ -734,7 +765,8 @@ void ParsedText::extractLine(
     const std::vector<size_t>& lineBreakIndices,
     const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
     const GfxRenderer& renderer,
-    const int fontId
+    const int fontId,
+    const uint8_t characterSpacing
 ) {
   const size_t lineBreak = lineBreakIndices[breakIndex];
   const size_t lastBreakAt = breakIndex > 0 ? lineBreakIndices[breakIndex - 1] : 0;
@@ -772,7 +804,9 @@ void ParsedText::extractLine(
             wordStyles[index - 1]
         );
       } else if (noSpaceVec[index]) {
-        // 不加空格，也不參與 justified space 分配。
+        // 不加 full-width 空格，也不參與 justified space 分配；僅在
+        // ASCII/符號緊貼 CJK 時加保護間隙。
+        totalNaturalGaps += tightJoinGap(lastCodepoint(words[index - 1]), firstCodepoint(words[index])) + characterSpacing;
       } else {
         actualGapCount++;
 
@@ -835,8 +869,11 @@ void ParsedText::extractLine(
       xpos += advance;
 
     } else if (nextHasNoSpace) {
-      // CJK chunk 邊界：直接接續，無空白。
-      xpos += wordWidths[lastBreakAt + wordIdx];
+      // CJK chunk boundary: no full space, but keep a tiny guard gap when
+      // digits/punctuation touches CJK in horizontal layout.
+      xpos += wordWidths[lastBreakAt + wordIdx] +
+              tightJoinGap(lastCodepoint(words[lastBreakAt + wordIdx]),
+                           firstCodepoint(words[lastBreakAt + wordIdx + 1])) + characterSpacing;
 
     } else {
       int gap = 0;
@@ -883,6 +920,8 @@ void ParsedText::layoutAndExtractColumns(
     const GfxRenderer& renderer,
     const int fontId,
     const uint16_t viewportHeight,
+    const float lineSpacing,
+    const uint8_t characterSpacing,
     const std::function<void(
         std::shared_ptr<TextBlock>
     )>& processColumn
@@ -899,15 +938,14 @@ void ParsedText::layoutAndExtractColumns(
    */
   applyParagraphIndent();
 
-  // A 21x30 fixed-cell CJK glyph needs visible air between vertically
-  // stacked characters.  Previously advance == line height, which made ink
-  // from adjacent characters appear almost connected.
-  constexpr int verticalGlyphGap = 4;
-  const int glyphAdvance =
-      std::max(
-          1,
-          renderer.getLineHeight(fontId) + verticalGlyphGap
-      );
+  (void)lineSpacing;
+
+  // In vertical layout, line spacing controls the distance between columns,
+  // not the distance between characters inside one column.  Character spacing
+  // alone controls the vertical glyph-to-glyph advance here.  Use a slightly
+  // tighter base than the horizontal line box so 0 px really feels compact.
+  const int baseGlyphAdvance = std::max(1, renderer.getLineHeight(fontId) - 6);
+  const int glyphAdvance = std::max(1, baseGlyphAdvance + static_cast<int>(characterSpacing));
 
   const int maxCellsPerColumn =
       std::max(

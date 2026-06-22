@@ -55,7 +55,8 @@ class ParsedText {
       const std::vector<size_t>& lineBreakIndices,
       const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
       const GfxRenderer& renderer,
-      int fontId
+      int fontId,
+      uint8_t characterSpacing
   );
   std::vector<uint16_t> calculateWordWidths(const GfxRenderer& renderer, int fontId);
 
@@ -78,6 +79,7 @@ class ParsedText {
   bool isEmpty() const { return words.empty(); }
   void layoutAndExtractLines(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,
                              const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
+                             uint8_t characterSpacing = 0,
                              bool includeLastLine = true);
 
     // 將 ParsedText 內容拆成直排欄。
@@ -92,6 +94,8 @@ class ParsedText {
         const GfxRenderer& renderer,
         int fontId,
         uint16_t viewportHeight,
+        float lineSpacing,
+        uint8_t characterSpacing,
         const std::function<void(
             std::shared_ptr<TextBlock>
         )>& processColumn

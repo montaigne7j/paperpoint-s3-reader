@@ -65,6 +65,25 @@ bool isLatinTrackingCodepoint(const uint32_t cp) {
          (cp >= 'a' && cp <= 'z');
 }
 
+bool isAdvanceSensitiveCodepoint(const uint32_t cp) {
+  // Horizontal EPUB layout is especially sensitive around compact glyphs that
+  // often sit next to CJK with no explicit space: numbers, ASCII punctuation,
+  // ellipsis/dashes, and common Unicode punctuation.  Some converted fonts can
+  // report an advance that is smaller than the drawn bitmap's right edge.  If
+  // the next glyph starts from that too-small advance, the ink overlaps.
+  if (cp >= '0' && cp <= '9') return true;
+  if ((cp >= 0x21 && cp <= 0x2F) ||
+      (cp >= 0x3A && cp <= 0x40) ||
+      (cp >= 0x5B && cp <= 0x60) ||
+      (cp >= 0x7B && cp <= 0x7E)) {
+    return true;
+  }
+  if (cp >= 0x2000 && cp <= 0x206F) return true;  // General punctuation, including U+2026
+  if (cp >= 0x3000 && cp <= 0x303F) return true;  // CJK punctuation
+  if (cp >= 0xFF00 && cp <= 0xFFEF) return true;  // Full-width punctuation/forms
+  return false;
+}
+
 int latinPairTracking(const uint32_t previous, const uint32_t current) {
   // The compact Ubuntu UI faces are intentionally tight.  Two extra pixels
   // between adjacent Latin letters/digits keeps English readable beside the
@@ -72,11 +91,16 @@ int latinPairTracking(const uint32_t previous, const uint32_t current) {
   return isLatinTrackingCodepoint(previous) && isLatinTrackingCodepoint(current) ? 2 : 0;
 }
 
-constexpr int COMPACT_CJK_SCALE_NUM = 1;
-constexpr int COMPACT_CJK_SCALE_DEN = 1;
+constexpr int COMPACT_CJK_SCALE_NUM = 7;
+constexpr int COMPACT_CJK_SCALE_DEN = 10;
 
 bool usesCompactScaledCjkFallback(const int fontId) {
-  return fontId == UI_10_FONT_ID || fontId == SMALL_FONT_ID;
+  (void)fontId;
+  // Keep UI_10 / SMALL CJK fallback at the original bitmap size.
+  // Status-bar clipping is handled by bottom-aligning the status text, not by
+  // globally shrinking this font size, because these IDs are also used across
+  // Classic/Lyra UI screens.
+  return false;
 }
 
 int scaleCompactMetric(const int value) {
@@ -87,9 +111,75 @@ int scaleCompactMetricCeil(const int value) {
   return (value * COMPACT_CJK_SCALE_NUM + COMPACT_CJK_SCALE_DEN - 1) / COMPACT_CJK_SCALE_DEN;
 }
 
-int fallbackAdvancePixels(const int fontId, const EpdGlyph* glyph) {
+bool isZeroAdvanceControlCodepoint(const uint32_t cp) {
+  return cp == 0x00AD ||  // soft hyphen
+         cp == 0x034F ||
+         cp == 0x061C ||
+         (cp >= 0x200B && cp <= 0x200F) ||
+         (cp >= 0x202A && cp <= 0x202E) ||
+         (cp >= 0x2060 && cp <= 0x206F) ||
+         cp == 0xFEFF;
+}
+
+bool shouldProtectVisibleAdvance(const uint32_t cp) {
+  if (cp == 0 || cp < 0x20 || (cp >= 0x7F && cp <= 0x9F)) return false;
+  if (utf8IsCombiningMark(cp) || isZeroAdvanceControlCodepoint(cp)) return false;
+  return true;
+}
+
+int visibleGlyphAdvancePixels(const EpdGlyph* glyph) {
   if (glyph == nullptr) return 0;
-  const int advance = fp4::toPixel(glyph->advanceX);
+  int advance = std::max(1, static_cast<int>(glyph->width));
+  if (glyph->left > 0) {
+    advance = std::max(advance, static_cast<int>(glyph->width) + glyph->left);
+  }
+  return advance;
+}
+
+int glyphAdvancePixels(const EpdGlyph* glyph, const uint32_t cp) {
+  if (glyph == nullptr) return 0;
+  int advance = fp4::toPixel(glyph->advanceX);
+
+  if (shouldProtectVisibleAdvance(cp)) {
+    const int visibleAdvance = visibleGlyphAdvancePixels(glyph);
+    if (advance <= 0 || isAdvanceSensitiveCodepoint(cp)) {
+      // Protect the next glyph from being drawn on top of visible ink.  The
+      // extra pixel is intentionally limited to digits/punctuation/symbols so
+      // normal Latin words do not become overly loose.
+      advance = std::max(advance, visibleAdvance + (isAdvanceSensitiveCodepoint(cp) ? 1 : 0));
+    } else {
+      advance = std::max(advance, visibleAdvance);
+    }
+  }
+
+  return advance;
+}
+
+int32_t glyphAdvanceFP(const EpdGlyph* glyph, const uint32_t cp) {
+  if (glyph == nullptr) return 0;
+
+  const int32_t originalAdvanceFP = glyph->advanceX;
+  int advance = originalAdvanceFP > 0 ? fp4::toPixel(originalAdvanceFP) : 0;
+  if (shouldProtectVisibleAdvance(cp)) {
+    const int visibleAdvance = visibleGlyphAdvancePixels(glyph);
+    if (advance <= 0 || isAdvanceSensitiveCodepoint(cp)) {
+      advance = std::max(advance, visibleAdvance + (isAdvanceSensitiveCodepoint(cp) ? 1 : 0));
+    } else {
+      advance = std::max(advance, visibleAdvance);
+    }
+  }
+
+  // Preserve the original fractional advance unless a visible-ink guard had to
+  // enlarge it.  This keeps the old kerning/differential rounding behavior for
+  // normal glyphs while fixing glyphs whose metrics were too narrow.
+  if (originalAdvanceFP > 0 && fp4::toPixel(originalAdvanceFP) >= advance) {
+    return originalAdvanceFP;
+  }
+  return fp4::fromPixel(advance);
+}
+
+int fallbackAdvancePixels(const int fontId, const EpdGlyph* glyph, const uint32_t cp) {
+  const int advance = glyphAdvancePixels(glyph, cp);
   return usesCompactScaledCjkFallback(fontId) ? std::max(1, scaleCompactMetric(advance)) : advance;
 }
 
@@ -218,7 +308,7 @@ int GfxRenderer::getTextWidthBuiltinFallback(
       flushPrimary();
       const EpdGlyph* fallbackGlyph = fallbackFont->getGlyphExact(cp, style);
       if (fallbackGlyph != nullptr) {
-        widthPixels += fallbackAdvancePixels(fontId, fallbackGlyph);
+        widthPixels += fallbackAdvancePixels(fontId, fallbackGlyph, cp);
       }
       continue;
     }
@@ -231,7 +321,7 @@ int GfxRenderer::getTextWidthBuiltinFallback(
     }
 
     const EpdGlyph* glyph = primaryFont.getGlyph(cp, style);
-    pendingAdvanceFP = glyph != nullptr ? glyph->advanceX : 0;
+    pendingAdvanceFP = glyphAdvanceFP(glyph, cp);
     previousPrimaryCp = cp;
   }
 
@@ -1003,7 +1093,7 @@ bool GfxRenderer::renderExternalReaderGlyph(
 
   const int advance = getExternalGlyphAdvanceForRendering(
       metrics, externalFont->getCharWidth(), 0, forceCell,
-      forceCell && shouldUseGlyphBoundsForAdvance(cp));
+      shouldUseGlyphBoundsForAdvance(cp));
 
   renderExternalGlyph(bitmap, externalFont, x, baselineY, pixelState, metrics,
                       advance, forceCell ? externalFont->getCharWidth() : -1);
@@ -1167,7 +1257,7 @@ int GfxRenderer::getTextWidthExternalReader(
         }
         width += getExternalGlyphAdvanceForRendering(
             metrics, externalFont->getCharWidth(), 0, isCjk,
-            isCjk && shouldUseGlyphBoundsForAdvance(cp));
+            shouldUseGlyphBoundsForAdvance(cp));
         continue;
       }
 
@@ -1178,7 +1268,7 @@ int GfxRenderer::getTextWidthExternalReader(
         const EpdGlyph* fallbackGlyph =
             fallbackFont->getGlyphExact(cp, style);
         if (fallbackGlyph != nullptr) {
-          width += fallbackAdvancePixels(fontId, fallbackGlyph);
+          width += fallbackAdvancePixels(fontId, fallbackGlyph, cp);
           continue;
         }
       }
@@ -1196,7 +1286,7 @@ int GfxRenderer::getTextWidthExternalReader(
       const EpdGlyph* fallbackGlyph =
           fallbackFont->getGlyphExact(cp, style);
       if (fallbackGlyph != nullptr) {
-        width += fallbackAdvancePixels(fontId, fallbackGlyph);
+        width += fallbackAdvancePixels(fontId, fallbackGlyph, cp);
       }
       continue;
     }
@@ -1207,7 +1297,7 @@ int GfxRenderer::getTextWidthExternalReader(
       width += latinPairTracking(previousBuiltinCp, cp);
     }
     const EpdGlyph* glyph = builtinFont.getGlyph(cp, style);
-    if (glyph != nullptr) width += fp4::toPixel(glyph->advanceX);
+    if (glyph != nullptr) width += glyphAdvancePixels(glyph, cp);
     previousBuiltinCp = cp;
   }
   return width;
@@ -1341,7 +1431,7 @@ int GfxRenderer::getTextWidthExternalUi(
       const EpdGlyph* fallbackGlyph =
           fallbackFont->getGlyphExact(cp, style);
       if (fallbackGlyph != nullptr) {
-        widthPixels += fallbackAdvancePixels(fontId, fallbackGlyph);
+        widthPixels += fallbackAdvancePixels(fontId, fallbackGlyph, cp);
       }
       continue;
     }
@@ -1371,7 +1461,7 @@ int GfxRenderer::getTextWidthExternalUi(
     }
 
     if (builtinGlyph != nullptr) {
-      builtinWidthFP += builtinGlyph->advanceX;
+      builtinWidthFP += glyphAdvanceFP(builtinGlyph, cp);
     }
 
     previousBuiltinCp = cp;
@@ -1625,7 +1715,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
           lastBaseWidth = fallbackGlyph->width;
           lastBaseTop = fallbackGlyph->top;
         }
-        lastBaseX += fallbackAdvancePixels(fontId, fallbackGlyph);
+        lastBaseX += fallbackAdvancePixels(fontId, fallbackGlyph, cp);
         continue;
       }
     }
@@ -1646,7 +1736,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     lastBaseLeft = glyph ? glyph->left : 0;
     lastBaseWidth = glyph ? glyph->width : 0;
     lastBaseTop = glyph ? glyph->top : 0;
-    prevAdvanceFP = glyph ? glyph->advanceX : 0;  // 12.4 fixed-point
+    prevAdvanceFP = glyphAdvanceFP(glyph, cp);  // 12.4 fixed-point
 
     renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, lastBaseX, builtinBaselineY, black, style);
     prevCp = cp;
@@ -1705,7 +1795,7 @@ void GfxRenderer::drawTextScaled(const int fontId, const int x, const int y, con
       if (fallbackGlyph != nullptr && fallbackData != nullptr) {
         const int fallbackBaselineY = y + static_cast<int>(fallbackData->ascender) * safeScale;
         renderCharImplScaled(*this, renderMode, *fallbackFont, cp, cursorX, fallbackBaselineY, safeScale, black, style);
-        cursorX += fallbackAdvancePixels(fontId, fallbackGlyph) * safeScale;
+        cursorX += fallbackAdvancePixels(fontId, fallbackGlyph, cp) * safeScale;
         continue;
       }
     }
@@ -1717,7 +1807,7 @@ void GfxRenderer::drawTextScaled(const int fontId, const int x, const int y, con
     }
 
     const EpdGlyph* glyph = font.getGlyph(cp, style);
-    prevAdvanceFP = glyph != nullptr ? glyph->advanceX : 0;
+    prevAdvanceFP = glyphAdvanceFP(glyph, cp);
     renderCharImplScaled(*this, renderMode, font, cp, cursorX, primaryBaselineY, safeScale, black, style);
     prevCp = cp;
   }
@@ -2973,7 +3063,7 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
           lastBaseWidth = fallbackGlyph->width;
           lastBaseTop = fallbackGlyph->top;
         }
-        lastBaseY -= fallbackAdvancePixels(fontId, fallbackGlyph);
+        lastBaseY -= fallbackAdvancePixels(fontId, fallbackGlyph, cp);
         continue;
       }
     }
@@ -2992,7 +3082,7 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
     lastBaseLeft = glyph ? glyph->left : 0;
     lastBaseWidth = glyph ? glyph->width : 0;
     lastBaseTop = glyph ? glyph->top : 0;
-    prevAdvanceFP = glyph ? glyph->advanceX : 0;  // 12.4 fixed-point
+    prevAdvanceFP = glyphAdvanceFP(glyph, cp);  // 12.4 fixed-point
 
     renderCharImpl<TextRotation::Rotated90CW>(*this, renderMode, font, cp, x, lastBaseY, black, style);
     prevCp = cp;

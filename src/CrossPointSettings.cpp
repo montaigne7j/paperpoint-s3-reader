@@ -38,6 +38,18 @@ constexpr char SETTINGS_FILE_BIN[] = "/.crosspoint/settings.bin";
 constexpr char SETTINGS_FILE_JSON[] = "/.crosspoint/settings.json";
 constexpr char SETTINGS_FILE_BAK[] = "/.crosspoint/settings.bin.bak";
 
+uint8_t legacyLineSpacingToPercent(uint8_t legacy) {
+  switch (legacy) {
+    case CrossPointSettings::TIGHT:
+      return 90;
+    case CrossPointSettings::WIDE:
+      return 115;
+    case CrossPointSettings::NORMAL:
+    default:
+      return CrossPointSettings::READER_LINE_SPACING_DEFAULT;
+  }
+}
+
 // Convert legacy front button layout into explicit logical->hardware mapping.
 void applyLegacyFrontButtonLayout(CrossPointSettings& settings) {
   switch (static_cast<CrossPointSettings::FRONT_BUTTON_LAYOUT>(settings.frontButtonLayout)) {
@@ -255,6 +267,10 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
   } while (false);
 
+  if (lineSpacing < CrossPointSettings::READER_LINE_SPACING_MIN) {
+    lineSpacing = legacyLineSpacingToPercent(lineSpacing);
+  }
+
   if (frontButtonMappingRead) {
     CrossPointSettings::validateFrontButtonMapping(*this);
   } else {
@@ -266,20 +282,14 @@ bool CrossPointSettings::loadFromBinaryFile() {
 }
 
 float CrossPointSettings::getReaderLineCompression() const {
-  switch (fontFamily) {
-    case READERDYSLEXIC:
-    case NOTOSANS:
-    default:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.90f;
-        case NORMAL:
-        default:
-          return 0.95f;
-        case WIDE:
-          return 1.0f;
-      }
-  }
+  const uint8_t percent = std::min<uint8_t>(READER_LINE_SPACING_MAX,
+                                            std::max<uint8_t>(READER_LINE_SPACING_MIN, lineSpacing));
+  return static_cast<float>(percent) / 100.0f;
+}
+
+uint8_t CrossPointSettings::getReaderCharacterSpacing() const {
+  return std::min<uint8_t>(READER_CHARACTER_SPACING_MAX,
+                           std::max<uint8_t>(READER_CHARACTER_SPACING_MIN, characterSpacing));
 }
 
 unsigned long CrossPointSettings::getSleepTimeoutMs() const {

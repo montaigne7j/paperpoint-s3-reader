@@ -45,7 +45,7 @@ def main() -> int:
 
     renderer_body = (ROOT / "lib/GfxRenderer/GfxRenderer.cpp").read_text(encoding="utf-8")
     for token in (
-        "COMPACT_CJK_SCALE_NUM = 1",
+        "COMPACT_CJK_SCALE_NUM = 7",
         "renderBuiltinFallbackGlyphScaled",
         "fallbackAdvancePixels",
         "fallbackMetricPixels",

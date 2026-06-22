@@ -211,6 +211,23 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
         if (needsResave) *needsResave = true;
       }
 
+      // Reader line spacing used to be an enum (0=tight, 1=normal, 2=wide).
+      if (info.valuePtr == &CrossPointSettings::lineSpacing && v <= CrossPointSettings::WIDE) {
+        switch (v) {
+          case CrossPointSettings::TIGHT:
+            v = 90;
+            break;
+          case CrossPointSettings::WIDE:
+            v = 115;
+            break;
+          case CrossPointSettings::NORMAL:
+          default:
+            v = CrossPointSettings::READER_LINE_SPACING_DEFAULT;
+            break;
+        }
+        if (needsResave) *needsResave = true;
+      }
+
       // Reader font size used to be an enum (0..3). Migrate old JSON files to
       // their equivalent runtime TTF pixel sizes before applying VALUE bounds.
       if (info.valuePtr == &CrossPointSettings::fontSize && v <= CrossPointSettings::EXTRA_LARGE) {

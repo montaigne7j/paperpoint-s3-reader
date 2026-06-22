@@ -31,7 +31,19 @@ bool shouldUseCjkSymbolCellMetrics(const uint32_t codepoint) {
   return false;
 }
 
-bool shouldUseGlyphBoundsForAdvance(const uint32_t codepoint) { return codepoint >= '0' && codepoint <= '9'; }
+bool shouldUseGlyphBoundsForAdvance(const uint32_t codepoint) {
+  if (codepoint >= '0' && codepoint <= '9') return true;
+  if ((codepoint >= 0x21 && codepoint <= 0x2F) ||
+      (codepoint >= 0x3A && codepoint <= 0x40) ||
+      (codepoint >= 0x5B && codepoint <= 0x60) ||
+      (codepoint >= 0x7B && codepoint <= 0x7E)) {
+    return true;
+  }
+  if (codepoint >= 0x2000 && codepoint <= 0x206F) return true;
+  if (codepoint >= 0x3000 && codepoint <= 0x303F) return true;
+  if (codepoint >= 0xFF00 && codepoint <= 0xFFEF) return true;
+  return false;
+}
 
 namespace {
 
@@ -94,7 +106,10 @@ int getExternalGlyphAdvanceForRendering(const ExternalGlyphMetrics& metrics, con
     baseWidth = std::max<int>(baseWidth, cellWidth);
   }
   if (useGlyphBounds) {
-    baseWidth = std::max<int>(baseWidth, metrics.left + metrics.width);
+    // Guard the next glyph from starting inside visible ink when a font reports
+    // a narrow advance for digits/punctuation/ellipsis.  The +1 px mirrors the
+    // built-in EpdFont protection and avoids just-touching black pixels on EPD.
+    baseWidth = std::max<int>(baseWidth, metrics.left + metrics.width + 1);
   }
   return clampExternalAdvance(baseWidth, spacing);
 }

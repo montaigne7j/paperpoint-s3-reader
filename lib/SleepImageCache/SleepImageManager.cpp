@@ -3,10 +3,33 @@
 #include <Bitmap.h>
 #include "../../src/CrossPointSettings.h"
 #include "../../src/CrossPointState.h"
+#include "../../src/components/UITheme.h"
 #include <FsHelpers.h>
 #include <HalDisplay.h>
 #include <HalStorage.h>
+// JPEGDEC's public header declares an overload taking the Arduino `File`
+// type.  In Arduino-ESP32 3.x the concrete type is fs::File, and this file is
+// compiled as an independent PlatformIO library where the global File alias is
+// not always visible while parsing JPEGDEC.h.  Map the token only while the
+// JPEGDEC header is parsed so its declaration becomes open(fs::File&, ...),
+// then immediately remove the macro to avoid affecting the rest of this file.
+#include <Arduino.h>
+#include <FS.h>
+#define File fs::File
 #include <JPEGDEC.h>
+#undef File
+#ifdef INTELSHORT
+#undef INTELSHORT
+#endif
+#ifdef INTELLONG
+#undef INTELLONG
+#endif
+#ifdef MOTOSHORT
+#undef MOTOSHORT
+#endif
+#ifdef MOTOLONG
+#undef MOTOLONG
+#endif
 #include <Logging.h>
 #include <PNGdec.h>
 #include <esp_heap_caps.h>
@@ -1036,7 +1059,8 @@ uint8_t sampleReaderPage(
     const uint8_t* physicalFrame,
     uint8_t orientation,
     int targetX,
-    int targetY) {
+    int targetY,
+    int clearBottomPixels) {
   if (!physicalFrame) return 15;
 
   const bool portrait = orientation == 0 || orientation == 2;
@@ -1062,6 +1086,11 @@ uint8_t sampleReaderPage(
       sourceHeight - 1,
       static_cast<int>(
           (static_cast<int64_t>(targetY - fitY) * sourceHeight) / fitHeight));
+
+  if (clearBottomPixels > 0 &&
+      sourceY >= sourceHeight - std::min(sourceHeight, clearBottomPixels)) {
+    return 15;
+  }
 
   int physicalX = 0;
   int physicalY = 0;
@@ -1495,11 +1524,14 @@ bool SleepImageManager::displayCache(
       transparentBackgroundMode ==
           CrossPointSettings::TRANSPARENT_SLEEP_CURRENT_READING_PAGE &&
       readerContext && readerFrameValid && readerFrame != nullptr;
+  const int readerSnapshotClearBottom = useReaderPage
+      ? static_cast<int>(UITheme::getInstance().getStatusBarHeight()) + 2
+      : 0;
 
   for (int y = 0; y < TARGET_HEIGHT; ++y) {
     for (int x = 0; x < TARGET_WIDTH; ++x) {
       const uint8_t background = useReaderPage
-          ? sampleReaderPage(readerFrame, readerFrameOrientation, x, y)
+          ? sampleReaderPage(readerFrame, readerFrameOrientation, x, y, readerSnapshotClearBottom)
           : 15;
       const uint8_t pixel = overlay[static_cast<size_t>(y) * TARGET_WIDTH + x];
       const uint8_t foreground = static_cast<uint8_t>(pixel >> 4);

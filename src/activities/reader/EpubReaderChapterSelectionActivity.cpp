@@ -7,12 +7,20 @@
 #include <algorithm>
 #include <limits>
 
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
 namespace {
 constexpr unsigned long BACK_LONG_PRESS_MS = 1000;
+
+constexpr int LARGE_TEXT_SCALE = 2;
+constexpr int LARGE_TEXT_CORNER_RADIUS = 6;
+
+bool isLargeTextTheme() {
+  return SETTINGS.uiTheme == CrossPointSettings::UI_THEME::LARGE_TEXT;
+}
 }
 
 int EpubReaderChapterSelectionActivity::getTotalItems() const {
@@ -20,6 +28,17 @@ int EpubReaderChapterSelectionActivity::getTotalItems() const {
 }
 
 int EpubReaderChapterSelectionActivity::getPageItems() const {
+  if (isLargeTextTheme()) {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    const int screenHeight = renderer.getScreenHeight();
+    const auto orientation = renderer.getOrientation();
+    const bool isPortraitInverted = orientation == GfxRenderer::Orientation::PortraitInverted;
+    const int contentY = isPortraitInverted ? 50 : 0;
+    const int contentTop = contentY + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+    const int contentHeight = screenHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+    return std::max(1, contentHeight / metrics.listRowHeight);
+  }
+
   // Layout constants used in renderScreen
 #if CROSSPOINT_PAPERS3
   constexpr int lineHeight = 75;
@@ -255,10 +274,8 @@ void EpubReaderChapterSelectionActivity::activateSelectedItem() {
 }
 
 void EpubReaderChapterSelectionActivity::drawDisclosureTriangle(const int x, const int centerY, const bool expanded,
-                                                                const bool black) const {
-  constexpr int halfSize = 7;
-  constexpr int fullSize = 12;
-
+                                                                const bool black, const int halfSize,
+                                                                const int fullSize) const {
   int xPoints[3];
   int yPoints[3];
 
@@ -381,6 +398,74 @@ void EpubReaderChapterSelectionActivity::render(RenderLock&&) {
   const int contentY = hintGutterHeight;
   const int pageItems = getPageItems();
   const int totalItems = getTotalItems();
+
+  if (isLargeTextTheme()) {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    const int pageHeight = renderer.getScreenHeight();
+    const int headerTop = contentY + metrics.topPadding;
+    GUI.drawHeader(renderer, Rect{contentX, headerTop, contentWidth, metrics.headerHeight}, tr(STR_SELECT_CHAPTER));
+
+    const int listTop = headerTop + metrics.headerHeight + metrics.verticalSpacing;
+    const int listHeight = std::max(1, pageHeight - listTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2);
+    const int rowHeight = metrics.listRowHeight;
+    const int rowX = contentX + metrics.contentSidePadding;
+    const int rowW = std::max(1, contentWidth - metrics.contentSidePadding * 2 -
+                                     (totalItems > pageItems ? metrics.scrollBarWidth + metrics.scrollBarRightOffset + 8
+                                                             : 0));
+    constexpr int leftPadding = 14;
+    constexpr int rightPadding = 18;
+    constexpr int indentStep = 32;
+    constexpr int markerTextGap = 34;
+    constexpr int maximumVisualDepth = 8;
+    const int textLineH = renderer.getLineHeightScaled(UI_10_FONT_ID, LARGE_TEXT_SCALE);
+    const int textYOff = (rowHeight - textLineH) / 2;
+    const int pageStartIndex = selectorIndex / pageItems * pageItems;
+
+    if (totalItems > pageItems) {
+      const int totalPages = (totalItems + pageItems - 1) / pageItems;
+      const int currentPage = selectorIndex / pageItems;
+      const int scrollBarH = std::max(12, (listHeight * pageItems) / std::max(1, totalItems));
+      const int scrollBarY = listTop + ((listHeight - scrollBarH) * currentPage) / std::max(1, totalPages - 1);
+      const int scrollBarX = contentX + contentWidth - metrics.scrollBarRightOffset;
+      renderer.drawLine(scrollBarX, listTop, scrollBarX, listTop + listHeight, true);
+      renderer.fillRect(scrollBarX - metrics.scrollBarWidth, scrollBarY, metrics.scrollBarWidth, scrollBarH, true);
+    }
+
+    for (int i = 0; i < pageItems; i++) {
+      const int visibleIndex = pageStartIndex + i;
+      if (visibleIndex >= totalItems) break;
+
+      const int tocIndex = visibleTocIndices[visibleIndex];
+      const int displayY = listTop + i * rowHeight;
+      const bool isSelected = visibleIndex == selectorIndex;
+      const auto item = epub->getTocItem(tocIndex);
+      const auto& node = tocNodes[tocIndex];
+
+      if (isSelected) {
+        renderer.fillRoundedRect(rowX, displayY + 2, rowW, rowHeight - 4, LARGE_TEXT_CORNER_RADIUS,
+                                 Color::LightGray);
+      }
+
+      const int visualDepth = std::min(std::max(0, static_cast<int>(node.level) - 1), maximumVisualDepth);
+      const int markerX = rowX + leftPadding + visualDepth * indentStep;
+      const int textX = markerX + markerTextGap;
+
+      if (nodeHasChildren(tocIndex)) {
+        drawDisclosureTriangle(markerX, displayY + rowHeight / 2, nodeIsExpanded(tocIndex), true, 11, 20);
+      }
+
+      const int maxTextWidth = std::max(20, rowX + rowW - rightPadding - textX);
+      const std::string chapterName =
+          renderer.truncatedTextScaled(UI_10_FONT_ID, item.title.c_str(), maxTextWidth, LARGE_TEXT_SCALE);
+      renderer.drawTextScaled(UI_10_FONT_ID, textX, displayY + textYOff, chapterName.c_str(), LARGE_TEXT_SCALE, true);
+    }
+
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+
+    renderer.displayBuffer();
+    return;
+  }
 
   // Manual centering to honor content gutters.
   const int titleX =

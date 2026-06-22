@@ -40,6 +40,7 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
   std::vector<MenuItem> items;
   items.reserve(11);
   items.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
+  items.push_back({MenuAction::GO_HOME, StrId::STR_GO_HOME_BUTTON});
   items.push_back({MenuAction::READER_SETTINGS, StrId::STR_CAT_READER});
   if (hasFootnotes) {
     items.push_back({MenuAction::FOOTNOTES, StrId::STR_FOOTNOTES});
@@ -49,7 +50,6 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
   items.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});
   items.push_back({MenuAction::SCREENSHOT, StrId::STR_SCREENSHOT_BUTTON});
   items.push_back({MenuAction::DISPLAY_QR, StrId::STR_DISPLAY_QR});
-  items.push_back({MenuAction::GO_HOME, StrId::STR_GO_HOME_BUTTON});
   items.push_back({MenuAction::SYNC, StrId::STR_SYNC_PROGRESS});
   items.push_back({MenuAction::DELETE_CACHE, StrId::STR_DELETE_CACHE});
   return items;
@@ -130,46 +130,48 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
     const int headerY = contentY + metrics.topPadding;
     GUI.drawHeader(renderer, Rect{contentX, headerY, contentWidth, metrics.headerHeight}, title.c_str());
 
-    std::string progressLine;
+    std::string chapterLine = std::string(tr(STR_CHAPTER_PREFIX));
     if (totalPages > 0) {
-      progressLine = std::string(tr(STR_CHAPTER_PREFIX)) + std::to_string(currentPage) + "/" +
-                     std::to_string(totalPages) + std::string(tr(STR_PAGES_SEPARATOR));
+      chapterLine += std::to_string(currentPage) + "/" + std::to_string(totalPages) +
+                     std::string(tr(STR_PAGES_SEPARATOR));
+    } else {
+      chapterLine += "-";
     }
-    progressLine += std::string(tr(STR_BOOK_PREFIX)) + std::to_string(bookProgressPercent) + "%";
+    const std::string bookLine = std::string(tr(STR_BOOK_PREFIX)) + std::to_string(bookProgressPercent) + "%";
 
-    constexpr int largeScale = 2;
-    const int progressY = headerY + metrics.headerHeight + metrics.verticalSpacing;
-    const int progressMaxWidth = std::max(1, contentWidth - metrics.contentSidePadding * 2);
-    auto progressText =
-        renderer.truncatedTextScaled(UI_10_FONT_ID, progressLine.c_str(), progressMaxWidth, largeScale);
-    const int progressWidth = renderer.getTextWidthScaled(UI_10_FONT_ID, progressText.c_str(), largeScale);
-    renderer.drawTextScaled(UI_10_FONT_ID, contentX + (contentWidth - progressWidth) / 2, progressY,
-                            progressText.c_str(), largeScale);
-
-    const int listY = progressY + renderer.getLineHeightScaled(UI_10_FONT_ID, largeScale) + metrics.verticalSpacing;
+    const int summaryRows = 2;
+    const int listY = headerY + metrics.headerHeight + metrics.verticalSpacing;
     const int footerTop = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing;
     const int listHeight = std::max(1, footerTop - listY);
 
     GUI.drawList(
-        renderer, Rect{contentX, listY, contentWidth, listHeight}, static_cast<int>(menuItems.size()), selectedIndex,
-        [this](int index) {
-          std::string itemLabel = I18N.get(menuItems[index].labelId);
-          if (menuItems[index].action == MenuAction::READER_SETTINGS) {
+        renderer, Rect{contentX, listY, contentWidth, listHeight},
+        static_cast<int>(menuItems.size()) + summaryRows, selectedIndex + summaryRows,
+        [this, chapterLine, bookLine, summaryRows](int index) {
+          if (index == 0) return chapterLine;
+          if (index == 1) return bookLine;
+
+          const int itemIndex = index - summaryRows;
+          std::string itemLabel = I18N.get(menuItems[itemIndex].labelId);
+          if (menuItems[itemIndex].action == MenuAction::READER_SETTINGS) {
             itemLabel += " ";
             itemLabel += tr(STR_SETTINGS_TITLE);
           }
           return itemLabel;
         },
         nullptr, nullptr,
-        [this](int index) -> std::string {
-          if (menuItems[index].action == MenuAction::ROTATE_SCREEN) {
+        [this, summaryRows](int index) -> std::string {
+          if (index < summaryRows) return "";
+
+          const int itemIndex = index - summaryRows;
+          if (menuItems[itemIndex].action == MenuAction::ROTATE_SCREEN) {
 #if CROSSPOINT_PAPERS3
             return I18N.get(orientationLabels[orientationLabelIndex(pendingOrientation)]);
 #else
             return I18N.get(orientationLabels[pendingOrientation]);
 #endif
           }
-          if (menuItems[index].action == MenuAction::AUTO_PAGE_TURN) {
+          if (menuItems[itemIndex].action == MenuAction::AUTO_PAGE_TURN) {
             return pageTurnLabels[selectedPageTurnOption];
           }
           return "";

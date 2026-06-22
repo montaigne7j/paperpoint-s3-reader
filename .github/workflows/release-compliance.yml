@@ -1,9 +1,7 @@
 name: Release compliance
 
-"on":
-  push:
-    tags:
-      - "v*"
+on:
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -16,13 +14,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install PlatformIO
-        run: python -m pip install --disable-pip-version-check "platformio==6.1.19"
+        run: python -m pip install --disable-pip-version-check "platformio==6.1.19" esptool
 
       - name: Generate code and validate licensing
         run: |
@@ -37,6 +36,9 @@ jobs:
       - name: Prepare release artifacts
         run: |
           mkdir -p dist/license-bundle
+          python scripts/merge_firmware.py \
+            --env gh_release \
+            --output dist/merged-firmware.bin
           python scripts/generate_sbom.py \
             --firmware .pio/build/gh_release/firmware.bin \
             --output SBOM.spdx.json
@@ -51,6 +53,8 @@ jobs:
             --output dist/lgpl-relink-kit.zip
           git archive --format=zip --output=dist/complete-application-source.zip HEAD
           cp .pio/build/gh_release/firmware.bin dist/
+          cp .pio/build/gh_release/bootloader.bin dist/
+          cp .pio/build/gh_release/partitions.bin dist/
           cp SBOM.spdx.json dist/
           cp SBOM.spdx.json THIRD_PARTY_NOTICES.md \
             BINARY_RELEASE_LGPL_COMPLIANCE.md RELEASE_COMPLIANCE_CHECKLIST.md \
@@ -61,7 +65,7 @@ jobs:
           cp -R dist/dependency-licenses dist/license-bundle/
           (cd dist && zip -r license-bundle.zip license-bundle)
           rm -rf dist/license-bundle dist/dependency-licenses
-          sha256sum dist/firmware.bin dist/*.zip dist/SBOM.spdx.json > dist/SHA256SUMS.txt
+          (cd dist && sha256sum firmware.bin bootloader.bin partitions.bin merged-firmware.bin *.zip SBOM.spdx.json > SHA256SUMS.txt)
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4

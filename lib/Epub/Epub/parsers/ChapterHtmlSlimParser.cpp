@@ -15,6 +15,8 @@
 #include "../htmlEntities.h"
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
+#include <cstdint>
 
 #include "../../../../src/CrossPointSettings.h"
 
@@ -172,14 +174,58 @@ std::string sniffRasterExtension(const std::string& path) {
   return {};
 }
 
+uint32_t fnv1a32(const std::string& text) {
+  uint32_t hash = 2166136261u;
+  for (const unsigned char ch : text) {
+    hash ^= ch;
+    hash *= 16777619u;
+  }
+  return hash;
+}
+
+std::string hex8(const uint32_t value) {
+  char buffer[9] = {};
+  snprintf(buffer, sizeof(buffer), "%08lx", static_cast<unsigned long>(value));
+  return std::string(buffer);
+}
+
+std::string sharedImageCacheBasePath(const Epub* epub, const std::string& resolvedPath) {
+  if (epub == nullptr) return {};
+  return epub->getCachePath() + "/img_shared_" + hex8(fnv1a32(resolvedPath));
+}
+
+bool useExistingRasterCache(const std::string& path, std::string* cachedImagePath) {
+  if (cachedImagePath == nullptr || !Storage.exists(path.c_str())) return false;
+  const std::string detected = sniffRasterExtension(path);
+  if (detected.empty()) {
+    Storage.remove(path.c_str());
+    return false;
+  }
+  *cachedImagePath = path;
+  LOG_DBG("EHP", "Reusing shared image cache: %s", path.c_str());
+  return true;
+}
+
 bool extractSupportedRasterImage(Epub* epub, const std::string& resolvedPath,
-                                 const std::string& cacheBasePath,
-                                 std::string* cachedImagePath) {
+                                  const std::string& cacheBasePath,
+                                  std::string* cachedImagePath) {
   if (epub == nullptr || cachedImagePath == nullptr || resolvedPath.empty()) return false;
 
   std::string extension = lowerExtension(resolvedPath);
   const bool knownExtension = isSupportedRasterExtension(extension);
-  if (!knownExtension) extension = ".img";
+  if (!knownExtension) {
+    // Extensionless or mislabeled resources are stored under their sniffed suffix.
+    if (useExistingRasterCache(cacheBasePath + ".png", cachedImagePath) ||
+        useExistingRasterCache(cacheBasePath + ".jpg", cachedImagePath)) {
+      return true;
+    }
+    extension = ".img";
+  } else {
+    if (extension == ".jpeg") extension = ".jpg";
+    if (useExistingRasterCache(cacheBasePath + extension, cachedImagePath)) {
+      return true;
+    }
+  }
 
   std::string temporaryPath = cacheBasePath + extension;
   Storage.remove(temporaryPath.c_str());
@@ -211,7 +257,12 @@ bool extractSupportedRasterImage(Epub* epub, const std::string& resolvedPath,
     // file named .jpg). Give the cache file the extension expected by the
     // decoder factory.
     const std::string finalPath = cacheBasePath + detectedExtension;
-    Storage.remove(finalPath.c_str());
+    if (Storage.exists(finalPath.c_str())) {
+      Storage.remove(temporaryPath.c_str());
+      *cachedImagePath = finalPath;
+      LOG_DBG("EHP", "Reusing shared image cache after sniff: %s", finalPath.c_str());
+      return true;
+    }
     if (!Storage.rename(temporaryPath.c_str(), finalPath.c_str())) {
       LOG_ERR("EHP", "Failed to rename detected image cache: %s", finalPath.c_str());
       Storage.remove(temporaryPath.c_str());
@@ -467,7 +518,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
             // extension or a misleading extension. This covers many generator-
             // produced EPUBs whose JPEG/PNG resources are named as generic items.
             const std::string cacheBasePath =
-                self->imageBasePath + std::to_string(self->imageCounter++);
+                sharedImageCacheBasePath(self->epub.get(), resolvedPath);
+            self->imageCounter++;
             std::string cachedImagePath;
             bool extractSuccess = false;
 
@@ -493,10 +545,12 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   FsHelpers::normalisePath(self->contentBase + src);
               if (!legacyPath.empty() && legacyPath != resolvedPath) {
                 LOG_DBG("EHP", "Retrying legacy image path: %s", legacyPath.c_str());
+                const std::string legacyCacheBasePath =
+                    sharedImageCacheBasePath(self->epub.get(), legacyPath);
                 for (int attempt = 0; attempt < 3 && !extractSuccess; ++attempt) {
                   if (attempt > 0) delay(40 * attempt);
                   extractSuccess = extractSupportedRasterImage(
-                      self->epub.get(), legacyPath, cacheBasePath, &cachedImagePath);
+                      self->epub.get(), legacyPath, legacyCacheBasePath, &cachedImagePath);
                 }
               }
             }
@@ -606,42 +660,26 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 }
 
                 if (isVerticalLayoutEnabled()) {
-                  /*
-                  * 直排 MVP：
-                  * 圖片使用獨立頁面，避免 currentPageNextY 與
-                  * currentPageNextX 兩套座標系互相重疊。
-                  */
-
-                  // 先送出圖片前尚未 flush 的文字。
                   if (self->partWordBufferIndex > 0) {
                     self->flushPartWordBuffer();
                   }
 
-                  // 將圖片前的直排文字完成排版。
                   if (self->currentTextBlock &&
                       !self->currentTextBlock->isEmpty()) {
                     self->makePages();
                   }
 
-                  // 若目前已有文字欄，先完成目前頁。
                   if (self->currentPage &&
                       !self->currentPage->elements.empty()) {
                     self->completePageFn(
-                        std::move(self->currentPage)
-                    );
-
+                        std::move(self->currentPage));
                     ++self->completedPageCount;
                     self->currentPage.reset();
                   }
 
-                  // 建立獨立圖片頁。
                   self->currentPage.reset(new Page());
-
                   if (!self->currentPage) {
-                    LOG_ERR(
-                        "EHP",
-                        "Failed to create vertical image page"
-                    );
+                    LOG_ERR("EHP", "Failed to create vertical image page");
                     return;
                   }
 
@@ -649,65 +687,43 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                       std::make_shared<ImageBlock>(
                           cachedImagePath,
                           displayWidth,
-                          displayHeight
-                      );
-
+                          displayHeight);
                   if (!imageBlock) {
-                    LOG_ERR(
-                        "EHP",
-                        "Failed to create vertical ImageBlock"
-                    );
+                    LOG_ERR("EHP", "Failed to create vertical ImageBlock");
                     return;
                   }
 
-                  // 圖片水平與垂直置中。
                   const int imageX =
                       std::max(
                           0,
-                          (self->viewportWidth - displayWidth) / 2
-                      );
-
+                          (self->viewportWidth - displayWidth) / 2);
                   const int imageY =
                       std::max(
                           0,
-                          (self->viewportHeight - displayHeight) / 2
-                      );
+                          (self->viewportHeight - displayHeight) / 2);
 
                   auto pageImage =
                       std::make_shared<PageImage>(
                           imageBlock,
                           static_cast<int16_t>(imageX),
-                          static_cast<int16_t>(imageY)
-                      );
-
+                          static_cast<int16_t>(imageY));
                   if (!pageImage) {
-                    LOG_ERR(
-                        "EHP",
-                        "Failed to create vertical PageImage"
-                    );
+                    LOG_ERR("EHP", "Failed to create vertical PageImage");
                     return;
                   }
 
-                  self->currentPage->elements.push_back(
-                      pageImage
-                  );
-
-                  // 圖片頁立即完成，後續文字從新頁開始。
-                  self->completePageFn(
-                      std::move(self->currentPage)
-                  );
-
+                  self->currentPage->elements.push_back(pageImage);
+                  self->completePageFn(std::move(self->currentPage));
                   ++self->completedPageCount;
-
                   self->currentPage.reset();
-
                   self->currentPageNextY = 0;
                   self->currentPageNextX = -1;
+
+                  LOG_DBG("EHP", "Vertical layout: image emitted as a standalone page");
 
                   self->depth += 1;
                   return;
                 }
-
                 // Create page for image - only break if image won't fit remaining space
                 if (self->currentPage && !self->currentPage->elements.empty() &&
                     (self->currentPageNextY + displayHeight > self->viewportHeight)) {
@@ -1222,6 +1238,8 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
               self->renderer,
               self->fontId,
               effectiveHeight,
+              self->lineCompression,
+              self->characterSpacing,
               [self](
                   const std::shared_ptr<
                       TextBlock>& textBlock) {
@@ -1257,6 +1275,7 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
                     textBlock
                 );
               },
+              self->characterSpacing,
               false
           );
     }
@@ -1433,10 +1452,15 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   // Get file size to decide whether to show indexing popup.
   const size_t totalFileSize = file.size();
   const bool showPopup = popupFn && totalFileSize >= MIN_SIZE_FOR_POPUP;
+  const bool showProgress = showPopup && popupProgressFn && totalFileSize >= (50 * 1024);
+  const int popupProgressStep = totalFileSize >= (200 * 1024) ? 5 : 10;
   if (showPopup) {
     popupFn();
-    if (popupProgressFn) {
+    if (showProgress) {
       popupProgressFn(0);
+    } else {
+      LOG_DBG("EHP", "Small chapter indexing: static popup only (%u bytes)",
+              static_cast<unsigned>(totalFileSize));
     }
   }
 
@@ -1447,6 +1471,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   // Compute the time taken to parse and build pages
   const uint32_t chapterStartTime = millis();
   int lastPopupProgress = -1;
+  uint32_t lastPopupUpdateMs = millis();
   do {
     void* const buf = XML_GetBuffer(parser, PARSE_BUFFER_SIZE);
     if (!buf) {
@@ -1467,11 +1492,15 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
 
     done = file.available() == 0;
 
-    if (showPopup && popupProgressFn && totalFileSize > 0) {
+    if (showProgress && totalFileSize > 0) {
       const int progress = static_cast<int>((static_cast<uint64_t>(file.position()) * 100ULL) / totalFileSize);
-      if (progress >= lastPopupProgress + 4 || (done && progress != lastPopupProgress)) {
+      const uint32_t now = millis();
+      const bool enoughProgress = progress >= lastPopupProgress + popupProgressStep;
+      const bool enoughTime = (now - lastPopupUpdateMs) >= 1000;
+      if ((enoughProgress && enoughTime) || (done && progress != lastPopupProgress)) {
         popupProgressFn(progress);
         lastPopupProgress = progress;
+        lastPopupUpdateMs = now;
       }
     }
 
@@ -1484,7 +1513,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
     }
   } while (!done);
   LOG_DBG("EHP", "Time to parse and build pages: %lu ms", millis() - chapterStartTime);
-  if (showPopup && popupProgressFn) {
+  if (showProgress) {
     popupProgressFn(100);
   }
 
@@ -1510,7 +1539,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
 void ChapterHtmlSlimParser::addLineToPage(
   std::shared_ptr<TextBlock> line
 ) {
-  const int lineHeight = renderer.getLineHeight(fontId) * lineCompression;
+  const int lineHeight = std::max(1, static_cast<int>(renderer.getLineHeight(fontId) * lineCompression));
 
   if (!currentPage) {
     currentPage.reset(new Page());
@@ -1546,14 +1575,10 @@ void ChapterHtmlSlimParser::addColumnToPage(
     return;
   }
 
-  constexpr int verticalColumnGap = 6;
   const int columnAdvance =
       std::max(
-          renderer.getLineHeight(fontId) + verticalColumnGap,
-          static_cast<int>(
-              renderer.getLineHeight(fontId) *
-              lineCompression
-          ) + verticalColumnGap
+          1,
+          static_cast<int>(renderer.getLineHeight(fontId) * lineCompression)
       );
 
   /*
@@ -1635,7 +1660,8 @@ void ChapterHtmlSlimParser::addColumnToPage(
 
   const int topOffset =
       std::max<int>(0, blockStyle.marginTop) +
-      std::max<int>(0, blockStyle.paddingTop);
+      std::max<int>(0, blockStyle.paddingTop) +
+      std::max<int>(0, currentPageNextY);
 
   currentPage->elements.push_back(
       std::make_shared<PageLine>(
@@ -1661,7 +1687,6 @@ void ChapterHtmlSlimParser::makePages() {
     return;
   }
 
-  constexpr int verticalColumnGap = 6;
   const int baseLineAdvance =
       std::max(
           1,
@@ -1670,11 +1695,7 @@ void ChapterHtmlSlimParser::makePages() {
               lineCompression
           )
       );
-  const int lineOrColumnAdvance =
-      isVerticalLayoutEnabled()
-          ? std::max(renderer.getLineHeight(fontId) + verticalColumnGap,
-                     baseLineAdvance + verticalColumnGap)
-          : baseLineAdvance;
+  const int lineOrColumnAdvance = baseLineAdvance;
 
   const BlockStyle& blockStyle =
       currentTextBlock->getBlockStyle();
@@ -1711,8 +1732,30 @@ void ChapterHtmlSlimParser::makePages() {
         std::max<int>(0, blockStyle.marginBottom) +
         std::max<int>(0, blockStyle.paddingBottom);
 
+    int reservedTop = currentPage
+        ? std::max<int>(0, currentPageNextY)
+        : 0;
+    const int minColumnHeight =
+        std::max(
+            renderer.getLineHeight(fontId),
+            lineOrColumnAdvance);
+
+    if (currentPage &&
+        !currentPage->elements.empty() &&
+        reservedTop > 0 &&
+        reservedTop + minColumnHeight > static_cast<int>(viewportHeight)) {
+      completePageFn(std::move(currentPage));
+      ++completedPageCount;
+      currentPage.reset(new Page());
+      currentPageNextY = 0;
+      currentPageNextX =
+          static_cast<int16_t>(
+              viewportWidth - lineOrColumnAdvance);
+      reservedTop = 0;
+    }
+
     const int totalVerticalInset =
-        topInset + bottomInset;
+        topInset + bottomInset + reservedTop;
 
     const uint16_t effectiveHeight =
         totalVerticalInset <
@@ -1728,6 +1771,8 @@ void ChapterHtmlSlimParser::makePages() {
             renderer,
             fontId,
             effectiveHeight,
+            lineCompression,
+            characterSpacing,
             [this](
                 const std::shared_ptr<
                     TextBlock>& textBlock) {
@@ -1809,7 +1854,8 @@ void ChapterHtmlSlimParser::makePages() {
           const std::shared_ptr<
               TextBlock>& textBlock) {
         addLineToPage(textBlock);
-      }
+      },
+      characterSpacing
   );
 
   if (!pendingFootnotes.empty() &&

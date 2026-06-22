@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <Epub.h>
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Section.h>
@@ -27,6 +28,10 @@ class EpubReaderActivity final : public Activity {
   bool pendingScreenshot = false;
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool automaticPageTurnActive = false;
+  bool pendingNextChapterPreindex = false;
+  unsigned long nextChapterPreindexAt = 0UL;
+  uint16_t pendingPreindexViewportWidth = 0;
+  uint16_t pendingPreindexViewportHeight = 0;
 
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;
@@ -41,6 +46,7 @@ class EpubReaderActivity final : public Activity {
   void renderContents(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
   void renderStatusBar() const;
+  void scheduleSilentIndexNextChapter(uint16_t viewportWidth, uint16_t viewportHeight);
   void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
   void saveProgress(int spineIndex, int currentPage, int pageCount);
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
@@ -48,6 +54,8 @@ class EpubReaderActivity final : public Activity {
   void onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action);
   void applyOrientation(uint8_t orientation);
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
+  void openReaderMenu();
+  void openReaderSettings();
   void pageTurn(bool isForwardTurn);
 
   // Footnote navigation

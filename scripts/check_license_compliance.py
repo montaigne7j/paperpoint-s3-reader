@@ -38,7 +38,12 @@ required = [
     "partitions.csv",
     "scripts/collect_dependency_licenses.py",
     "scripts/package_lgpl_sources.py",
+    "scripts/package_lgpl_relink_kit.py",
+    "scripts/merge_firmware.py",
+    ".github/workflows/release.yml",
     ".github/workflows/release-compliance.yml",
+    ".github/workflows/web-installer.yml",
+    "docs/install/index.html",
     "LICENSES/README.md",
     "LICENSES/Apache-2.0.txt",
     "LICENSES/OFL-1.1-NotoSansCJK.txt",
@@ -63,7 +68,7 @@ for path in ROOT.rglob("*"):
         continue
     if forbidden in path.name.lower():
         fail(f"Removed font remains in filename: {path.relative_to(ROOT)}")
-    if path.suffix.lower() in {".cpp", ".h", ".hpp", ".c", ".ini", ".yaml", ".yml", ".py", ".sh"}:
+    if path.suffix.lower() in {".cpp", ".h", ".hpp", ".c", ".ini", ".yaml", ".yml", ".py", ".sh", ".html", ".md"}:
         if forbidden in text(path).lower():
             fail(f"Removed font remains in source/config: {path.relative_to(ROOT)}")
 
@@ -82,6 +87,8 @@ for expected in (
 for path in (ROOT / "lib/EpdFont/builtinFonts").glob("*.h"):
     body = text(path)
     lower_name = path.name.lower()
+    if lower_name.startswith("opendyslexic_") or re.match(r"ubuntu_\d+_", lower_name):
+        fail(f"Legacy generated font derivative remains: {path.relative_to(ROOT)}")
     if lower_name.startswith("notosans_") and "SPDX-License-Identifier: OFL-1.1" not in body:
         fail(f"Missing OFL notice: {path.relative_to(ROOT)}")
     if lower_name.startswith("readerdyslexic_"):
@@ -132,18 +139,53 @@ for base in (ROOT / "src/images", ROOT / "docs/images"):
         if path.is_file() and path.relative_to(ROOT).as_posix() not in assets:
             fail(f"Visual asset missing from ASSETS_LICENSES.md: {path.relative_to(ROOT)}")
 
-workflow_path = ROOT / ".github/workflows/release-compliance.yml"
-if workflow_path.exists():
-    workflow = text(workflow_path)
-    for required_command in (
-        "scripts/generate_sbom.py",
-        "scripts/collect_dependency_licenses.py",
-        "scripts/package_lgpl_sources.py",
-        "scripts/package_lgpl_relink_kit.py",
-        "complete-application-source.zip",
-    ):
-        if required_command not in workflow:
-            fail(f"Release workflow is missing: {required_command}")
+release_workflow = text(ROOT / ".github/workflows/release.yml")
+if "uses: ./.github/workflows/release-compliance.yml" not in release_workflow:
+    fail("release.yml must delegate to release-compliance.yml")
+for forbidden_release_token in ("softprops/action-gh-release", "pio run -e gh_release", "merged-firmware.bin"):
+    if forbidden_release_token in release_workflow:
+        fail(f"release.yml still bypasses compliance packaging: {forbidden_release_token}")
+
+workflow = text(ROOT / ".github/workflows/release-compliance.yml")
+for required_command in (
+    "workflow_call",
+    "scripts/generate_sbom.py",
+    "scripts/collect_dependency_licenses.py",
+    "scripts/package_lgpl_sources.py",
+    "scripts/package_lgpl_relink_kit.py",
+    "scripts/merge_firmware.py",
+    "complete-application-source.zip",
+    "merged-firmware.bin",
+    "lgpl-relink-kit.zip",
+    "license-bundle.zip",
+):
+    if required_command not in workflow:
+        fail(f"Release workflow is missing: {required_command}")
+
+web_installer = text(ROOT / ".github/workflows/web-installer.yml")
+for required_web_token in (
+    "docs/install/compliance",
+    "complete-application-source.zip",
+    "lgpl-component-sources.zip",
+    "lgpl-relink-kit.zip",
+    "license-bundle.zip",
+    "SBOM.spdx.json",
+    "SHA256SUMS.txt",
+):
+    if required_web_token not in web_installer:
+        fail(f"Web installer workflow is missing compliance artifact: {required_web_token}")
+
+installer = text(ROOT / "docs/install/index.html")
+for required_link in (
+    "compliance/complete-application-source.zip",
+    "compliance/lgpl-component-sources.zip",
+    "compliance/lgpl-relink-kit.zip",
+    "compliance/license-bundle.zip",
+    "compliance/SBOM.spdx.json",
+    "compliance/SHA256SUMS.txt",
+):
+    if required_link not in installer:
+        fail(f"Installer page is missing compliance link: {required_link}")
 
 sbom_path = ROOT / "SBOM.spdx.json"
 if sbom_path.exists():

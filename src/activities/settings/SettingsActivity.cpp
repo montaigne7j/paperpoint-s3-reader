@@ -16,6 +16,7 @@
 #include "OtaUpdateActivity.h"
 #include "ReaderFontSelectActivity.h"
 #include "ReaderFontSizeActivity.h"
+#include "ReaderValueAdjustActivity.h"
 #include "SettingsList.h"
 #include "StatusBarSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -203,25 +204,38 @@ void SettingsActivity::toggleCurrentSetting() {
     }
   } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
     if (setting.valuePtr == &CrossPointSettings::fontSize) {
-      // A 20-60 range is too large to cycle through one value per Select press.
-      // Open a focused numeric picker where the two right footer buttons adjust
-      // the exact pixel size and Select confirms it.
+      // Open a focused numeric picker. +/- applies immediately; Back/Done just returns.
       startActivityForResult(
           std::make_unique<ReaderFontSizeActivity>(renderer, mappedInput, SETTINGS.fontSize),
-          [this](const ActivityResult& result) {
-            if (result.isCancelled) return;
-            const uint8_t nextSize = std::get<FontSizeResult>(result.data).size;
-            if (nextSize == SETTINGS.fontSize) return;
+          [](const ActivityResult&) {});
+      return;
+    }
 
-            SETTINGS.fontSize = nextSize;
-            // TTF reloads at the exact selected size. Built-in and fixed bitmap
-            // fonts use their nearest available raster size, but their section
-            // layouts still need to be invalidated when the size bucket changes.
-            if (!FontMgr.reloadReaderFontForSize()) {
-              FontMgr.invalidateReaderLayoutCaches();
-            }
-            SETTINGS.saveToFile();
-          });
+    if (setting.valuePtr == &CrossPointSettings::lineSpacing) {
+      startActivityForResult(
+          std::make_unique<ReaderValueAdjustActivity>(
+              renderer, mappedInput, StrId::STR_LINE_SPACING, SETTINGS.lineSpacing,
+              CrossPointSettings::READER_LINE_SPACING_MIN, CrossPointSettings::READER_LINE_SPACING_MAX, 5, "%",
+              "直排：調整欄距",
+              [](uint8_t value) {
+                SETTINGS.lineSpacing = value;
+                SETTINGS.saveToFile();
+              }),
+          [](const ActivityResult&) {});
+      return;
+    }
+
+    if (setting.valuePtr == &CrossPointSettings::characterSpacing) {
+      startActivityForResult(
+          std::make_unique<ReaderValueAdjustActivity>(
+              renderer, mappedInput, StrId::STR_CHARACTER_SPACING, SETTINGS.characterSpacing,
+              CrossPointSettings::READER_CHARACTER_SPACING_MIN, CrossPointSettings::READER_CHARACTER_SPACING_MAX, 1, " px",
+              "0 px 為最緊密字距",
+              [](uint8_t value) {
+                SETTINGS.characterSpacing = value;
+                SETTINGS.saveToFile();
+              }),
+          [](const ActivityResult&) {});
       return;
     }
 
@@ -317,14 +331,20 @@ void SettingsActivity::render(RenderLock&&) {
           valueText = I18N.get(setting.enumValues[value]);
         } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
           valueText = std::to_string(SETTINGS.*(setting.valuePtr));
-          if (setting.valuePtr == &CrossPointSettings::fontSize) valueText += " px";
+          if (setting.valuePtr == &CrossPointSettings::fontSize) {
+            valueText += " px";
+          } else if (setting.valuePtr == &CrossPointSettings::lineSpacing) {
+            valueText += "%";
+          } else if (setting.valuePtr == &CrossPointSettings::characterSpacing) {
+            valueText += " px";
+          }
         }
         return valueText;
       },
       true);
 
-  // Draw help text. Actions and the numeric font-size picker open a
-  // sub-screen, while ordinary toggles/enums still change in place.
+  // Draw help text. Large numeric reader values open a focused +/- picker,
+  // while ordinary toggles/enums still change in place.
   const char* confirmLabel = nullptr;
   if (selectedSettingIndex == 0) {
     confirmLabel = I18N.get(categoryNames[(selectedCategoryIndex + 1) % categoryCount]);
@@ -333,7 +353,9 @@ void SettingsActivity::render(RenderLock&&) {
     const bool opensSelector =
         selected.type == SettingType::ACTION ||
         (selected.type == SettingType::VALUE &&
-         selected.valuePtr == &CrossPointSettings::fontSize);
+         (selected.valuePtr == &CrossPointSettings::fontSize ||
+          selected.valuePtr == &CrossPointSettings::lineSpacing ||
+          selected.valuePtr == &CrossPointSettings::characterSpacing));
     confirmLabel = opensSelector ? tr(STR_SELECT) : tr(STR_TOGGLE);
   }
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));

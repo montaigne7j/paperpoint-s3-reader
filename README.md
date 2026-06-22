@@ -6,9 +6,16 @@
 
 專案使用 **PlatformIO** 編譯，目標晶片為 **ESP32-S3**，搭配 Paper S3 的 960x540 電子紙螢幕、GT911 觸控、SD 卡與 AXP2101 電源管理。
 
+## 快速連結
+
+- [使用說明與畫面圖解](USER_GUIDE.md)
+- [線上燒錄頁](docs/install/index.html)
+- [Release 發布前檢查](RELEASE_AUDIT.md)
+- [授權與二進位發布合規檢查表](RELEASE_COMPLIANCE_CHECKLIST.md)
+
 ## 目前重點
 
-- 目前版本：**1.4.0**。
+- 目前版本：**1.5.0**。
 - 中文優先的 M5Paper S3 電子紙閱讀器韌體。
 - 內建 **PaperPoint Sans TC Medium** 繁中文字型 fallback；即使 SD 卡沒有 `/fonts` 字型，中文 UI、書名、章節與正文仍可顯示。
 - 新增 **大字** 介面主題，放大設定、檔案瀏覽、最近閱讀、閱讀選單與閱讀狀態列，方便需要大字 UI 的使用者。
@@ -174,8 +181,6 @@ Paper S3 版本支援：
 | 手勢 | 功能 |
 |---|---|
 | 雙指點擊 | 離開閱讀頁 |
-| 向上滑 | 上一頁 |
-| 向下滑 | 下一頁 |
 
 ## 內部資料
 

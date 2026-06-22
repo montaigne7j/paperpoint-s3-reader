@@ -63,6 +63,52 @@ std::string formatUtcOffset(uint8_t biasedQ) {
   snprintf(buf, sizeof(buf), "UTC%c%d:%02d", neg ? '-' : '+', hours, mins);
   return buf;
 }
+
+bool isLargeTextTheme() {
+  return SETTINGS.uiTheme == CrossPointSettings::UI_THEME::LARGE_TEXT;
+}
+
+bool shouldShowMenuItem(const MenuItem item) {
+  return !(isLargeTextTheme() && item == ITEM_TITLE);
+}
+
+int maxMenuItemCount() {
+  return halClock.isAvailable() ? FULL_MENU_ITEMS : BASE_MENU_ITEMS;
+}
+
+int getVisibleMenuItemCount() {
+  int count = 0;
+  const int maxItems = maxMenuItemCount();
+  for (int i = 0; i < maxItems; ++i) {
+    if (shouldShowMenuItem(static_cast<MenuItem>(i))) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+MenuItem menuItemForVisibleIndex(const int visibleIndex) {
+  int visibleCount = 0;
+  const int maxItems = maxMenuItemCount();
+  for (int i = 0; i < maxItems; ++i) {
+    const auto item = static_cast<MenuItem>(i);
+    if (!shouldShowMenuItem(item)) continue;
+    if (visibleCount == visibleIndex) return item;
+    ++visibleCount;
+  }
+  return ITEM_COUNT;
+}
+
+void normalizeLargeTextStatusBarSlots() {
+  if (!isLargeTextTheme()) return;
+
+  // In the large UI both counters use the center slot. Keep chapter pages as
+  // the preferred center counter when an older settings file has both enabled.
+  if (SETTINGS.statusBarChapterPageCount && SETTINGS.statusBarBookProgressPercentage) {
+    SETTINGS.statusBarBookProgressPercentage = 0;
+  }
+}
+
 constexpr int PROGRESS_BAR_ITEMS = 3;
 const StrId progressBarNames[PROGRESS_BAR_ITEMS] = {StrId::STR_BOOK, StrId::STR_CHAPTER, StrId::STR_HIDE};
 
@@ -84,7 +130,7 @@ void StatusBarSettingsActivity::onEnter() {
   Activity::onEnter();
 
   selectedIndex = 0;
-  visibleItemCount = halClock.isAvailable() ? FULL_MENU_ITEMS : BASE_MENU_ITEMS;
+  visibleItemCount = getVisibleMenuItemCount();
 
   // Clamp statusBarProgressBar and statusBarTitle in case of corrupt/migrated data
   if (SETTINGS.statusBarProgressBar >= PROGRESS_BAR_ITEMS) {
@@ -107,9 +153,7 @@ void StatusBarSettingsActivity::onEnter() {
     SETTINGS.clockFormat = 0;
   }
 
-  if (SETTINGS.statusBarClock && halClock.isAvailable()) {
-    SETTINGS.statusBarTitle = CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE;
-  }
+  normalizeLargeTextStatusBarSlots();
 
   requestUpdate();
 }
@@ -151,12 +195,20 @@ void StatusBarSettingsActivity::loop() {
 }
 
 void StatusBarSettingsActivity::handleSelection() {
-  switch (selectedIndex) {
+  const MenuItem selectedItem = menuItemForVisibleIndex(selectedIndex);
+
+  switch (selectedItem) {
     case ITEM_CHAPTER_PAGE_COUNT:
       SETTINGS.statusBarChapterPageCount = (SETTINGS.statusBarChapterPageCount + 1) % 2;
+      if (isLargeTextTheme() && SETTINGS.statusBarChapterPageCount) {
+        SETTINGS.statusBarBookProgressPercentage = 0;
+      }
       break;
     case ITEM_BOOK_PROGRESS_PERCENTAGE:
       SETTINGS.statusBarBookProgressPercentage = (SETTINGS.statusBarBookProgressPercentage + 1) % 2;
+      if (isLargeTextTheme() && SETTINGS.statusBarBookProgressPercentage) {
+        SETTINGS.statusBarChapterPageCount = 0;
+      }
       break;
     case ITEM_PROGRESS_BAR:
       SETTINGS.statusBarProgressBar = (SETTINGS.statusBarProgressBar + 1) % PROGRESS_BAR_ITEMS;
@@ -167,18 +219,12 @@ void StatusBarSettingsActivity::handleSelection() {
       break;
     case ITEM_TITLE:
       SETTINGS.statusBarTitle = (SETTINGS.statusBarTitle + 1) % TITLE_ITEMS;
-      if (SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE) {
-        SETTINGS.statusBarClock = 0;
-      }
       break;
     case ITEM_BATTERY:
       SETTINGS.statusBarBattery = (SETTINGS.statusBarBattery + 1) % 2;
       break;
     case ITEM_CLOCK:
       SETTINGS.statusBarClock = (SETTINGS.statusBarClock + 1) % 2;
-      if (SETTINGS.statusBarClock) {
-        SETTINGS.statusBarTitle = CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE;
-      }
       break;
     case ITEM_CLOCK_FORMAT:
       SETTINGS.clockFormat = (SETTINGS.clockFormat + 1) % CLOCK_FORMAT_ITEMS;
@@ -209,9 +255,9 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
   const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
   GUI.drawList(
       renderer, Rect{0, contentTop, pageWidth, contentHeight}, visibleItemCount, static_cast<int>(selectedIndex),
-      [](int index) { return std::string(I18N.get(menuNames[index])); }, nullptr, nullptr,
+      [](int index) { return std::string(I18N.get(menuNames[menuItemForVisibleIndex(index)])); }, nullptr, nullptr,
       [](int index) -> std::string {
-        switch (index) {
+        switch (menuItemForVisibleIndex(index)) {
           case ITEM_CHAPTER_PAGE_COUNT:
             return SETTINGS.statusBarChapterPageCount ? tr(STR_SHOW) : tr(STR_HIDE);
           case ITEM_BOOK_PROGRESS_PERCENTAGE:

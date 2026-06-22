@@ -338,7 +338,7 @@ void setupDisplayAndFonts() {
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
   renderer.setBuiltinFallbackFont(&paperpointSansTcFallbackFamily);
-  LOG_INF("MAIN", "Built-in Traditional Chinese fallback active: 21x30 source; compact UI/status scaled to 100% at render time");
+  LOG_INF("MAIN", "Built-in Traditional Chinese fallback active: PaperPoint Sans TC Medium (21x30); status text bottom-aligned");
   LOG_DBG("MAIN", "Fonts setup");
 }
 

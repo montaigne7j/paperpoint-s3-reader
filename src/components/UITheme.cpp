@@ -106,11 +106,12 @@ UIIcon UITheme::getFileIcon(const std::string& filename) {
 int UITheme::getStatusBarHeight() {
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
   const bool clockVisible = SETTINGS.statusBarClock && halClock.isAvailable();
+  const bool titleVisible = SETTINGS.uiTheme != CrossPointSettings::UI_THEME::LARGE_TEXT &&
+                            SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE;
 
   // Add status bar margin
   const bool showStatusBar = SETTINGS.statusBarChapterPageCount || SETTINGS.statusBarBookProgressPercentage ||
-                             SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE ||
-                             SETTINGS.statusBarBattery || clockVisible;
+                             titleVisible || SETTINGS.statusBarBattery || clockVisible;
   const bool showProgressBar =
       SETTINGS.statusBarProgressBar != CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
   return (showStatusBar ? (metrics.statusBarVerticalMargin) : 0) +

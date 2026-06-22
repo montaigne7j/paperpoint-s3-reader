@@ -1,12 +1,14 @@
 #include "LargeTextTheme.h"
 
 #include <GfxRenderer.h>
+#include <HalDisplay.h>
 #include <HalClock.h>
 #include <HalPowerManager.h>
 #include <I18n.h>
 
 #include <algorithm>
 #include <cstdio>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -19,6 +21,30 @@ namespace {
 constexpr int textScale = 2;
 constexpr int hPadding = 8;
 constexpr int cornerRadius = 6;
+void drawLargePopupProgressRing(const GfxRenderer& renderer, const int cx, const int cy, const int radius,
+                                const int thickness, const int progress, const bool state) {
+  const int clamped = std::max(0, std::min(100, progress));
+  constexpr float pi = 3.14159265358979323846f;
+
+  auto drawArcPixels = [&](const int startDeg, const int endDeg, const int strokeWidth, const bool pixelState) {
+    for (int deg = startDeg; deg <= endDeg; ++deg) {
+      const float rad = (static_cast<float>(deg) - 90.0f) * pi / 180.0f;
+      const float cs = std::cos(rad);
+      const float sn = std::sin(rad);
+      for (int t = 0; t < strokeWidth; ++t) {
+        const int r = radius - t;
+        const int x = cx + static_cast<int>(std::lround(cs * static_cast<float>(r)));
+        const int y = cy + static_cast<int>(std::lround(sn * static_cast<float>(r)));
+        renderer.drawPixel(x, y, pixelState);
+      }
+    }
+  };
+
+  drawArcPixels(0, 359, 1, state);
+  if (clamped <= 0) return;
+  const int sweep = static_cast<int>(std::lround(clamped * 3.6f));
+  drawArcPixels(0, std::min(359, sweep), thickness, state);
+}
 
 int lineHeight(const GfxRenderer& renderer, const int fontId = UI_10_FONT_ID) {
   return renderer.getLineHeightScaled(fontId, textScale);
@@ -92,11 +118,17 @@ void drawLargeListRow(const GfxRenderer& renderer, const Rect rect, const int it
   }
   const bool hasValue = !valueText.empty();
   const bool hasSubtitle = rowSubtitle != nullptr;
-  const bool twoLines = hasValue || hasSubtitle;
+  const bool oneLineValue =
+      hasValue && !hasSubtitle &&
+      (textWidth(renderer, UI_10_FONT_ID, rowTitle(index)) + lineGap + textWidth(renderer, UI_10_FONT_ID, valueText) <=
+       textW);
+  const bool twoLines = hasSubtitle || (hasValue && !oneLineValue);
   const int totalTextH = twoLines ? titleLineH * 2 + lineGap : titleLineH;
   const int titleY = itemY + std::max(0, (rowHeight - totalTextH) / 2);
 
-  const auto title = fitText(renderer, UI_10_FONT_ID, rowTitle(index), textW);
+  const int valueOneLineW = oneLineValue ? textWidth(renderer, UI_10_FONT_ID, valueText) : 0;
+  const int titleMaxW = oneLineValue ? std::max(1, textW - valueOneLineW - lineGap) : textW;
+  const auto title = fitText(renderer, UI_10_FONT_ID, rowTitle(index), titleMaxW);
   renderer.drawTextScaled(UI_10_FONT_ID, textX, titleY, title.c_str(), textScale, true);
 
   if (hasSubtitle) {
@@ -105,8 +137,9 @@ void drawLargeListRow(const GfxRenderer& renderer, const Rect rect, const int it
   }
 
   if (hasValue) {
-    const int valueY = titleY + titleLineH + lineGap;
-    const auto value = fitText(renderer, UI_10_FONT_ID, valueText, textW);
+    const int valueY = oneLineValue ? titleY : titleY + titleLineH + lineGap;
+    const int valueMaxW = oneLineValue ? valueOneLineW : textW;
+    const auto value = fitText(renderer, UI_10_FONT_ID, valueText, valueMaxW);
     const int valueW = textWidth(renderer, UI_10_FONT_ID, value);
     const int valueX = rowX + rowW - hPadding - valueW;
 
@@ -346,6 +379,49 @@ void LargeTextTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const
   renderer.drawTextScaled(UI_10_FONT_ID, contentX, y, action.c_str(), textScale);
 }
 
+Rect LargeTextTheme::drawPopup(const GfxRenderer& renderer, const char* message) const {
+  constexpr int margin = 24;
+  constexpr int indicatorBlockHeight = 104;
+  constexpr int outline = 3;
+  constexpr int minPopupWidth = 360;
+  const int y = static_cast<int>(renderer.getScreenHeight() * 0.075f);
+  const int textWidth = renderer.getTextWidthScaled(UI_12_FONT_ID, message, textScale, EpdFontFamily::BOLD);
+  const int textHeight = renderer.getLineHeightScaled(UI_12_FONT_ID, textScale);
+  const int w = std::max(minPopupWidth, textWidth + margin * 2);
+  const int h = textHeight + margin * 2 + indicatorBlockHeight;
+  const int x = (renderer.getScreenWidth() - w) / 2;
+
+  renderer.fillRoundedRect(x - outline, y - outline, w + outline * 2, h + outline * 2, cornerRadius + outline,
+                           Color::Black);
+  renderer.fillRoundedRect(x, y, w, h, cornerRadius, Color::White);
+
+  const int textX = x + (w - textWidth) / 2;
+  const int textY = y + margin - 2;
+  renderer.drawTextScaled(UI_12_FONT_ID, textX, textY, message, textScale, true, EpdFontFamily::BOLD);
+  renderer.displayBuffer();
+  return Rect{x, y, w, h};
+}
+
+void LargeTextTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const {
+  constexpr int progressAreaHeight = 92;
+  constexpr int ringRadius = 32;
+  constexpr int ringThickness = 5;
+  const int clamped = std::max(0, std::min(100, progress));
+  const int progressAreaY = layout.y + layout.height - progressAreaHeight - 10;
+  const int centerX = layout.x + layout.width / 2;
+  const int centerY = progressAreaY + progressAreaHeight / 2;
+
+  renderer.fillRect(layout.x + 16, progressAreaY, layout.width - 32, progressAreaHeight, false);
+  drawLargePopupProgressRing(renderer, centerX, centerY, ringRadius, ringThickness, clamped, true);
+
+  const std::string percentText = std::to_string(clamped) + "%";
+  const int textWidth = renderer.getTextWidthScaled(UI_10_FONT_ID, percentText.c_str(), textScale);
+  const int textX = centerX - textWidth / 2;
+  const int textY = centerY - renderer.getLineHeightScaled(UI_10_FONT_ID, textScale) / 2 + 1;
+  renderer.drawTextScaled(UI_10_FONT_ID, textX, textY, percentText.c_str(), textScale);
+
+  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+}
 void LargeTextTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                     const std::function<std::string(int index)>& buttonLabel,
                                     const std::function<UIIcon(int index)>& rowIcon) const {
@@ -374,6 +450,7 @@ void LargeTextTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int button
 void LargeTextTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                                    const int pageCount, std::string title, const int paddingBottom,
                                    const int textYOffset) const {
+  (void)title;
   int orientedTop = 0;
   int orientedRight = 0;
   int orientedBottom = 0;
@@ -383,7 +460,6 @@ void LargeTextTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgre
 
   const bool clockVisible = SETTINGS.statusBarClock && halClock.isAvailable();
   const bool showStatusText = SETTINGS.statusBarChapterPageCount || SETTINGS.statusBarBookProgressPercentage ||
-                              SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE ||
                               SETTINGS.statusBarBattery || clockVisible;
   const bool showProgressBar =
       SETTINGS.statusBarProgressBar != CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
@@ -412,46 +488,66 @@ void LargeTextTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgre
     return;
   }
 
-  std::string leftText;
-  if (clockVisible) {
-    char timeBuf[9];
-    if (halClock.formatTime(timeBuf, sizeof(timeBuf), SETTINGS.clockUtcOffsetQ, SETTINGS.clockFormat == 1)) {
-      leftText = timeBuf;
-    }
-  } else if (SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE && !title.empty()) {
-    leftText = title;
-  } else if (SETTINGS.statusBarBattery) {
-    leftText = std::to_string(powerManager.getBatteryPercentage()) + "%";
-  }
-
-  char rightBuf[48] = {};
-  if (SETTINGS.statusBarBookProgressPercentage && SETTINGS.statusBarChapterPageCount) {
-    std::snprintf(rightBuf, sizeof(rightBuf), "%d/%d %.0f%%", currentPage, pageCount, bookProgress);
-  } else if (SETTINGS.statusBarBookProgressPercentage) {
-    std::snprintf(rightBuf, sizeof(rightBuf), "%.0f%%", bookProgress);
-  } else if (SETTINGS.statusBarChapterPageCount) {
-    std::snprintf(rightBuf, sizeof(rightBuf), "%d/%d", currentPage, pageCount);
-  } else if (SETTINGS.statusBarBattery && leftText.empty()) {
-    std::snprintf(rightBuf, sizeof(rightBuf), "%u%%", powerManager.getBatteryPercentage());
-  }
-
-  std::string rightText = rightBuf;
   const int statusLineH = lineHeight(renderer, UI_10_FONT_ID);
   const int textY = statusTop + std::max(0, (LargeTextMetrics::values.statusBarVerticalMargin - statusLineH) / 2) -
                     textYOffset;
-  const int gap = 16;
-  const int totalTextW = std::max(1, rightX - leftX);
-  const int rightMaxW = totalTextW / 2;
-  if (!rightText.empty()) {
-    rightText = fitText(renderer, UI_10_FONT_ID, rightText, rightMaxW);
+  constexpr int gap = 14;
+
+  std::string leftText;
+  if (SETTINGS.statusBarBattery) {
+    leftText = std::to_string(powerManager.getBatteryPercentage()) + "%";
   }
-  const int rightW = rightText.empty() ? 0 : textWidth(renderer, UI_10_FONT_ID, rightText);
-  const int leftMaxW = std::max(1, totalTextW - rightW - gap);
+
+  std::string centerText;
+  char progressBuf[32] = {};
+  if (SETTINGS.statusBarChapterPageCount) {
+    std::snprintf(progressBuf, sizeof(progressBuf), "%d/%d", currentPage, pageCount);
+  } else if (SETTINGS.statusBarBookProgressPercentage) {
+    std::snprintf(progressBuf, sizeof(progressBuf), "%.0f%%", bookProgress);
+  }
+  centerText = progressBuf;
+
+  std::string rightText;
+  if (clockVisible) {
+    char timeBuf[9];
+    if (halClock.formatTime(timeBuf, sizeof(timeBuf), SETTINGS.clockUtcOffsetQ, SETTINGS.clockFormat == 1)) {
+      rightText = timeBuf;
+    }
+  }
+
+  int leftEnd = leftX;
   if (!leftText.empty()) {
-    leftText = fitText(renderer, UI_10_FONT_ID, leftText, leftMaxW);
-    renderer.drawTextScaled(UI_10_FONT_ID, leftX, textY, leftText.c_str(), textScale);
+    const int maxLeftW = std::max(1, (rightX - leftX) / 3);
+    const auto fittedLeft = fitText(renderer, UI_10_FONT_ID, leftText, maxLeftW);
+    if (!fittedLeft.empty()) {
+      renderer.drawTextScaled(UI_10_FONT_ID, leftX, textY, fittedLeft.c_str(), textScale);
+      leftEnd = leftX + textWidth(renderer, UI_10_FONT_ID, fittedLeft) + gap;
+    }
   }
+
+  int rightStart = rightX;
   if (!rightText.empty()) {
-    renderer.drawTextScaled(UI_10_FONT_ID, rightX - rightW, textY, rightText.c_str(), textScale);
+    const int maxRightW = std::max(1, (rightX - leftX) / 3);
+    const auto fittedRight = fitText(renderer, UI_10_FONT_ID, rightText, maxRightW);
+    const int rightW = textWidth(renderer, UI_10_FONT_ID, fittedRight);
+    if (!fittedRight.empty() && rightW > 0) {
+      rightStart = rightX - rightW;
+      renderer.drawTextScaled(UI_10_FONT_ID, rightStart, textY, fittedRight.c_str(), textScale);
+      rightStart -= gap;
+    }
+  }
+
+  if (!centerText.empty()) {
+    const int centerAreaX = std::max(leftX, leftEnd);
+    const int centerAreaRight = std::min(rightX, rightStart);
+    const int centerAreaW = centerAreaRight - centerAreaX;
+    if (centerAreaW > 0) {
+      const auto fittedCenter = fitText(renderer, UI_10_FONT_ID, centerText, centerAreaW);
+      const int centerW = textWidth(renderer, UI_10_FONT_ID, fittedCenter);
+      if (!fittedCenter.empty() && centerW > 0) {
+        const int centerX = centerAreaX + (centerAreaW - centerW) / 2;
+        renderer.drawTextScaled(UI_10_FONT_ID, centerX, textY, fittedCenter.c_str(), textScale);
+      }
+    }
   }
 }

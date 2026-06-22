@@ -3,8 +3,8 @@
 #include <functional>
 #include <memory>
 
-#include "CrossPointSettings.h"
-#include "components/themes/BaseTheme.h"
+#include "../CrossPointSettings.h"
+#include "themes/BaseTheme.h"
 
 class UITheme {
   // Static instance
