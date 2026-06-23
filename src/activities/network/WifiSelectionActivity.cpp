@@ -6,10 +6,12 @@
 #include <Logging.h>
 #include <WiFi.h>
 
+#include <algorithm>
 #include <map>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "activities/util/DirectTouchSelection.h"
 #include "WifiCredentialStore.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
@@ -436,7 +438,44 @@ void WifiSelectionActivity::loop() {
       return;
     }
 
-    // Handle navigation
+#if CROSSPOINT_PAPERS3
+    if (!networks.empty()) {
+      const auto& metrics = UITheme::getInstance().getMetrics();
+      const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
+      const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight -
+                                metrics.verticalSpacing * 2;
+      const int targetIndex = DirectTouchSelection::hitListRow(
+          mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight},
+          static_cast<int>(networks.size()), static_cast<int>(selectedNetworkIndex), metrics.listRowHeight);
+      if (targetIndex >= 0) {
+        if (targetIndex == static_cast<int>(selectedNetworkIndex)) {
+          selectNetwork(selectedNetworkIndex);
+        } else {
+          selectedNetworkIndex = static_cast<size_t>(targetIndex);
+          requestUpdate();
+        }
+        return;
+      }
+    }
+#endif
+
+    // Footer Previous / Next page through Wi-Fi networks. Row selection is by touch.
+#if CROSSPOINT_PAPERS3
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
+    const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight -
+                              metrics.verticalSpacing * 2;
+    const int pageItems = std::max(1, contentHeight / std::max(1, metrics.listRowHeight));
+    buttonNavigator.onNextRelease([this, pageItems] {
+      selectedNetworkIndex = ButtonNavigator::nextPageIndex(selectedNetworkIndex, networks.size(), pageItems);
+      requestUpdate();
+    });
+
+    buttonNavigator.onPreviousRelease([this, pageItems] {
+      selectedNetworkIndex = ButtonNavigator::previousPageIndex(selectedNetworkIndex, networks.size(), pageItems);
+      requestUpdate();
+    });
+#else
     buttonNavigator.onNext([this] {
       selectedNetworkIndex = ButtonNavigator::nextIndex(selectedNetworkIndex, networks.size());
       requestUpdate();
@@ -446,6 +485,7 @@ void WifiSelectionActivity::loop() {
       selectedNetworkIndex = ButtonNavigator::previousIndex(selectedNetworkIndex, networks.size());
       requestUpdate();
     });
+#endif
   }
 }
 

@@ -8,6 +8,7 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "activities/util/DirectTouchSelection.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -62,7 +63,31 @@ void EpubReaderMenuActivity::onEnter() {
 
 void EpubReaderMenuActivity::onExit() { Activity::onExit(); }
 
+void EpubReaderMenuActivity::activateSelectedMenuAction() {
+  const auto selectedAction = menuItems[selectedIndex].action;
+  if (selectedAction == MenuAction::ROTATE_SCREEN) {
+    // Cycle orientation preview locally; actual rotation happens on menu exit.
+#if CROSSPOINT_PAPERS3
+    pendingOrientation = CrossPointSettings::nextPaperS3Orientation(pendingOrientation);
+#else
+    pendingOrientation = (pendingOrientation + 1) % orientationLabels.size();
+#endif
+    requestUpdate();
+    return;
+  }
+
+  if (selectedAction == MenuAction::AUTO_PAGE_TURN) {
+    selectedPageTurnOption = (selectedPageTurnOption + 1) % pageTurnLabels.size();
+    requestUpdate();
+    return;
+  }
+
+  setResult(MenuResult{static_cast<int>(selectedAction), pendingOrientation, selectedPageTurnOption});
+  finish();
+}
+
 void EpubReaderMenuActivity::loop() {
+#if !CROSSPOINT_PAPERS3
   // Handle navigation
   buttonNavigator.onNext([this] {
     selectedIndex = ButtonNavigator::nextIndex(selectedIndex, static_cast<int>(menuItems.size()));
@@ -73,28 +98,71 @@ void EpubReaderMenuActivity::loop() {
     selectedIndex = ButtonNavigator::previousIndex(selectedIndex, static_cast<int>(menuItems.size()));
     requestUpdate();
   });
+#endif
+
+#if CROSSPOINT_PAPERS3
+  {
+    const auto pageWidth = renderer.getScreenWidth();
+    const auto pageHeight = renderer.getScreenHeight();
+    const auto orientation = renderer.getOrientation();
+    const bool isLandscapeCw = orientation == GfxRenderer::Orientation::LandscapeClockwise;
+    const bool isLandscapeCcw = orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
+    const bool isPortraitInverted = orientation == GfxRenderer::Orientation::PortraitInverted;
+    const int hintGutterWidth = (isLandscapeCw || isLandscapeCcw) ? 30 : 0;
+    const int contentX = isLandscapeCw ? hintGutterWidth : 0;
+    const int contentWidth = pageWidth - hintGutterWidth;
+    const int contentY = isPortraitInverted ? 50 : 0;
+    Rect listRect;
+    int rowHeight = 0;
+    int summaryRows = 0;
+
+    if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::LARGE_TEXT) {
+      const auto& metrics = UITheme::getInstance().getMetrics();
+      const int headerY = contentY + metrics.topPadding;
+      const int listY = headerY + metrics.headerHeight + metrics.verticalSpacing;
+      const int footerTop = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing;
+      listRect = Rect{contentX, listY, contentWidth, std::max(1, footerTop - listY)};
+      rowHeight = metrics.listRowHeight;
+      summaryRows = 2;
+    } else {
+      const int startY = 85 + contentY;
+      const int textLineH = renderer.getLineHeight(UI_10_FONT_ID);
+      const int footerTop = pageHeight - UITheme::getInstance().getMetrics().buttonHintsHeight;
+      const int availableHeight = std::max(1, footerTop - startY);
+      const int idealLineHeight = availableHeight / std::max(1, static_cast<int>(menuItems.size()));
+      rowHeight = std::max(textLineH + 4, std::min(75, idealLineHeight));
+      listRect = Rect{contentX, startY, contentWidth, static_cast<int>(menuItems.size()) * rowHeight};
+    }
+
+    const int hitIndex = DirectTouchSelection::hitListRow(
+        mappedInput, listRect, static_cast<int>(menuItems.size()) + summaryRows, selectedIndex + summaryRows, rowHeight);
+    if (hitIndex >= 0) {
+      const int targetIndex = hitIndex - summaryRows;
+      if (targetIndex >= 0 && targetIndex < static_cast<int>(menuItems.size())) {
+        if (targetIndex == selectedIndex) {
+          activateSelectedMenuAction();
+        } else {
+          selectedIndex = targetIndex;
+          requestUpdate();
+        }
+      }
+      return;
+    }
+
+    const int pageItems = std::max(1, listRect.height / std::max(1, rowHeight));
+    buttonNavigator.onNextRelease([this, pageItems] {
+      selectedIndex = ButtonNavigator::nextPageIndex(selectedIndex, static_cast<int>(menuItems.size()), pageItems);
+      requestUpdate();
+    });
+    buttonNavigator.onPreviousRelease([this, pageItems] {
+      selectedIndex = ButtonNavigator::previousPageIndex(selectedIndex, static_cast<int>(menuItems.size()), pageItems);
+      requestUpdate();
+    });
+  }
+#endif
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    const auto selectedAction = menuItems[selectedIndex].action;
-    if (selectedAction == MenuAction::ROTATE_SCREEN) {
-      // Cycle orientation preview locally; actual rotation happens on menu exit.
-#if CROSSPOINT_PAPERS3
-      pendingOrientation = CrossPointSettings::nextPaperS3Orientation(pendingOrientation);
-#else
-      pendingOrientation = (pendingOrientation + 1) % orientationLabels.size();
-#endif
-      requestUpdate();
-      return;
-    }
-
-    if (selectedAction == MenuAction::AUTO_PAGE_TURN) {
-      selectedPageTurnOption = (selectedPageTurnOption + 1) % pageTurnLabels.size();
-      requestUpdate();
-      return;
-    }
-
-    setResult(MenuResult{static_cast<int>(selectedAction), pendingOrientation, selectedPageTurnOption});
-    finish();
+    activateSelectedMenuAction();
     return;
   } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     ActivityResult result;

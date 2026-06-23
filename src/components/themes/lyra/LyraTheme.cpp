@@ -353,32 +353,44 @@ void LyraTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const char
 
 void LyraTheme::drawTabBar(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs,
                            bool selected) const {
-  int currentX = rect.x + LyraMetrics::values.contentSidePadding;
+  if (tabs.empty()) return;
 
   if (selected) {
     renderer.fillRectDither(rect.x, rect.y, rect.width, rect.height, Color::LightGray);
   }
 
-  for (const auto& tab : tabs) {
-    const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, tab.label, EpdFontFamily::REGULAR);
+  constexpr int cellPadding = 6;
+  const int tabCount = static_cast<int>(tabs.size());
+  const int textLineH = renderer.getLineHeight(UI_10_FONT_ID);
+  const int textY = rect.y + std::max(0, (rect.height - textLineH) / 2);
+
+  for (int i = 0; i < tabCount; ++i) {
+    const auto& tab = tabs[i];
+    const int cellX = rect.x + (rect.width * i) / tabCount;
+    const int nextCellX = rect.x + (rect.width * (i + 1)) / tabCount;
+    const int cellW = nextCellX - cellX;
+
+    auto label = renderer.truncatedText(UI_10_FONT_ID, tab.label, std::max(1, cellW - cellPadding * 2),
+                                        EpdFontFamily::REGULAR);
+    const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, label.c_str(), EpdFontFamily::REGULAR);
+    const int textX = cellX + std::max(0, (cellW - textWidth) / 2);
 
     if (tab.selected) {
       if (selected) {
-        renderer.fillRoundedRect(currentX, rect.y + 1, textWidth + 2 * hPaddingInSelection, rect.height - 4,
-                                 cornerRadius, Color::Black);
+        renderer.fillRoundedRect(cellX + 2, rect.y + 1, std::max(1, cellW - 4), rect.height - 4, cornerRadius,
+                                 Color::Black);
       } else {
-        renderer.fillRectDither(currentX, rect.y, textWidth + 2 * hPaddingInSelection, rect.height - 3,
-                                Color::LightGray);
-        renderer.drawLine(currentX, rect.y + rect.height - 3, currentX + textWidth + 2 * hPaddingInSelection,
+        renderer.fillRectDither(cellX + 2, rect.y, std::max(1, cellW - 4), rect.height - 3, Color::LightGray);
+        renderer.drawLine(cellX + cellPadding, rect.y + rect.height - 3, nextCellX - cellPadding,
                           rect.y + rect.height - 3, 2, true);
       }
     }
 
-    const int textY = rect.y + (rect.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
-    renderer.drawText(UI_10_FONT_ID, currentX + hPaddingInSelection, textY, tab.label, !(tab.selected && selected),
-                      EpdFontFamily::REGULAR);
+    renderer.drawText(UI_10_FONT_ID, textX, textY, label.c_str(), !(tab.selected && selected), EpdFontFamily::REGULAR);
 
-    currentX += textWidth + LyraMetrics::values.tabSpacing + 2 * hPaddingInSelection;
+    if (i + 1 < tabCount) {
+      renderer.drawLine(nextCellX, rect.y + 4, nextCellX, rect.y + rect.height - 6);
+    }
   }
 
   renderer.drawLine(rect.x, rect.y + rect.height - 1, rect.x + rect.width - 1, rect.y + rect.height - 1, true);

@@ -202,13 +202,11 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
       const uint8_t fieldDefault = s.*(info.valuePtr);  // struct-initializer default, read before we overwrite it
       uint8_t v = doc[info.key] | fieldDefault;
 
-      // Schema 1 values: 0=removed proprietary font, 1=Noto Sans, 2=legacy dyslexia-friendly font.
-      // Schema 2 maps them to Noto Sans or the renamed ReaderDyslexic derivative.
-      if (info.valuePtr == &CrossPointSettings::fontFamily && settingsSchemaVersion < 2) {
-        v = v == CrossPointSettings::LEGACY_FONT_READERDYSLEXIC
-                ? CrossPointSettings::READERDYSLEXIC
-                : CrossPointSettings::NOTOSANS;
-        if (needsResave) *needsResave = true;
+      // ReaderDyslexic is no longer embedded in the slim PaperPoint build;
+      // migrate every legacy built-in family value back to NotoSans.
+      if (info.valuePtr == &CrossPointSettings::fontFamily) {
+        if (v != CrossPointSettings::NOTOSANS && needsResave) *needsResave = true;
+        v = CrossPointSettings::NOTOSANS;
       }
 
       // Reader line spacing used to be an enum (0=tight, 1=normal, 2=wide).

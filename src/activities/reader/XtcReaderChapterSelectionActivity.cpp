@@ -6,6 +6,7 @@
 #include <algorithm>
 
 #include "MappedInputManager.h"
+#include "activities/util/DirectTouchSelection.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -58,67 +59,62 @@ void XtcReaderChapterSelectionActivity::onExit() { Activity::onExit(); }
 
 void XtcReaderChapterSelectionActivity::loop() {
   const int totalItems = static_cast<int>(xtc->getChapters().size());
+  const int pageItems = getPageItems();
+
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    const auto& chapters = xtc->getChapters();
+    if (!chapters.empty() && selectorIndex >= 0 && selectorIndex < static_cast<int>(chapters.size())) {
+      setResult(PageResult{chapters[selectorIndex].startPage});
+      finish();
+    }
+    return;
+  } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    ActivityResult result;
+    result.isCancelled = true;
+    setResult(std::move(result));
+    finish();
+    return;
+  }
 
 #if CROSSPOINT_PAPERS3
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    const auto& chapters = xtc->getChapters();
-    if (!chapters.empty() && selectorIndex >= 0 && selectorIndex < static_cast<int>(chapters.size())) {
-      setResult(PageResult{chapters[selectorIndex].startPage});
-      finish();
+  if (totalItems <= 0) return;
+
+  {
+    const auto orientation = renderer.getOrientation();
+    const bool isLandscapeCw = orientation == GfxRenderer::Orientation::LandscapeClockwise;
+    const bool isLandscapeCcw = orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
+    const bool isPortraitInverted = orientation == GfxRenderer::Orientation::PortraitInverted;
+    const int hintGutterWidth = (isLandscapeCw || isLandscapeCcw) ? 30 : 0;
+    const int contentX = isLandscapeCw ? hintGutterWidth : 0;
+    const int contentWidth = renderer.getScreenWidth() - hintGutterWidth;
+    const int contentY = isPortraitInverted ? 50 : 0;
+    constexpr int lineHeight = 75;
+    const Rect listRect{contentX, 60 + contentY, contentWidth, pageItems * lineHeight};
+    const int targetIndex =
+        DirectTouchSelection::hitListRow(mappedInput, listRect, totalItems, selectorIndex, lineHeight);
+    if (targetIndex >= 0) {
+      if (targetIndex == selectorIndex) {
+        const auto& chapters = xtc->getChapters();
+        setResult(PageResult{chapters[selectorIndex].startPage});
+        finish();
+      } else {
+        selectorIndex = targetIndex;
+        requestUpdate();
+      }
+      return;
     }
-  } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    ActivityResult result;
-    result.isCancelled = true;
-    setResult(std::move(result));
-    finish();
   }
+#endif
 
-  // Up/Down move one row at a time
-  if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
-    selectorIndex = ButtonNavigator::previousIndex(selectorIndex, totalItems);
-    requestUpdate();
-    return;
-  }
-  if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
-    selectorIndex = ButtonNavigator::nextIndex(selectorIndex, totalItems);
-    requestUpdate();
-    return;
-  }
-#else
-  const int pageItems = getPageItems();
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    const auto& chapters = xtc->getChapters();
-    if (!chapters.empty() && selectorIndex >= 0 && selectorIndex < static_cast<int>(chapters.size())) {
-      setResult(PageResult{chapters[selectorIndex].startPage});
-      finish();
-    }
-  } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    ActivityResult result;
-    result.isCancelled = true;
-    setResult(std::move(result));
-    finish();
-  }
-
-  buttonNavigator.onNextRelease([this, totalItems] {
-    selectorIndex = ButtonNavigator::nextIndex(selectorIndex, totalItems);
-    requestUpdate();
-  });
-
-  buttonNavigator.onPreviousRelease([this, totalItems] {
-    selectorIndex = ButtonNavigator::previousIndex(selectorIndex, totalItems);
-    requestUpdate();
-  });
-
-  buttonNavigator.onNextContinuous([this, totalItems, pageItems] {
+  buttonNavigator.onNextRelease([this, totalItems, pageItems] {
     selectorIndex = ButtonNavigator::nextPageIndex(selectorIndex, totalItems, pageItems);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousContinuous([this, totalItems, pageItems] {
+  buttonNavigator.onPreviousRelease([this, totalItems, pageItems] {
     selectorIndex = ButtonNavigator::previousPageIndex(selectorIndex, totalItems, pageItems);
     requestUpdate();
   });
-#endif
 }
 
 void XtcReaderChapterSelectionActivity::render(RenderLock&&) {

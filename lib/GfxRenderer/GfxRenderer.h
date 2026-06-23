@@ -85,7 +85,19 @@ class GfxRenderer {
       EpdFontFamily::Style style
   ) const;
 
+  bool renderPrimaryGlyphCentered(
+      int fontId,
+      int cellX,
+      int cellY,
+      int cellWidth,
+      int cellHeight,
+      uint32_t codepoint,
+      bool pixelState,
+      EpdFontFamily::Style style
+  ) const;
+
   bool renderBuiltinFallbackGlyphCentered(
+      int fontId,
       int cellX,
       int cellY,
       int cellWidth,
@@ -96,6 +108,7 @@ class GfxRenderer {
   ) const;
 
   bool renderBuiltinFallbackGlyphRotated90CW(
+      int fontId,
       int cellX,
       int cellY,
       int cellSize,
@@ -109,6 +122,16 @@ class GfxRenderer {
       uint32_t codepoint,
       int cursorX,
       int lineTopY,
+      bool pixelState,
+      EpdFontFamily::Style style
+  ) const;
+
+  bool renderBuiltinFallbackGlyphScaledPercent(
+      const EpdFontFamily& fallbackFont,
+      uint32_t codepoint,
+      int cursorX,
+      int lineTopY,
+      int percent,
       bool pixelState,
       EpdFontFamily::Style style
   ) const;
@@ -291,6 +314,7 @@ void renderExternalGlyph(
   int getTextAdvanceX(int fontId, const char* text, EpdFontFamily::Style style) const;
   int getFontAscenderSize(int fontId) const;
   int getLineHeight(int fontId) const;
+  int getVerticalGlyphAdvance(int fontId) const;
   int getLineHeightScaled(int fontId, int scale) const;
   std::string truncatedText(int fontId, const char* text, int maxWidth,
                             EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;

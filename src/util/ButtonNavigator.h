@@ -45,9 +45,17 @@ class ButtonNavigator final {
   [[nodiscard]] static int previousPageIndex(int currentIndex, int totalItems, int itemsPerPage);
 
   [[nodiscard]] static Buttons getNextButtons() {
-    return {MappedInputManager::Button::Down, MappedInputManager::Button::Right};
+#if CROSSPOINT_PAPERS3
+    return {MappedInputManager::Button::Right};
+#else
+    return {MappedInputManager::Button::Down};
+#endif
   }
   [[nodiscard]] static Buttons getPreviousButtons() {
-    return {MappedInputManager::Button::Up, MappedInputManager::Button::Left};
+#if CROSSPOINT_PAPERS3
+    return {MappedInputManager::Button::Left};
+#else
+    return {MappedInputManager::Button::Up};
+#endif
   }
 };

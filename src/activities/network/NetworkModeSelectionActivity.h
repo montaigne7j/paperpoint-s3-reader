@@ -29,6 +29,7 @@ class NetworkModeSelectionActivity final : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
 
+  void handleCurrentSelection();
   void onModeSelected(NetworkMode mode);
   void onCancel();
 };

@@ -9,6 +9,7 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "activities/util/DirectTouchSelection.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -358,22 +359,48 @@ void EpubReaderChapterSelectionActivity::loop() {
 
   if (totalItems <= 0) return;
 
-  buttonNavigator.onNextRelease([this, totalItems] {
-    selectorIndex = ButtonNavigator::nextIndex(selectorIndex, totalItems);
-    requestUpdate();
-  });
+  {
+    const auto orientation = renderer.getOrientation();
+    const bool isLandscapeCw = orientation == GfxRenderer::Orientation::LandscapeClockwise;
+    const bool isLandscapeCcw = orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
+    const bool isPortraitInverted = orientation == GfxRenderer::Orientation::PortraitInverted;
+    const int hintGutterWidth = (isLandscapeCw || isLandscapeCcw) ? 30 : 0;
+    const int contentX = isLandscapeCw ? hintGutterWidth : 0;
+    const int contentWidth = renderer.getScreenWidth() - hintGutterWidth;
+    const int contentY = isPortraitInverted ? 50 : 0;
+    Rect listRect;
+    int rowHeight = 0;
+    if (isLargeTextTheme()) {
+      const auto& metrics = UITheme::getInstance().getMetrics();
+      const int listTop = contentY + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+      const int listHeight = renderer.getScreenHeight() - listTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+      listRect = Rect{contentX, listTop, contentWidth, std::max(1, listHeight)};
+      rowHeight = metrics.listRowHeight;
+    } else {
+      constexpr int lineHeight = 75;
+      listRect = Rect{contentX, 60 + contentY, contentWidth, pageItems * lineHeight};
+      rowHeight = lineHeight;
+    }
 
-  buttonNavigator.onPreviousRelease([this, totalItems] {
-    selectorIndex = ButtonNavigator::previousIndex(selectorIndex, totalItems);
-    requestUpdate();
-  });
+    const int targetIndex =
+        DirectTouchSelection::hitListRow(mappedInput, listRect, totalItems, selectorIndex, rowHeight);
+    if (targetIndex >= 0) {
+      if (targetIndex == selectorIndex) {
+        activateSelectedItem();
+      } else {
+        selectorIndex = targetIndex;
+        requestUpdate();
+      }
+      return;
+    }
+  }
 
-  buttonNavigator.onNextContinuous([this, totalItems, pageItems] {
+  buttonNavigator.onNextRelease([this, totalItems, pageItems] {
     selectorIndex = ButtonNavigator::nextPageIndex(selectorIndex, totalItems, pageItems);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousContinuous([this, totalItems, pageItems] {
+  buttonNavigator.onPreviousRelease([this, totalItems, pageItems] {
     selectorIndex = ButtonNavigator::previousPageIndex(selectorIndex, totalItems, pageItems);
     requestUpdate();
   });

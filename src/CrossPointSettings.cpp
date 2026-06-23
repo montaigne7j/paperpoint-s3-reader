@@ -181,7 +181,7 @@ bool CrossPointSettings::loadFromBinaryFile() {
     {
       uint8_t legacyFontFamily = LEGACY_FONT_NOTOSANS;
       serialization::readPod(inputFile, legacyFontFamily);
-      fontFamily = legacyFontFamily == LEGACY_FONT_READERDYSLEXIC ? READERDYSLEXIC : NOTOSANS;
+      fontFamily = NOTOSANS;  // ReaderDyslexic was removed from the slim built-in font set.
     }
     if (++settingsRead >= fileSettingsCount) break;
     {
@@ -325,45 +325,12 @@ int CrossPointSettings::getRefreshFrequency() const {
 }
 
 int CrossPointSettings::getReaderFontId() const {
-  // Built-in font families only contain four raster sizes. Map the numeric
-  // reader size to the closest legacy bucket. Runtime TTF fonts use the exact
-  // 20..60 px value through FontManager instead.
-  uint8_t sizeBucket = MEDIUM;
-  if (fontSize <= 32) {
-    sizeBucket = SMALL;
-  } else if (fontSize <= 38) {
-    sizeBucket = MEDIUM;
-  } else if (fontSize <= 43) {
-    sizeBucket = LARGE;
-  } else {
-    sizeBucket = EXTRA_LARGE;
+  // The built-in reader font set is slimmed down for PaperPoint S3: only
+  // NotoSans 14 and 16 are kept for Latin text.  Embedded Traditional Chinese
+  // uses the scalable CJK fallback; external TTF/BIN fonts still use
+  // FontManager and the exact reader pixel size.
+  if (fontSize <= 38) {
+    return NOTOSANS_14_FONT_ID;
   }
-
-  switch (fontFamily) {
-    case READERDYSLEXIC:
-      switch (sizeBucket) {
-        case SMALL:
-          return READERDYSLEXIC_8_FONT_ID;
-        case MEDIUM:
-        default:
-          return READERDYSLEXIC_10_FONT_ID;
-        case LARGE:
-          return READERDYSLEXIC_12_FONT_ID;
-        case EXTRA_LARGE:
-          return READERDYSLEXIC_14_FONT_ID;
-      }
-    case NOTOSANS:
-    default:
-      switch (sizeBucket) {
-        case SMALL:
-          return NOTOSANS_12_FONT_ID;
-        case MEDIUM:
-        default:
-          return NOTOSANS_14_FONT_ID;
-        case LARGE:
-          return NOTOSANS_16_FONT_ID;
-        case EXTRA_LARGE:
-          return NOTOSANS_18_FONT_ID;
-      }
-  }
+  return NOTOSANS_16_FONT_ID;
 }

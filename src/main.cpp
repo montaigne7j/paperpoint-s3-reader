@@ -69,59 +69,16 @@ FontCacheManager fontCacheManager(renderer.getFontMap());
 
 // Fonts
 
-// Keep the default reader family available even for reduced OMIT_FONTS builds.
+// Keep only the built-in reader fonts that are useful for PaperPoint's
+// Chinese-first reader.  Removed ReaderDyslexic and unused italic / 12 / 18 px
+// NotoSans variants to recover flash space for the embedded CJK bitmap font.
 EpdFont notosans14RegularFont(&notosans_14_regular);
 EpdFont notosans14BoldFont(&notosans_14_bold);
-EpdFont notosans14ItalicFont(&notosans_14_italic);
-EpdFont notosans14BoldItalicFont(&notosans_14_bolditalic);
-EpdFontFamily notosans14FontFamily(&notosans14RegularFont, &notosans14BoldFont, &notosans14ItalicFont,
-                                   &notosans14BoldItalicFont);
+EpdFontFamily notosans14FontFamily(&notosans14RegularFont, &notosans14BoldFont);
 
-#ifndef OMIT_FONTS
-EpdFont notosans12RegularFont(&notosans_12_regular);
-EpdFont notosans12BoldFont(&notosans_12_bold);
-EpdFont notosans12ItalicFont(&notosans_12_italic);
-EpdFont notosans12BoldItalicFont(&notosans_12_bolditalic);
-EpdFontFamily notosans12FontFamily(&notosans12RegularFont, &notosans12BoldFont, &notosans12ItalicFont,
-                                   &notosans12BoldItalicFont);
 EpdFont notosans16RegularFont(&notosans_16_regular);
 EpdFont notosans16BoldFont(&notosans_16_bold);
-EpdFont notosans16ItalicFont(&notosans_16_italic);
-EpdFont notosans16BoldItalicFont(&notosans_16_bolditalic);
-EpdFontFamily notosans16FontFamily(&notosans16RegularFont, &notosans16BoldFont, &notosans16ItalicFont,
-                                   &notosans16BoldItalicFont);
-EpdFont notosans18RegularFont(&notosans_18_regular);
-EpdFont notosans18BoldFont(&notosans_18_bold);
-EpdFont notosans18ItalicFont(&notosans_18_italic);
-EpdFont notosans18BoldItalicFont(&notosans_18_bolditalic);
-EpdFontFamily notosans18FontFamily(&notosans18RegularFont, &notosans18BoldFont, &notosans18ItalicFont,
-                                   &notosans18BoldItalicFont);
-
-EpdFont readerdyslexic8RegularFont(&readerdyslexic_8_regular);
-EpdFont readerdyslexic8BoldFont(&readerdyslexic_8_bold);
-EpdFont readerdyslexic8ItalicFont(&readerdyslexic_8_italic);
-EpdFont readerdyslexic8BoldItalicFont(&readerdyslexic_8_bolditalic);
-EpdFontFamily readerdyslexic8FontFamily(&readerdyslexic8RegularFont, &readerdyslexic8BoldFont, &readerdyslexic8ItalicFont,
-                                      &readerdyslexic8BoldItalicFont);
-EpdFont readerdyslexic10RegularFont(&readerdyslexic_10_regular);
-EpdFont readerdyslexic10BoldFont(&readerdyslexic_10_bold);
-EpdFont readerdyslexic10ItalicFont(&readerdyslexic_10_italic);
-EpdFont readerdyslexic10BoldItalicFont(&readerdyslexic_10_bolditalic);
-EpdFontFamily readerdyslexic10FontFamily(&readerdyslexic10RegularFont, &readerdyslexic10BoldFont, &readerdyslexic10ItalicFont,
-                                       &readerdyslexic10BoldItalicFont);
-EpdFont readerdyslexic12RegularFont(&readerdyslexic_12_regular);
-EpdFont readerdyslexic12BoldFont(&readerdyslexic_12_bold);
-EpdFont readerdyslexic12ItalicFont(&readerdyslexic_12_italic);
-EpdFont readerdyslexic12BoldItalicFont(&readerdyslexic_12_bolditalic);
-EpdFontFamily readerdyslexic12FontFamily(&readerdyslexic12RegularFont, &readerdyslexic12BoldFont, &readerdyslexic12ItalicFont,
-                                       &readerdyslexic12BoldItalicFont);
-EpdFont readerdyslexic14RegularFont(&readerdyslexic_14_regular);
-EpdFont readerdyslexic14BoldFont(&readerdyslexic_14_bold);
-EpdFont readerdyslexic14ItalicFont(&readerdyslexic_14_italic);
-EpdFont readerdyslexic14BoldItalicFont(&readerdyslexic_14_bolditalic);
-EpdFontFamily readerdyslexic14FontFamily(&readerdyslexic14RegularFont, &readerdyslexic14BoldFont, &readerdyslexic14ItalicFont,
-                                       &readerdyslexic14BoldItalicFont);
-#endif  // OMIT_FONTS
+EpdFontFamily notosans16FontFamily(&notosans16RegularFont, &notosans16BoldFont);
 
 EpdFont smallFont(&notosans_8_regular);
 EpdFontFamily smallFontFamily(&smallFont);
@@ -325,15 +282,7 @@ void setupDisplayAndFonts() {
   fontCacheManager.setFontDecompressor(&fontDecompressor);
   renderer.setFontCacheManager(&fontCacheManager);
   renderer.insertFont(NOTOSANS_14_FONT_ID, notosans14FontFamily);
-#ifndef OMIT_FONTS
-  renderer.insertFont(NOTOSANS_12_FONT_ID, notosans12FontFamily);
   renderer.insertFont(NOTOSANS_16_FONT_ID, notosans16FontFamily);
-  renderer.insertFont(NOTOSANS_18_FONT_ID, notosans18FontFamily);
-  renderer.insertFont(READERDYSLEXIC_8_FONT_ID, readerdyslexic8FontFamily);
-  renderer.insertFont(READERDYSLEXIC_10_FONT_ID, readerdyslexic10FontFamily);
-  renderer.insertFont(READERDYSLEXIC_12_FONT_ID, readerdyslexic12FontFamily);
-  renderer.insertFont(READERDYSLEXIC_14_FONT_ID, readerdyslexic14FontFamily);
-#endif  // OMIT_FONTS
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);

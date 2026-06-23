@@ -13,6 +13,7 @@
 #include "KOReaderSettingsActivity.h"
 #include "LanguageSelectActivity.h"
 #include "MappedInputManager.h"
+#include "activities/util/DirectTouchSelection.h"
 #include "OtaUpdateActivity.h"
 #include "ReaderFontSelectActivity.h"
 #include "ReaderFontSizeActivity.h"
@@ -25,6 +26,28 @@
 
 const StrId SettingsActivity::categoryNames[categoryCount] = {StrId::STR_CAT_DISPLAY, StrId::STR_CAT_READER,
                                                               StrId::STR_CAT_CONTROLS, StrId::STR_CAT_SYSTEM};
+
+void SettingsActivity::enterCategory(int categoryIndex) {
+  selectedCategoryIndex = std::max(0, std::min(categoryCount - 1, categoryIndex));
+
+  switch (selectedCategoryIndex) {
+    case 1:
+      currentSettings = &readerSettings;
+      break;
+    case 2:
+      currentSettings = &controlsSettings;
+      break;
+    case 3:
+      currentSettings = &systemSettings;
+      break;
+    case 0:
+    default:
+      currentSettings = &displaySettings;
+      break;
+  }
+
+  settingsCount = currentSettings != nullptr ? static_cast<int>(currentSettings->size()) : 0;
+}
 
 void SettingsActivity::onEnter() {
   Activity::onEnter();
@@ -64,27 +87,10 @@ void SettingsActivity::onEnter() {
 
   // Start in the requested category. Reader-menu launches use category 1
   // and return to the active book instead of navigating to Home.
-  selectedCategoryIndex = std::max(0, std::min(categoryCount - 1, initialCategoryIndex));
+  enterCategory(initialCategoryIndex);
   // Reader-menu launches focus the first Reader setting immediately. Normal
   // Settings launches keep the category tab focused as before.
   selectedSettingIndex = returnToCaller ? 1 : 0;
-
-  switch (selectedCategoryIndex) {
-    case 1:
-      currentSettings = &readerSettings;
-      break;
-    case 2:
-      currentSettings = &controlsSettings;
-      break;
-    case 3:
-      currentSettings = &systemSettings;
-      break;
-    case 0:
-    default:
-      currentSettings = &displaySettings;
-      break;
-  }
-  settingsCount = static_cast<int>(currentSettings->size());
 
   // Trigger first update
   requestUpdate();
@@ -98,6 +104,52 @@ void SettingsActivity::onExit() {
 
 void SettingsActivity::loop() {
   bool hasChangedCategory = false;
+
+#if CROSSPOINT_PAPERS3
+  {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    const int pageWidth = renderer.getScreenWidth();
+
+    // Direct Touch Selection: Settings category tab bar.
+    // Tap any of the four category tabs to enter that category. If the same
+    // category is already active, move focus back to the tab bar instead of
+    // toggling a setting.
+    if (mappedInput.wasContentTapReleased()) {
+      const int tapX = mappedInput.getContentTapX();
+      const int tapY = mappedInput.getContentTapY();
+      const Rect tabRect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.tabBarHeight};
+      if (tapX >= tabRect.x && tapX < tabRect.x + tabRect.width &&
+          tapY >= tabRect.y && tapY < tabRect.y + tabRect.height) {
+        const int targetCategory = std::max(0, std::min(categoryCount - 1,
+            ((tapX - tabRect.x) * categoryCount) / std::max(1, tabRect.width)));
+        if (targetCategory != selectedCategoryIndex) {
+          enterCategory(targetCategory);
+        }
+        selectedSettingIndex = 0;
+        requestUpdate();
+        return;
+      }
+    }
+
+    const int listTop = metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
+    const int listHeight = renderer.getScreenHeight() -
+                           (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight +
+                            metrics.buttonHintsHeight + metrics.verticalSpacing * 2);
+    const int targetSetting = DirectTouchSelection::hitListRow(
+        mappedInput, Rect{0, listTop, pageWidth, listHeight}, settingsCount,
+        std::max(0, selectedSettingIndex - 1), metrics.listRowHeight);
+    if (targetSetting >= 0) {
+      const int targetSelection = targetSetting + 1;
+      if (targetSelection == selectedSettingIndex) {
+        toggleCurrentSetting();
+      } else {
+        selectedSettingIndex = targetSelection;
+      }
+      requestUpdate();
+      return;
+    }
+  }
+#endif
 
   // Handle actions with early return
   if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
@@ -127,46 +179,30 @@ void SettingsActivity::loop() {
     return;
   }
 
-  // Handle navigation
-  buttonNavigator.onNextRelease([this] {
-    selectedSettingIndex = ButtonNavigator::nextIndex(selectedSettingIndex, settingsCount + 1);
+  // Footer Previous / Next are page-level navigation for the settings list.
+  // Category tabs are selected by direct touch, not by footer paging.
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int listTop = metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
+  const int listHeight = renderer.getScreenHeight() -
+                         (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight +
+                          metrics.buttonHintsHeight + metrics.verticalSpacing * 2);
+  const int pageItems = std::max(1, listHeight / std::max(1, metrics.listRowHeight));
+
+  buttonNavigator.onNextRelease([this, pageItems] {
+    const int currentListIndex = std::max(0, selectedSettingIndex - 1);
+    selectedSettingIndex = ButtonNavigator::nextPageIndex(currentListIndex, settingsCount, pageItems) + 1;
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousRelease([this] {
-    selectedSettingIndex = ButtonNavigator::previousIndex(selectedSettingIndex, settingsCount + 1);
-    requestUpdate();
-  });
-
-  buttonNavigator.onNextContinuous([this, &hasChangedCategory] {
-    hasChangedCategory = true;
-    selectedCategoryIndex = ButtonNavigator::nextIndex(selectedCategoryIndex, categoryCount);
-    requestUpdate();
-  });
-
-  buttonNavigator.onPreviousContinuous([this, &hasChangedCategory] {
-    hasChangedCategory = true;
-    selectedCategoryIndex = ButtonNavigator::previousIndex(selectedCategoryIndex, categoryCount);
+  buttonNavigator.onPreviousRelease([this, pageItems] {
+    const int currentListIndex = std::max(0, selectedSettingIndex - 1);
+    selectedSettingIndex = ButtonNavigator::previousPageIndex(currentListIndex, settingsCount, pageItems) + 1;
     requestUpdate();
   });
 
   if (hasChangedCategory) {
     selectedSettingIndex = (selectedSettingIndex == 0) ? 0 : 1;
-    switch (selectedCategoryIndex) {
-      case 0:
-        currentSettings = &displaySettings;
-        break;
-      case 1:
-        currentSettings = &readerSettings;
-        break;
-      case 2:
-        currentSettings = &controlsSettings;
-        break;
-      case 3:
-        currentSettings = &systemSettings;
-        break;
-    }
-    settingsCount = static_cast<int>(currentSettings->size());
+    enterCategory(selectedCategoryIndex);
   }
 }
 

@@ -1,4 +1,5 @@
 #include "ButtonNavigator.h"
+#include <algorithm>
 
 const MappedInputManager* ButtonNavigator::mappedInput = nullptr;
 
@@ -90,35 +91,30 @@ int ButtonNavigator::previousIndex(const int currentIndex, const int totalItems)
 int ButtonNavigator::nextPageIndex(const int currentIndex, const int totalItems, const int itemsPerPage) {
   if (totalItems <= 0 || itemsPerPage <= 0) return 0;
 
-  // When items fit on one page, use index navigation instead
-  if (totalItems <= itemsPerPage) {
-    return nextIndex(currentIndex, totalItems);
-  }
+  // Previous / Next are page-level navigation. If everything fits on the
+  // current page, keep the selection where it is; row selection is handled by
+  // Direct Touch Selection.
+  if (totalItems <= itemsPerPage) return currentIndex;
 
   const int lastPageIndex = (totalItems - 1) / itemsPerPage;
   const int currentPageIndex = currentIndex / itemsPerPage;
-
-  if (currentPageIndex < lastPageIndex) {
-    return (currentPageIndex + 1) * itemsPerPage;
-  }
-
-  return 0;
+  const int rowInPage = currentIndex % itemsPerPage;
+  const int nextPageIndex = (currentPageIndex < lastPageIndex) ? (currentPageIndex + 1) : 0;
+  const int candidate = nextPageIndex * itemsPerPage + rowInPage;
+  const int lastInTargetPage = std::min(totalItems - 1, (nextPageIndex + 1) * itemsPerPage - 1);
+  return std::min(candidate, lastInTargetPage);
 }
 
 int ButtonNavigator::previousPageIndex(const int currentIndex, const int totalItems, const int itemsPerPage) {
   if (totalItems <= 0 || itemsPerPage <= 0) return 0;
 
-  // When items fit on one page, use index navigation instead
-  if (totalItems <= itemsPerPage) {
-    return previousIndex(currentIndex, totalItems);
-  }
+  if (totalItems <= itemsPerPage) return currentIndex;
 
   const int lastPageIndex = (totalItems - 1) / itemsPerPage;
   const int currentPageIndex = currentIndex / itemsPerPage;
-
-  if (currentPageIndex > 0) {
-    return (currentPageIndex - 1) * itemsPerPage;
-  }
-
-  return lastPageIndex * itemsPerPage;
+  const int rowInPage = currentIndex % itemsPerPage;
+  const int previousPageIndex = (currentPageIndex > 0) ? (currentPageIndex - 1) : lastPageIndex;
+  const int candidate = previousPageIndex * itemsPerPage + rowInPage;
+  const int lastInTargetPage = std::min(totalItems - 1, (previousPageIndex + 1) * itemsPerPage - 1);
+  return std::min(candidate, lastInTargetPage);
 }

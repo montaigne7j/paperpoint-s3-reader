@@ -15,6 +15,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
+#include "activities/util/DirectTouchSelection.h"
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -114,6 +115,9 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
 
 void HomeActivity::onEnter() {
   Activity::onEnter();
+#if CROSSPOINT_PAPERS3
+  mappedInput.setFooterHeight(0);
+#endif
 
   // Check if OPDS browser URL is configured
   hasOpdsUrl = strlen(SETTINGS.opdsServerUrl) > 0;
@@ -176,9 +180,80 @@ void HomeActivity::freeCoverBuffer() {
   coverBufferStored = false;
 }
 
+void HomeActivity::activateSelectedItem() {
+  // Execute action for current selectorIndex
+  int idx = 0;
+  int menuSelectedIndex = selectorIndex - static_cast<int>(recentBooks.size());
+  const int fileBrowserIdx = idx++;
+  const int recentsIdx = idx++;
+  const int opdsLibraryIdx = hasOpdsUrl ? idx++ : -1;
+  const int fileTransferIdx = idx++;
+  const int settingsIdx = idx;
+
+  if (selectorIndex >= 0 && selectorIndex < static_cast<int>(recentBooks.size())) {
+    onSelectBook(recentBooks[selectorIndex].path);
+  } else if (menuSelectedIndex == fileBrowserIdx) {
+    onFileBrowserOpen();
+  } else if (menuSelectedIndex == recentsIdx) {
+    onRecentsOpen();
+  } else if (menuSelectedIndex == opdsLibraryIdx) {
+    onOpdsBrowserOpen();
+  } else if (menuSelectedIndex == fileTransferIdx) {
+    onFileTransferOpen();
+  } else if (menuSelectedIndex == settingsIdx) {
+    onSettingsOpen();
+  }
+}
+
 void HomeActivity::loop() {
   const int menuCount = getMenuItemCount();
 
+#if CROSSPOINT_PAPERS3
+  // Home is now a pure touch screen: keep the on-screen footer hidden and do
+  // not use the four footer buttons here.
+  mappedInput.setFooterHeight(0);
+  {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    const int pageWidth = renderer.getScreenWidth();
+    const int pageHeight = renderer.getScreenHeight();
+
+    // Direct Touch Selection: top Continue Reading card. Home has no footer,
+    // so use the normal reader-style single tap coordinates here.
+    const bool hasTap = mappedInput.wasContentTapReleased() || mappedInput.wasTapped();
+    const int tapX = mappedInput.wasContentTapReleased() ? mappedInput.getContentTapX() : mappedInput.getTouchX();
+    const int tapY = mappedInput.wasContentTapReleased() ? mappedInput.getContentTapY() : mappedInput.getTouchY();
+    if (!recentBooks.empty() && hasTap) {
+      const Rect recentRect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight};
+      if (tapX >= recentRect.x && tapX < recentRect.x + recentRect.width &&
+          tapY >= recentRect.y && tapY < recentRect.y + recentRect.height) {
+        if (selectorIndex == 0) {
+          activateSelectedItem();
+        } else {
+          selectorIndex = 0;
+          requestUpdate();
+        }
+        return;
+      }
+    }
+
+    const int visibleMenuItems = menuCount - static_cast<int>(recentBooks.size());
+    const Rect menuRect{0, metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.verticalSpacing, pageWidth,
+                        pageHeight - (metrics.headerHeight + metrics.homeTopPadding + metrics.verticalSpacing * 2)};
+    const int topOffset = SETTINGS.uiTheme == CrossPointSettings::UI_THEME::CLASSIC ? metrics.verticalSpacing : 0;
+    const int menuRow = DirectTouchSelection::hitButtonMenuRow(mappedInput, menuRect, visibleMenuItems,
+                                                               metrics.menuRowHeight, metrics.menuSpacing, topOffset);
+    if (menuRow >= 0) {
+      const int targetIndex = static_cast<int>(recentBooks.size()) + menuRow;
+      if (targetIndex == selectorIndex) {
+        activateSelectedItem();
+      } else {
+        selectorIndex = targetIndex;
+        requestUpdate();
+      }
+      return;
+    }
+  }
+#else
   buttonNavigator.onNext([this, menuCount] {
     selectorIndex = ButtonNavigator::nextIndex(selectorIndex, menuCount);
     requestUpdate();
@@ -190,29 +265,9 @@ void HomeActivity::loop() {
   });
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    // Execute action for current selectorIndex
-    int idx = 0;
-    int menuSelectedIndex = selectorIndex - static_cast<int>(recentBooks.size());
-    const int fileBrowserIdx = idx++;
-    const int recentsIdx = idx++;
-    const int opdsLibraryIdx = hasOpdsUrl ? idx++ : -1;
-    const int fileTransferIdx = idx++;
-    const int settingsIdx = idx;
-
-    if (selectorIndex < recentBooks.size()) {
-      onSelectBook(recentBooks[selectorIndex].path);
-    } else if (menuSelectedIndex == fileBrowserIdx) {
-      onFileBrowserOpen();
-    } else if (menuSelectedIndex == recentsIdx) {
-      onRecentsOpen();
-    } else if (menuSelectedIndex == opdsLibraryIdx) {
-      onOpdsBrowserOpen();
-    } else if (menuSelectedIndex == fileTransferIdx) {
-      onFileTransferOpen();
-    } else if (menuSelectedIndex == settingsIdx) {
-      onSettingsOpen();
-    }
+    activateSelectedItem();
   }
+#endif
 }
 
 void HomeActivity::render(RenderLock&&) {
@@ -243,14 +298,15 @@ void HomeActivity::render(RenderLock&&) {
   GUI.drawButtonMenu(
       renderer,
       Rect{0, metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.verticalSpacing, pageWidth,
-           pageHeight - (metrics.headerHeight + metrics.homeTopPadding + metrics.verticalSpacing * 2 +
-                         metrics.buttonHintsHeight)},
+           pageHeight - (metrics.headerHeight + metrics.homeTopPadding + metrics.verticalSpacing * 2)},
       static_cast<int>(menuItems.size()), selectorIndex - recentBooks.size(),
       [&menuItems](int index) { return std::string(menuItems[index]); },
       [&menuIcons](int index) { return menuIcons[index]; });
 
+#if !CROSSPOINT_PAPERS3
   const auto labels = mappedInput.mapLabels("", tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+#endif
 
   renderer.displayBuffer();
 

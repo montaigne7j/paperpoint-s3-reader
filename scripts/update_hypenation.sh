@@ -26,10 +26,5 @@ process() {
   rm -f "$output.tmp"
 }
 
+# Slim PaperPoint default: keep English only.
 process en hyph-en-us.tex 'Custom permissive; LICENSES/Hyphenation-English-Permission.txt'
-process fr hyph-fr.tex 'MIT; LICENSES/MIT.txt'
-process de hyph-de-1996.tex 'MIT; LICENSES/MIT.txt'
-process es hyph-es.tex 'MIT/X11; LICENSES/MIT.txt'
-process it hyph-it.tex 'MIT option; LICENSES/MIT.txt'
-process ru hyph-ru.tex 'LPPL 1.2 or later; LICENSES/LPPL-1.3c.txt'
-process uk hyph-uk.tex 'LPPL; LICENSES/LPPL-1.3c.txt'

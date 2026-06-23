@@ -213,13 +213,13 @@ def main() -> int:
             ),
             package(
                 "PaperPoint-Sans-TC-generated-font-data",
-                "raster-bf143dd1bb632af7af6107dc4e32e8426e5cd375580a77300982a3f697dcb6fc",
+                "raster-0d75d0abcea1f3ce12512686fa5cfb4140cc8066fc68095aab271678e081f34a",
                 "OFL-1.1",
                 "https://github.com/notofonts/noto-cjk",
                 supplier="Organization: Adobe and Noto CJK contributors",
                 comment=(
                     "Distinctly named sparse/cropped bitmap derivative generated from "
-                    "the maintainer-supplied Noto Sans CJK TC Medium 15.5pt 21x30 raster; "
+                    "the maintainer-supplied Noto Sans CJK TC Medium 23.5pt 31x39 raster; "
                     "source raster SHA-256 is recorded in BUILTIN_CJK_FONT.md."
                 ),
             ),
@@ -229,13 +229,6 @@ def main() -> int:
                 "OFL-1.1",
                 "NOASSERTION",
                 supplier="Organization: Google",
-            ),
-            package(
-                "Reader-Dyslexic-generated-font-data",
-                "repository-copy",
-                "OFL-1.1",
-                "NOASSERTION",
-                comment="Renamed derivative generated from the original OpenDyslexic font files.",
             ),
             package(
                 "Ubuntu-PaperPoint-generated-font-data",

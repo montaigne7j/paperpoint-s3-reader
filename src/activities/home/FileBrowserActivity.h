@@ -34,6 +34,7 @@ class FileBrowserActivity final : public Activity {
   void loadFiles();
   size_t findEntry(const std::string& name) const;
   void moveSelectionTo(size_t newIndex);
+  void openSelectedEntry();
   void requestFullPageUpdate(bool immediate = false);
 
  public:

@@ -73,6 +73,10 @@ int16_t HalGPIO::getLastTouchY() const {
   return logicalY;
 }
 
+int16_t HalGPIO::getContentTapX() const { return lastContentTapX; }
+
+int16_t HalGPIO::getContentTapY() const { return lastContentTapY; }
+
 int HalGPIO::touchZoneToButton(int16_t touchX, int16_t touchY) const {
   // GT911 on M5PaperS3 reports portrait coordinates directly: x[0-539], y[0-959].
   int16_t logicalX = 0;
@@ -93,17 +97,19 @@ int HalGPIO::touchZoneToButton(int16_t touchX, int16_t touchY) const {
   }
 
   // Footer nav bar: bottom footerHeight pixels are split into 4 equal tap zones
-  // mapping to Back / Confirm / Up / Down (matches drawButtonHints layout)
+  // mapping to Back / Confirm / Previous / Next (matches drawButtonHints layout).
+  // Previous / Next use BTN_LEFT / BTN_RIGHT so list screens can treat them as
+  // page-level navigation rather than single-row Up / Down.
   if (footerHeight > 0) {
     if (logicalY >= logicalH - footerHeight) {
       const int16_t quarter = logicalW / 4;
       if (logicalX < quarter) return BTN_BACK;
       if (logicalX < quarter * 2) return BTN_CONFIRM;
-      if (logicalX < quarter * 3) return BTN_UP;
-      return BTN_DOWN;
+      if (logicalX < quarter * 3) return BTN_LEFT;
+      return BTN_RIGHT;
     }
-    // Content-area tap in footer mode — suppress entirely so only the
-    // footer buttons drive input in non-reader / non-keyboard activities.
+    // Content-area tap in footer mode does not map to a virtual button.
+    // HalGPIO::update exposes it separately for Direct Touch Selection.
     return -1;
   }
 
@@ -118,6 +124,7 @@ int HalGPIO::touchZoneToButton(int16_t touchX, int16_t touchY) const {
 void HalGPIO::update() {
   previousState = currentState;
   currentState = 0;
+  contentTapReleased = false;
 
   // During cooldown (after activity transition), drain touch events but don't act on them
   if (millis() < cooldownUntil) {
@@ -159,11 +166,35 @@ void HalGPIO::update() {
     touchActive = false;
 
     if (footerHeight > 0) {
-      // Footer active (non-reader): no gestures — all touches are plain taps.
-      // 2-finger and swipe are disabled; the footer buttons provide Back/Prev/Next.
+      // Footer active (non-reader): bottom footer taps still drive the four
+      // virtual buttons. Content-area single-finger taps are exposed separately
+      // for Direct Touch Selection and intentionally do not map to buttons.
       int btn = touchZoneToButton(touchStartX, touchStartY);
       if (btn >= 0 && btn < HALGPIO_NUM_BUTTONS) {
         currentState |= (1 << btn);
+      } else if (!sawMultiTouch) {
+        int16_t startLogicalX = 0;
+        int16_t startLogicalY = 0;
+        int16_t lastLogicalX = 0;
+        int16_t lastLogicalY = 0;
+        transformTouchPoint(touchStartX, touchStartY, &startLogicalX, &startLogicalY);
+        transformTouchPoint(lastTouchX, lastTouchY, &lastLogicalX, &lastLogicalY);
+
+        int16_t logicalW = 0;
+        int16_t logicalH = 0;
+        getLogicalDimensions(touchOrientation, &logicalW, &logicalH);
+        const int16_t dx = lastLogicalX - startLogicalX;
+        const int16_t dy = lastLogicalY - startLogicalY;
+        const bool insideContent = startLogicalX >= 0 && startLogicalX < logicalW && startLogicalY >= 0 &&
+                                   startLogicalY < logicalH - footerHeight;
+        const bool lowDrift = dx >= -TAP_DRIFT_THRESHOLD && dx <= TAP_DRIFT_THRESHOLD &&
+                              dy >= -TAP_DRIFT_THRESHOLD && dy <= TAP_DRIFT_THRESHOLD;
+        if (insideContent && lowDrift) {
+          lastContentTapX = startLogicalX;
+          lastContentTapY = startLogicalY;
+          contentTapReleased = true;
+          LOG_DBG("TOUCH", "content tap at (%d,%d) (footer mode)", startLogicalX, startLogicalY);
+        }
       }
       LOG_DBG("TOUCH", "tap at (%d,%d) btn=%d (footer mode)", touchStartX, touchStartY, btn);
     } else if (sawMultiTouch) {
@@ -224,6 +255,7 @@ void HalGPIO::clearState() {
   lastHeldTime = 0;
   touchActive = false;
   sawMultiTouch = false;
+  contentTapReleased = false;
   cooldownUntil = millis() + 200;  // Suppress input for 200ms after activity transition
 }
 

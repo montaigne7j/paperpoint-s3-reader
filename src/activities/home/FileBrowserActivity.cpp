@@ -11,10 +11,12 @@
 #include <cstring>
 
 #include "../util/ConfirmationActivity.h"
+#include "../util/DirectTouchSelection.h"
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "resources/BuiltinManualEpub.h"
 
 namespace {
 constexpr unsigned long GO_HOME_MS = 1000;
@@ -75,6 +77,10 @@ void sortFileList(std::vector<std::string>& strs) {
 void FileBrowserActivity::loadFiles() {
   files.clear();
 
+  if (basepath == "/book" || basepath == "/book/") {
+    BuiltinManualEpub::ensureInstalled();
+  }
+
   auto root = Storage.open(basepath.c_str());
   if (!root || !root.isDirectory()) {
     return;
@@ -116,6 +122,23 @@ void FileBrowserActivity::moveSelectionTo(const size_t newIndex) {
 void FileBrowserActivity::requestFullPageUpdate(const bool immediate) {
   selectionMovePending = false;
   requestUpdate(immediate);
+}
+
+void FileBrowserActivity::openSelectedEntry() {
+  if (files.empty() || selectorIndex >= files.size()) return;
+
+  const std::string& entry = files[selectorIndex];
+  const bool isDirectory = (entry.back() == '/');
+  if (basepath.back() != '/') basepath += "/";
+
+  if (isDirectory) {
+    basepath += entry.substr(0, entry.length() - 1);
+    loadFiles();
+    selectorIndex = 0;
+    requestFullPageUpdate();
+  } else {
+    onSelectBook(basepath + entry);
+  }
 }
 
 void FileBrowserActivity::onEnter() {
@@ -221,16 +244,7 @@ void FileBrowserActivity::loop() {
       return;
     } else {
       // --- SHORT PRESS ACTION: OPEN/NAVIGATE ---
-      if (basepath.back() != '/') basepath += "/";
-
-      if (isDirectory) {
-        basepath += entry.substr(0, entry.length() - 1);
-        loadFiles();
-        selectorIndex = 0;
-        requestFullPageUpdate();
-      } else {
-        onSelectBook(basepath + entry);
-      }
+      openSelectedEntry();
     }
     return;
   }
@@ -260,15 +274,35 @@ void FileBrowserActivity::loop() {
 
   int listSize = static_cast<int>(files.size());
 #if CROSSPOINT_PAPERS3
-  // On Paper S3, Up/Down move one row at a time
-  if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
-    moveSelectionTo(ButtonNavigator::previousIndex(static_cast<int>(selectorIndex), listSize));
-    return;
+  {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    const bool largeTextTheme = SETTINGS.uiTheme == CrossPointSettings::UI_THEME::LARGE_TEXT;
+    constexpr int largeTextScale = 2;
+    const int pathLineHeight =
+        largeTextTheme ? renderer.getLineHeightScaled(UI_10_FONT_ID, largeTextScale) : renderer.getLineHeight(UI_10_FONT_ID);
+    const int pathReserved = pathLineHeight + metrics.verticalSpacing;
+    const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+    const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight -
+                              metrics.verticalSpacing - pathReserved;
+    const int targetIndex = DirectTouchSelection::hitListRow(
+        mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight}, listSize,
+        static_cast<int>(selectorIndex), metrics.listRowHeight);
+    if (targetIndex >= 0) {
+      if (targetIndex == static_cast<int>(selectorIndex)) {
+        openSelectedEntry();
+      } else {
+        moveSelectionTo(static_cast<size_t>(targetIndex));
+      }
+      return;
+    }
   }
-  if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
-    moveSelectionTo(ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize));
-    return;
-  }
+  buttonNavigator.onNextRelease([this, listSize, pageItems] {
+    moveSelectionTo(ButtonNavigator::nextPageIndex(static_cast<int>(selectorIndex), listSize, pageItems));
+  });
+
+  buttonNavigator.onPreviousRelease([this, listSize, pageItems] {
+    moveSelectionTo(ButtonNavigator::previousPageIndex(static_cast<int>(selectorIndex), listSize, pageItems));
+  });
 #else
   buttonNavigator.onNextRelease([this, listSize] {
     moveSelectionTo(ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize));

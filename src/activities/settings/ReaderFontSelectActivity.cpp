@@ -7,6 +7,7 @@
 #include <cstdio>
 
 #include "MappedInputManager.h"
+#include "activities/util/DirectTouchSelection.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -44,12 +45,33 @@ void ReaderFontSelectActivity::loop() {
     return;
   }
 
-  buttonNavigator.onNextRelease([this] {
-    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, totalItems());
+#if CROSSPOINT_PAPERS3
+  {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+    const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
+    const int targetIndex = DirectTouchSelection::hitListRow(
+        mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight}, totalItems(), selectedIndex,
+        metrics.listWithSubtitleRowHeight);
+    if (targetIndex >= 0) {
+      if (targetIndex == selectedIndex) {
+        applySelection();
+      } else {
+        selectedIndex = targetIndex;
+        requestUpdate();
+      }
+      return;
+    }
+  }
+#endif
+
+  const int pageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, true);
+  buttonNavigator.onNextRelease([this, pageItems] {
+    selectedIndex = ButtonNavigator::nextPageIndex(selectedIndex, totalItems(), pageItems);
     requestUpdate();
   });
-  buttonNavigator.onPreviousRelease([this] {
-    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, totalItems());
+  buttonNavigator.onPreviousRelease([this, pageItems] {
+    selectedIndex = ButtonNavigator::previousPageIndex(selectedIndex, totalItems(), pageItems);
     requestUpdate();
   });
 }

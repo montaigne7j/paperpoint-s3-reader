@@ -8,6 +8,7 @@
 
 #include "I18nKeys.h"
 #include "MappedInputManager.h"
+#include "activities/util/DirectTouchSelection.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -37,14 +38,35 @@ void LanguageSelectActivity::loop() {
     return;
   }
 
-  // Handle navigation
-  buttonNavigator.onNextRelease([this] {
-    selectedIndex = ButtonNavigator::nextIndex(static_cast<int>(selectedIndex), totalItems);
+#if CROSSPOINT_PAPERS3
+  {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+    const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
+    const int targetIndex = DirectTouchSelection::hitListRow(
+        mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight}, totalItems, selectedIndex,
+        metrics.listRowHeight);
+    if (targetIndex >= 0) {
+      if (targetIndex == selectedIndex) {
+        handleSelection();
+      } else {
+        selectedIndex = targetIndex;
+        requestUpdate();
+      }
+      return;
+    }
+  }
+#endif
+
+  // Footer Previous / Next page through the list. Row selection is by touch.
+  const int pageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, false);
+  buttonNavigator.onNextRelease([this, pageItems] {
+    selectedIndex = ButtonNavigator::nextPageIndex(static_cast<int>(selectedIndex), totalItems, pageItems);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousRelease([this] {
-    selectedIndex = ButtonNavigator::previousIndex(static_cast<int>(selectedIndex), totalItems);
+  buttonNavigator.onPreviousRelease([this, pageItems] {
+    selectedIndex = ButtonNavigator::previousPageIndex(static_cast<int>(selectedIndex), totalItems, pageItems);
     requestUpdate();
   });
 }

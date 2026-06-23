@@ -7,6 +7,7 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "activities/util/DirectTouchSelection.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -36,6 +37,27 @@ void CalibreSettingsActivity::loop() {
     return;
   }
 
+#if CROSSPOINT_PAPERS3
+  {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing + metrics.tabBarHeight;
+    const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+    const int targetIndex = DirectTouchSelection::hitListRow(
+        mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight}, static_cast<int>(MENU_ITEMS),
+        static_cast<int>(selectedIndex), metrics.listRowHeight);
+    if (targetIndex >= 0) {
+      if (targetIndex == static_cast<int>(selectedIndex)) {
+        handleSelection();
+      } else {
+        selectedIndex = static_cast<size_t>(targetIndex);
+        requestUpdate();
+      }
+      return;
+    }
+  }
+#endif
+
+#if !CROSSPOINT_PAPERS3
   // Handle navigation
   buttonNavigator.onNext([this] {
     selectedIndex = (selectedIndex + 1) % MENU_ITEMS;
@@ -46,6 +68,7 @@ void CalibreSettingsActivity::loop() {
     selectedIndex = (selectedIndex + MENU_ITEMS - 1) % MENU_ITEMS;
     requestUpdate();
   });
+#endif
 }
 
 void CalibreSettingsActivity::handleSelection() {

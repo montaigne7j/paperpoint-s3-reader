@@ -262,8 +262,10 @@ void TxtReaderActivity::initializeReader() {
   cachedOrientedMarginTop += cachedScreenMargin;
   cachedOrientedMarginLeft += cachedScreenMargin;
   cachedOrientedMarginRight += cachedScreenMargin;
-  cachedOrientedMarginBottom +=
-      std::max(cachedScreenMargin, static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight()));
+  const uint8_t statusBarHeight = static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight());
+  cachedOrientedMarginBottom += SETTINGS.statusBarFollowsPageMargin
+                                    ? static_cast<uint8_t>(cachedScreenMargin + statusBarHeight)
+                                    : std::max(cachedScreenMargin, statusBarHeight);
 
   viewportWidth = renderer.getScreenWidth() - cachedOrientedMarginLeft - cachedOrientedMarginRight;
   const int viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
@@ -601,7 +603,8 @@ void TxtReaderActivity::renderStatusBar() const {
   if (SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE) {
     title = txt->getTitle();
   }
-  GUI.drawStatusBar(renderer, progress, currentPage + 1, totalPages, title);
+  const int statusPaddingBottom = SETTINGS.statusBarFollowsPageMargin ? SETTINGS.screenMargin : 0;
+  GUI.drawStatusBar(renderer, progress, currentPage + 1, totalPages, title, statusPaddingBottom);
 }
 
 void TxtReaderActivity::saveProgress() const {

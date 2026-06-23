@@ -5,6 +5,7 @@
 #include <Logging.h>
 #include <Utf8.h>
 #include "../../src/fontIds.h"
+#include "../../src/CrossPointSettings.h"
 
 #include <algorithm>
 #include <cassert>
@@ -26,6 +27,106 @@ constexpr int UI_FONT_IDS[] = {
 
 constexpr int UI_FONT_COUNT =
     sizeof(UI_FONT_IDS) / sizeof(UI_FONT_IDS[0]);
+
+bool isUiFontIdForFallbackScaling(const int fontId) {
+  for (int i = 0; i < UI_FONT_COUNT; ++i) {
+    if (fontId == UI_FONT_IDS[i]) return true;
+  }
+  return false;
+}
+
+constexpr int READER_CJK_SCALE_MIN_PERCENT = 80;
+constexpr int READER_CJK_SCALE_DEFAULT_PERCENT = 150;
+constexpr int READER_CJK_SCALE_MAX_PERCENT = 250;
+
+// The embedded CJK bitmap source is intentionally larger (31x39) than the
+// logical reader grid used by existing layout tuning (21x30).  Reader font
+// size still maps to the old logical target 21x30 * scale, then the 31x39
+// source is resampled into that target.  This keeps the default size stable
+// while improving quality by mostly downsampling / lightly scaling the larger
+// source instead of enlarging a 21x30 bitmap.
+constexpr int BUILTIN_CJK_SOURCE_CELL_WIDTH = 31;
+constexpr int BUILTIN_CJK_SOURCE_CELL_HEIGHT = 39;
+constexpr int BUILTIN_CJK_LOGICAL_CELL_WIDTH = 21;
+constexpr int BUILTIN_CJK_LOGICAL_CELL_HEIGHT = 30;
+
+int scaleMetricPercent(const int value, const int percent) {
+  return (value * percent + 50) / 100;
+}
+
+int scaleMetricPercentCeil(const int value, const int percent) {
+  return (value * percent + 99) / 100;
+}
+
+int readerBuiltinCjkScalePercent() {
+  const int size = SETTINGS.fontSize;
+  if (size <= CrossPointSettings::READER_FONT_SIZE_MIN) return READER_CJK_SCALE_MIN_PERCENT;
+  if (size >= CrossPointSettings::READER_FONT_SIZE_MAX) return READER_CJK_SCALE_MAX_PERCENT;
+
+  // Piecewise-linear mapping chosen so the current default reader size (36)
+  // becomes the new default built-in CJK scale of 1.5x, while the full setting
+  // range maps to 0.8x .. 2.5x.
+  if (size <= CrossPointSettings::READER_FONT_SIZE_DEFAULT) {
+    const int span = CrossPointSettings::READER_FONT_SIZE_DEFAULT - CrossPointSettings::READER_FONT_SIZE_MIN;
+    const int pos = size - CrossPointSettings::READER_FONT_SIZE_MIN;
+    return READER_CJK_SCALE_MIN_PERCENT +
+           ((READER_CJK_SCALE_DEFAULT_PERCENT - READER_CJK_SCALE_MIN_PERCENT) * pos + span / 2) / span;
+  }
+
+  const int span = CrossPointSettings::READER_FONT_SIZE_MAX - CrossPointSettings::READER_FONT_SIZE_DEFAULT;
+  const int pos = size - CrossPointSettings::READER_FONT_SIZE_DEFAULT;
+  return READER_CJK_SCALE_DEFAULT_PERCENT +
+         ((READER_CJK_SCALE_MAX_PERCENT - READER_CJK_SCALE_DEFAULT_PERCENT) * pos + span / 2) / span;
+}
+
+int fallbackScalePercentForFontId(const int fontId) {
+  // UI fonts keep the original CJK fallback size; reader fonts get scalable
+  // built-in CJK so font-size changes affect CJK glyphs, layout and cache.
+  return isUiFontIdForFallbackScaling(fontId) ? 100 : readerBuiltinCjkScalePercent();
+}
+
+bool usesScaledReaderCjkFallback(const int fontId) {
+  (void)fontId;
+  // The source bitmap is 31x39, while the logical UI/reader target is still
+  // based on the historical 21x30 grid.  Always use the percent resampling
+  // path for fallback glyphs; UI font IDs use 100%, reader IDs use 0.8x..2.5x.
+  return true;
+}
+
+uint32_t verticalPresentationForm(const uint32_t codepoint) {
+  switch (codepoint) {
+    case 0x300C: return 0xFE41;  // 「 -> ﹁
+    case 0x300D: return 0xFE42;  // 」 -> ﹂
+    case 0x300E: return 0xFE43;  // 『 -> ﹃
+    case 0x300F: return 0xFE44;  // 』 -> ﹄
+
+    case 0x0028:
+    case 0xFF08: return 0xFE35;  // ( / （ -> ︵
+    case 0x0029:
+    case 0xFF09: return 0xFE36;  // ) / ） -> ︶
+
+    case 0x007B:
+    case 0xFF5B: return 0xFE37;  // { / ｛ -> ︷
+    case 0x007D:
+    case 0xFF5D: return 0xFE38;  // } / ｝ -> ︸
+
+    case 0x3014: return 0xFE39;  // 〔 -> ︹
+    case 0x3015: return 0xFE3A;  // 〕 -> ︺
+    case 0x3010: return 0xFE3B;  // 【 -> ︻
+    case 0x3011: return 0xFE3C;  // 】 -> ︼
+    case 0x300A: return 0xFE3D;  // 《 -> ︽
+    case 0x300B: return 0xFE3E;  // 》 -> ︾
+    case 0x3008: return 0xFE3F;  // 〈 -> ︿
+    case 0x3009: return 0xFE40;  // 〉 -> ﹀
+
+    case 0x005B:
+    case 0xFF3B: return 0xFE47;  // [ / ［ -> ﹇
+    case 0x005D:
+    case 0xFF3D: return 0xFE48;  // ] / ］ -> ﹈
+
+    default: return 0;
+  }
+}
 
 bool isCjkCodepoint(const uint32_t cp) {
   // CJK Unified Ideographs
@@ -65,6 +166,17 @@ bool isLatinTrackingCodepoint(const uint32_t cp) {
          (cp >= 'a' && cp <= 'z');
 }
 
+bool shouldPreferExternalUiGlyph(const uint32_t cp, const EpdGlyph* builtinGlyph) {
+  // UI labels look unbalanced when CJK is drawn by the external 20/30 px
+  // fixed-cell font but ASCII letters/digits come from the smaller built-in
+  // Ubuntu face. Prefer the active UI font for printable ASCII too; if that
+  // font lacks the glyph, drawText()/getTextWidth() will fall back to the
+  // built-in path as before.
+  return isCjkCodepoint(cp) ||
+         (cp >= 0x20 && cp <= 0x7E) ||
+         builtinGlyph == nullptr;
+}
+
 bool isAdvanceSensitiveCodepoint(const uint32_t cp) {
   // Horizontal EPUB layout is especially sensitive around compact glyphs that
   // often sit next to CJK with no explicit space: numbers, ASCII punctuation,
@@ -96,10 +208,8 @@ constexpr int COMPACT_CJK_SCALE_DEN = 10;
 
 bool usesCompactScaledCjkFallback(const int fontId) {
   (void)fontId;
-  // Keep UI_10 / SMALL CJK fallback at the original bitmap size.
-  // Status-bar clipping is handled by bottom-aligning the status text, not by
-  // globally shrinking this font size, because these IDs are also used across
-  // Classic/Lyra UI screens.
+  // Historical compact UI fallback path is disabled.  UI glyph size is kept
+  // stable; reader CJK scaling is controlled separately by SETTINGS.fontSize.
   return false;
 }
 
@@ -178,13 +288,43 @@ int32_t glyphAdvanceFP(const EpdGlyph* glyph, const uint32_t cp) {
   return fp4::fromPixel(advance);
 }
 
+int scaleBuiltinCjkAxis(const int value, const int percent, const int logicalCell, const int sourceCell) {
+  return (value * logicalCell * percent + sourceCell * 50) / (sourceCell * 100);
+}
+
+int scaleBuiltinCjkAxisCeil(const int value, const int percent, const int logicalCell, const int sourceCell) {
+  const int denominator = sourceCell * 100;
+  return (value * logicalCell * percent + denominator - 1) / denominator;
+}
+
+int fallbackMetricXPixels(const int fontId, const int value) {
+  const int percent = fallbackScalePercentForFontId(fontId);
+  return std::max(1, scaleBuiltinCjkAxis(value, percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH, BUILTIN_CJK_SOURCE_CELL_WIDTH));
+}
+
+int fallbackMetricYPixels(const int fontId, const int value) {
+  const int percent = fallbackScalePercentForFontId(fontId);
+  return std::max(1, scaleBuiltinCjkAxis(value, percent, BUILTIN_CJK_LOGICAL_CELL_HEIGHT, BUILTIN_CJK_SOURCE_CELL_HEIGHT));
+}
+
+int fallbackMetricXPixelsCeil(const int fontId, const int value) {
+  const int percent = fallbackScalePercentForFontId(fontId);
+  return std::max(1, scaleBuiltinCjkAxisCeil(value, percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH, BUILTIN_CJK_SOURCE_CELL_WIDTH));
+}
+
+int fallbackMetricYPixelsCeil(const int fontId, const int value) {
+  const int percent = fallbackScalePercentForFontId(fontId);
+  return std::max(1, scaleBuiltinCjkAxisCeil(value, percent, BUILTIN_CJK_LOGICAL_CELL_HEIGHT, BUILTIN_CJK_SOURCE_CELL_HEIGHT));
+}
+
 int fallbackAdvancePixels(const int fontId, const EpdGlyph* glyph, const uint32_t cp) {
-  const int advance = glyphAdvancePixels(glyph, cp);
-  return usesCompactScaledCjkFallback(fontId) ? std::max(1, scaleCompactMetric(advance)) : advance;
+  return fallbackMetricXPixels(fontId, glyphAdvancePixels(glyph, cp));
 }
 
 int fallbackMetricPixels(const int fontId, const int value) {
-  return usesCompactScaledCjkFallback(fontId) ? std::max(1, scaleCompactMetric(value)) : value;
+  // Vertical metrics (ascender, advanceY, text height) use the logical 30px
+  // reader-cell height, not the raw 39px source cell.
+  return fallbackMetricYPixels(fontId, value);
 }
 
 bool shouldRotateVerticalGlyph(
@@ -540,7 +680,109 @@ static void renderCharImplScaled(const GfxRenderer& renderer, GfxRenderer::Rende
   }
 }
 
+
+static void renderScaledGlyphBitmap(const GfxRenderer& renderer, GfxRenderer::RenderMode renderMode,
+                                    const EpdFontData* fontData, const EpdGlyph* glyph,
+                                    const int drawX, const int drawY,
+                                    const int destWidth, const int destHeight,
+                                    const bool pixelState) {
+  if (fontData == nullptr || glyph == nullptr || destWidth <= 0 || destHeight <= 0) return;
+  if (glyph->width == 0 || glyph->height == 0) return;
+
+  const uint8_t* bitmap = renderer.getGlyphBitmap(fontData, glyph);
+  if (bitmap == nullptr) return;
+
+  // The embedded CJK source is now a larger 31x39 bitmap that is resampled to
+  // the logical reader target size.  For 1-bit fonts, use a small supersampled
+  // coverage estimate instead of nearest-neighbour so downscaling and mild
+  // upscaling keep smoother stroke edges on grayscale-capable refreshes.
+  constexpr int SAMPLE_GRID = 4;
+  constexpr int SAMPLE_COUNT = SAMPLE_GRID * SAMPLE_GRID;
+
+  for (int dy = 0; dy < destHeight; ++dy) {
+    for (int dx = 0; dx < destWidth; ++dx) {
+      if (fontData->is2Bit) {
+        const int sy = std::min<int>(glyph->height - 1, (dy * glyph->height) / destHeight);
+        const int sx = std::min<int>(glyph->width - 1, (dx * glyph->width) / destWidth);
+        const int pixelPosition = sy * glyph->width + sx;
+        const uint8_t byte = bitmap[pixelPosition >> 2];
+        const uint8_t bitIndex = (3 - (pixelPosition & 3)) * 2;
+        const uint8_t bmpVal = 3 - ((byte >> bitIndex) & 0x3);
+        if (renderMode == GfxRenderer::GRAYSCALE_DIRECT && bmpVal < 3) {
+          renderer.drawPixelGray(drawX + dx, drawY + dy, 3 - bmpVal);
+        } else if (renderMode == GfxRenderer::BW && bmpVal < 3) {
+          renderer.drawPixel(drawX + dx, drawY + dy, pixelState);
+        } else if (renderMode == GfxRenderer::GRAYSCALE_MSB && (bmpVal == 1 || bmpVal == 2)) {
+          renderer.drawPixel(drawX + dx, drawY + dy, false);
+        } else if (renderMode == GfxRenderer::GRAYSCALE_LSB && bmpVal == 1) {
+          renderer.drawPixel(drawX + dx, drawY + dy, false);
+        }
+        continue;
+      }
+
+      int covered = 0;
+      for (int sySample = 0; sySample < SAMPLE_GRID; ++sySample) {
+        const int sy = std::min<int>(
+            glyph->height - 1,
+            ((dy * SAMPLE_GRID + sySample) * glyph->height) / (destHeight * SAMPLE_GRID));
+        for (int sxSample = 0; sxSample < SAMPLE_GRID; ++sxSample) {
+          const int sx = std::min<int>(
+              glyph->width - 1,
+              ((dx * SAMPLE_GRID + sxSample) * glyph->width) / (destWidth * SAMPLE_GRID));
+          const int pixelPosition = sy * glyph->width + sx;
+          const uint8_t byte = bitmap[pixelPosition >> 3];
+          const uint8_t bitIndex = 7 - (pixelPosition & 7);
+          if ((byte >> bitIndex) & 1U) ++covered;
+        }
+      }
+
+      if (covered == 0) continue;
+
+      if (renderMode == GfxRenderer::GRAYSCALE_DIRECT) {
+        const uint8_t gray = static_cast<uint8_t>(std::min(3, std::max(1, (covered * 3 + SAMPLE_COUNT / 2) / SAMPLE_COUNT)));
+        renderer.drawPixelGray(drawX + dx, drawY + dy, gray);
+      } else if (renderMode == GfxRenderer::BW) {
+        if (covered * 2 >= SAMPLE_COUNT) renderer.drawPixel(drawX + dx, drawY + dy, pixelState);
+      } else if (renderMode == GfxRenderer::GRAYSCALE_MSB) {
+        if (covered * 2 >= SAMPLE_COUNT) renderer.drawPixel(drawX + dx, drawY + dy, false);
+      } else if (renderMode == GfxRenderer::GRAYSCALE_LSB) {
+        if (covered * 4 >= SAMPLE_COUNT * 3) renderer.drawPixel(drawX + dx, drawY + dy, false);
+      }
+    }
+  }
+}
+
+bool GfxRenderer::renderPrimaryGlyphCentered(
+    const int fontId,
+    const int cellX,
+    const int cellY,
+    const int cellWidth,
+    const int cellHeight,
+    const uint32_t codepoint,
+    const bool pixelState,
+    const EpdFontFamily::Style style
+) const {
+  const auto fontIt = fontMap.find(fontId);
+  if (fontIt == fontMap.end()) return false;
+
+  const EpdFontFamily& primaryFont = fontIt->second;
+  const EpdGlyph* glyph = primaryFont.getGlyphExact(codepoint, style);
+  if (glyph == nullptr) return false;
+  if (glyph->width == 0 || glyph->height == 0) return true;
+
+  const int drawX = cellX + (cellWidth - static_cast<int>(glyph->width)) / 2;
+  const int drawY = cellY + (cellHeight - static_cast<int>(glyph->height)) / 2;
+  const int cursorX = drawX - glyph->left;
+  const int baselineY = drawY + glyph->top;
+
+  renderCharImpl<TextRotation::None>(
+      *this, renderMode, primaryFont, codepoint,
+      cursorX, baselineY, pixelState, style);
+  return true;
+}
+
 bool GfxRenderer::renderBuiltinFallbackGlyphCentered(
+    const int fontId,
     const int cellX,
     const int cellY,
     const int cellWidth,
@@ -564,20 +806,18 @@ bool GfxRenderer::renderBuiltinFallbackGlyphCentered(
     return true;
   }
 
-  const int drawX =
-      cellX + (cellWidth - static_cast<int>(glyph->width)) / 2;
-  const int drawY =
-      cellY + (cellHeight - static_cast<int>(glyph->height)) / 2;
-  const int cursorX = drawX - glyph->left;
-  const int baselineY = drawY + glyph->top;
-
-  renderCharImpl<TextRotation::None>(
-      *this, renderMode, *builtinFallbackFont_, codepoint,
-      cursorX, baselineY, pixelState, style);
+  const EpdFontData* data = builtinFallbackFont_->getData(style);
+  if (data == nullptr) return false;
+  const int destWidth = fallbackMetricXPixelsCeil(fontId, glyph->width);
+  const int destHeight = fallbackMetricYPixelsCeil(fontId, glyph->height);
+  const int drawX = cellX + (cellWidth - destWidth) / 2;
+  const int drawY = cellY + (cellHeight - destHeight) / 2;
+  renderScaledGlyphBitmap(*this, renderMode, data, glyph, drawX, drawY, destWidth, destHeight, pixelState);
   return true;
 }
 
 bool GfxRenderer::renderBuiltinFallbackGlyphRotated90CW(
+    const int fontId,
     const int cellX,
     const int cellY,
     const int cellSize,
@@ -604,18 +844,42 @@ bool GfxRenderer::renderBuiltinFallbackGlyphRotated90CW(
     return false;
   }
 
-  // A clockwise-rotated glyph occupies height x width pixels.
-  const int drawX =
-      cellX + (cellSize - static_cast<int>(glyph->height)) / 2;
-  const int drawY =
-      cellY + (cellSize - static_cast<int>(glyph->width)) / 2;
-  const int cursorX = drawX - data->ascender + glyph->top;
-  const int cursorY =
-      drawY + glyph->left + static_cast<int>(glyph->width) - 1;
-
-  renderCharImpl<TextRotation::Rotated90CW>(
-      *this, renderMode, *builtinFallbackFont_, codepoint,
-      cursorX, cursorY, pixelState, style);
+  // Fallback rotation path for glyphs without a vertical presentation form.
+  // Render a scaled version of the original glyph rotated clockwise into the
+  // same vertical cell.
+  const int destWidth = fallbackMetricYPixelsCeil(fontId, glyph->height);
+  const int destHeight = fallbackMetricXPixelsCeil(fontId, glyph->width);
+  const int drawX = cellX + (cellSize - destWidth) / 2;
+  const int drawY = cellY + (cellSize - destHeight) / 2;
+  const uint8_t* bitmap = getGlyphBitmap(data, glyph);
+  if (bitmap == nullptr) return false;
+  for (int dy = 0; dy < destHeight; ++dy) {
+    const int sx = std::min<int>(glyph->width - 1, ((destHeight - 1 - dy) * glyph->width) / destHeight);
+    for (int dx = 0; dx < destWidth; ++dx) {
+      const int sy = std::min<int>(glyph->height - 1, (dx * glyph->height) / destWidth);
+      if (data->is2Bit) {
+        const int pixelPosition = sy * glyph->width + sx;
+        const uint8_t byte = bitmap[pixelPosition >> 2];
+        const uint8_t bitIndex = (3 - (pixelPosition & 3)) * 2;
+        const uint8_t bmpVal = 3 - ((byte >> bitIndex) & 0x3);
+        if (renderMode == GRAYSCALE_DIRECT && bmpVal < 3) {
+          drawPixelGray(drawX + dx, drawY + dy, 3 - bmpVal);
+        } else if (renderMode == BW && bmpVal < 3) {
+          drawPixel(drawX + dx, drawY + dy, pixelState);
+        } else if (renderMode == GRAYSCALE_MSB && (bmpVal == 1 || bmpVal == 2)) {
+          drawPixel(drawX + dx, drawY + dy, false);
+        } else if (renderMode == GRAYSCALE_LSB && bmpVal == 1) {
+          drawPixel(drawX + dx, drawY + dy, false);
+        }
+      } else {
+        const int pixelPosition = sy * glyph->width + sx;
+        const uint8_t byte = bitmap[pixelPosition >> 3];
+        if ((byte >> (7 - (pixelPosition & 7))) & 1U) {
+          drawPixel(drawX + dx, drawY + dy, pixelState);
+        }
+      }
+    }
+  }
   return true;
 }
 
@@ -666,6 +930,29 @@ bool GfxRenderer::renderBuiltinFallbackGlyphScaled(
   }
   return true;
 }
+
+bool GfxRenderer::renderBuiltinFallbackGlyphScaledPercent(
+    const EpdFontFamily& fallbackFont,
+    const uint32_t codepoint,
+    const int cursorX,
+    const int lineTopY,
+    const int percent,
+    const bool pixelState,
+    const EpdFontFamily::Style style
+) const {
+  const EpdGlyph* glyph = fallbackFont.getGlyphExact(codepoint, style);
+  const EpdFontData* data = fallbackFont.getData(style);
+  if (glyph == nullptr || data == nullptr) return false;
+  if (glyph->width == 0 || glyph->height == 0) return true;
+
+  const int destWidth = std::max(1, scaleBuiltinCjkAxisCeil(glyph->width, percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH, BUILTIN_CJK_SOURCE_CELL_WIDTH));
+  const int destHeight = std::max(1, scaleBuiltinCjkAxisCeil(glyph->height, percent, BUILTIN_CJK_LOGICAL_CELL_HEIGHT, BUILTIN_CJK_SOURCE_CELL_HEIGHT));
+  const int drawX = cursorX + scaleBuiltinCjkAxis(glyph->left, percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH, BUILTIN_CJK_SOURCE_CELL_WIDTH);
+  const int drawY = lineTopY + scaleBuiltinCjkAxis(data->ascender - glyph->top, percent, BUILTIN_CJK_LOGICAL_CELL_HEIGHT, BUILTIN_CJK_SOURCE_CELL_HEIGHT);
+  renderScaledGlyphBitmap(*this, renderMode, data, glyph, drawX, drawY, destWidth, destHeight, pixelState);
+  return true;
+}
+
 
 bool GfxRenderer::renderBuiltinFallbackGlyphScaledRotated90CW(
     const EpdFontFamily& fallbackFont,
@@ -1361,11 +1648,9 @@ int GfxRenderer::getTextWidthExternalUi(
     const EpdGlyph* builtinGlyph =
         builtinFont.getGlyphExact(cp, style);
 
-    // 中文、全形符號，或內建 UI 字型沒有的字，
-    // 優先使用外部 UI 字型。
-    const bool tryExternal =
-        isCjkCodepoint(cp) ||
-        builtinGlyph == nullptr;
+    // 中文、全形符號、ASCII UI 字元，或內建 UI 字型沒有的字，
+    // 優先使用外部 UI 字型，讓英數與中文大小和垂直位置一致。
+    const bool tryExternal = shouldPreferExternalUiGlyph(cp, builtinGlyph);
 
     if (tryExternal) {
       // Legacy .bin UI fonts are fixed-cell fonts. Measuring a CJK glyph by
@@ -1577,27 +1862,23 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
   }
 
   /*
-   * drawText() receives y as the top of the text line.
-   *
-   * The legacy external CJK UI font draws its fixed cell from y downward.
-   * The built-in Ubuntu line box must therefore start at the same y.
-   *
-   * Do not vertically center the smaller Latin line box inside the CJK cell:
-   * for UI_10 that added (30 - 24) / 2 = 3 pixels above the Latin font and
-   * made English letters and digits appear visibly lower than Chinese.
-   *
-   * Use each font's own ascender from the same top coordinate instead:
-   *   CJK baseline   = y + external ascender
-   *   Latin baseline = y + built-in ascender
+   * drawText() receives y as the top of the text line. When a UI line mixes
+   * external CJK cells and built-in Latin fallback glyphs, align the smaller
+   * Latin line box inside the external UI line box instead of anchoring it at
+   * the very top. This prevents English letters and digits from looking too
+   * small and visually shifted upward next to Chinese text.
    */
   int builtinBaselineY = yPos;
 
   if (activeUiFont != nullptr || fallbackFont != nullptr) {
     const EpdFontData* builtinData = font.getData(style);
     if (builtinData != nullptr) {
-      // Keep the proportional Latin font anchored to its own ascender while
-      // the fixed-cell CJK fallback occupies the full 30-pixel line box.
-      builtinBaselineY = y + builtinData->ascender;
+      int verticalOffset = 0;
+      if (activeUiFont != nullptr) {
+        const int externalLineHeight = getExternalFontLineHeightForRendering(*activeUiFont);
+        verticalOffset = std::max(0, (externalLineHeight - static_cast<int>(builtinData->advanceY)) / 2);
+      }
+      builtinBaselineY = y + builtinData->ascender + verticalOffset;
     }
   }
 
@@ -1651,9 +1932,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       const EpdGlyph* builtinGlyph =
           font.getGlyphExact(cp, style);
 
-      const bool tryExternalUi =
-          isCjkCodepoint(cp) ||
-          builtinGlyph == nullptr;
+      const bool tryExternalUi = shouldPreferExternalUiGlyph(cp, builtinGlyph);
 
       if (tryExternalUi) {
         // 先結算前一個內建 glyph 尚未套用的 advance。
@@ -1701,7 +1980,14 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
           fallbackFont->getData(style);
 
       if (fallbackGlyph != nullptr && fallbackData != nullptr) {
-        if (usesCompactScaledCjkFallback(fontId)) {
+        if (usesScaledReaderCjkFallback(fontId)) {
+          const int percent = fallbackScalePercentForFontId(fontId);
+          renderBuiltinFallbackGlyphScaledPercent(
+              *fallbackFont, cp, lastBaseX, y, percent, black, style);
+          lastBaseLeft = scaleBuiltinCjkAxis(fallbackGlyph->left, percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH, BUILTIN_CJK_SOURCE_CELL_WIDTH);
+          lastBaseWidth = scaleBuiltinCjkAxisCeil(fallbackGlyph->width, percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH, BUILTIN_CJK_SOURCE_CELL_WIDTH);
+          lastBaseTop = scaleBuiltinCjkAxis(fallbackGlyph->top, percent, BUILTIN_CJK_LOGICAL_CELL_HEIGHT, BUILTIN_CJK_SOURCE_CELL_HEIGHT);
+        } else if (usesCompactScaledCjkFallback(fontId)) {
           renderBuiltinFallbackGlyphScaled(
               *fallbackFont, cp, lastBaseX, y, black, style);
           lastBaseLeft = scaleCompactMetric(fallbackGlyph->left);
@@ -1793,9 +2079,15 @@ void GfxRenderer::drawTextScaled(const int fontId, const int x, const int y, con
       const EpdGlyph* fallbackGlyph = fallbackFont->getGlyphExact(cp, style);
       const EpdFontData* fallbackData = fallbackFont->getData(style);
       if (fallbackGlyph != nullptr && fallbackData != nullptr) {
-        const int fallbackBaselineY = y + static_cast<int>(fallbackData->ascender) * safeScale;
-        renderCharImplScaled(*this, renderMode, *fallbackFont, cp, cursorX, fallbackBaselineY, safeScale, black, style);
-        cursorX += fallbackAdvancePixels(fontId, fallbackGlyph, cp) * safeScale;
+        if (usesScaledReaderCjkFallback(fontId)) {
+          const int percent = fallbackScalePercentForFontId(fontId) * safeScale;
+          renderBuiltinFallbackGlyphScaledPercent(*fallbackFont, cp, cursorX, y, percent, black, style);
+          cursorX += std::max(1, scaleBuiltinCjkAxis(glyphAdvancePixels(fallbackGlyph, cp), percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH, BUILTIN_CJK_SOURCE_CELL_WIDTH));
+        } else {
+          const int fallbackBaselineY = y + static_cast<int>(fallbackData->ascender) * safeScale;
+          renderCharImplScaled(*this, renderMode, *fallbackFont, cp, cursorX, fallbackBaselineY, safeScale, black, style);
+          cursorX += fallbackAdvancePixels(fontId, fallbackGlyph, cp) * safeScale;
+        }
         continue;
       }
     }
@@ -1828,135 +2120,82 @@ void GfxRenderer::drawVerticalText(
   int columnX = rightX;
   int cursorY = topY;
 
-  // Keep visible breathing room around fixed-cell CJK glyphs.
-  const int glyphAdvance =
-      std::max(1, getLineHeight(fontId) + 4);
-
-  // Columns need a little more horizontal separation than glyph rows.
-  const int columnAdvance = getLineHeight(fontId) + 6;
+  const int glyphAdvance = std::max(1, getLineHeight(fontId));
+  const int columnAdvance = std::max(1, getLineHeight(fontId));
 
   const int bottomMargin = 20;
-  const int bottomLimit =
-      getScreenHeight() - bottomMargin;
+  const int bottomLimit = getScreenHeight() - bottomMargin;
 
-  const uint8_t* cursor =
-      reinterpret_cast<const uint8_t*>(text);
+  const uint8_t* cursor = reinterpret_cast<const uint8_t*>(text);
+
+  auto renderCenteredAnyFont = [&](const uint32_t renderCp) -> bool {
+    bool ok = renderExternalReaderGlyphCentered(
+        fontId, columnX, cursorY, glyphAdvance, glyphAdvance, renderCp, black);
+    if (ok) return true;
+
+    ok = renderPrimaryGlyphCentered(
+        fontId, columnX, cursorY, glyphAdvance, glyphAdvance, renderCp, black, style);
+    if (ok) return true;
+
+    return renderBuiltinFallbackGlyphCentered(
+        fontId, columnX, cursorY, glyphAdvance, glyphAdvance, renderCp, black, style);
+  };
 
   while (*cursor != 0) {
     const uint8_t* codepointStart = cursor;
+    const uint32_t cp = utf8NextCodepoint(&cursor);
+    if (cp == 0) break;
+    if (cp == '\r') continue;
 
-    const uint32_t cp =
-        utf8NextCodepoint(&cursor);
-
-    if (cp == 0) {
-      break;
-    }
-
-    // Windows CRLF 中的 CR 直接略過。
-    if (cp == '\r') {
-      continue;
-    }
-
-    // 換行符號代表開始左邊的新欄。
     if (cp == '\n') {
       cursorY = topY;
       columnX -= columnAdvance;
       continue;
     }
 
-    // 欄底已滿，自動換到左邊下一欄。
     if (cursorY + glyphAdvance > bottomLimit) {
       cursorY = topY;
       columnX -= columnAdvance;
     }
+    if (columnX < 0) break;
 
-    // 已超過畫面左側。
-    if (columnX < 0) {
-      break;
-    }
-
-    const size_t utf8Length =
-        static_cast<size_t>(cursor - codepointStart);
-
-    if (utf8Length == 0 || utf8Length > 4) {
-      continue;
-    }
+    const size_t utf8Length = static_cast<size_t>(cursor - codepointStart);
+    if (utf8Length == 0 || utf8Length > 4) continue;
 
     char glyphText[5] = {0};
+    std::memcpy(glyphText, codepointStart, utf8Length);
 
-    std::memcpy(
-        glyphText,
-        codepointStart,
-        utf8Length
-    );
-
-    // 每次只畫一個 Unicode 字元。
-    // 因此字元本身保持正立，不是整行旋轉。
     bool rendered = false;
 
-    /*
-    * 括號、引號、刪節號等需要旋轉的字元，
-    * 優先使用 90 度旋轉繪製。
-    */
-    if (shouldRotateVerticalGlyph(cp)) {
-      rendered =
-          renderExternalReaderGlyphRotated90CW(
-              fontId,
-              columnX,
-              cursorY,
-              glyphAdvance,
-              cp,
-              black
-          );
+    // Prefer proper vertical presentation forms for East Asian punctuation.
+    // This avoids the old one-size-fits-all 90° rotation that made corner
+    // brackets/parentheses appear wrong or 180° off in vertical layout.
+    const uint32_t verticalCp = verticalPresentationForm(cp);
+    if (verticalCp != 0) {
+      rendered = renderCenteredAnyFont(verticalCp);
+    }
 
+    // If the selected font does not include a vertical presentation glyph,
+    // fall back to the old rotation path for known punctuation.  CJK ideographs
+    // are never intentionally rotated here.
+    if (!rendered && shouldRotateVerticalGlyph(cp)) {
+      rendered = renderExternalReaderGlyphRotated90CW(
+          fontId, columnX, cursorY, glyphAdvance, cp, black);
       if (!rendered) {
         rendered = renderBuiltinFallbackGlyphRotated90CW(
-            columnX, cursorY, glyphAdvance, cp, black, style);
+            fontId, columnX, cursorY, glyphAdvance, cp, black, style);
       }
     }
 
-    /*
-    * 一般字元使用 bitmap 實際筆畫範圍置中。
-    *
-    * 包含：
-    * - 中文漢字
-    * - 英文字母
-    * - 數字
-    * - 逗號、句號
-    * - 問號、驚嘆號、冒號、分號
-    */
     if (!rendered) {
-      rendered =
-          renderExternalReaderGlyphCentered(
-              fontId,
-              columnX,
-              cursorY,
-              glyphAdvance,
-              glyphAdvance,
-              cp,
-              black
-          );
+      rendered = renderCenteredAnyFont(cp);
     }
 
+    // Last-resort fallback.  In normal cases built-in Latin primary glyphs,
+    // external glyphs and CJK fallback glyphs all use centered vertical cells,
+    // so ASCII digits/letters no longer start at the left edge of the cell.
     if (!rendered) {
-      rendered = renderBuiltinFallbackGlyphCentered(
-          columnX, cursorY, glyphAdvance, glyphAdvance,
-          cp, black, style);
-    }
-
-    /*
-    * 外部字型與內嵌繁中字型都沒有 glyph 時，
-    * 才回退原本 drawText()。
-    */
-    if (!rendered) {
-      drawText(
-          fontId,
-          columnX,
-          cursorY,
-          glyphText,
-          black,
-          style
-      );
+      drawText(fontId, columnX, cursorY, glyphText, black, style);
     }
 
     cursorY += glyphAdvance;
@@ -2943,6 +3182,19 @@ int GfxRenderer::getLineHeight(const int fontId) const {
   return fallbackData != nullptr
              ? std::max(primaryHeight, fallbackMetricPixels(fontId, static_cast<int>(fallbackData->advanceY)))
              : primaryHeight;
+}
+
+int GfxRenderer::getVerticalGlyphAdvance(const int fontId) const {
+  const int lineHeight = std::max(1, getLineHeight(fontId));
+  if (getBuiltinFallbackForFontId(fontId) == nullptr) return lineHeight;
+
+  // Vertical CJK text should use visible-ink spacing rather than the full
+  // logical cell height.  This makes character spacing 0px genuinely tight in
+  // vertical mode while still leaving a small safety gap to avoid overlap.
+  const int percent = fallbackScalePercentForFontId(fontId);
+  const int logicalTargetHeight = std::max(1, scaleMetricPercent(BUILTIN_CJK_LOGICAL_CELL_HEIGHT, percent));
+  const int tightAdvance = std::max(1, (logicalTargetHeight * 17 + 10) / 20);  // ~85%
+  return std::min(lineHeight, tightAdvance);
 }
 
 int GfxRenderer::getLineHeightScaled(const int fontId, const int scale) const {

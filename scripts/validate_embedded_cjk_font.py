@@ -9,9 +9,9 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "lib/EpdFont/builtinFonts/source/PaperPointSansTC/PaperPointSansTC-Medium-15_5pt-21x30.bin"
+SOURCE = ROOT / "lib/EpdFont/builtinFonts/source/PaperPointSansTC/PaperPointSansTC-Medium-23_5pt-31x39.bin"
 HEADER = ROOT / "lib/EpdFont/builtinFonts/paperpoint_sans_tc_15_5_medium.h"
-EXPECTED_SHA = "bf143dd1bb632af7af6107dc4e32e8426e5cd375580a77300982a3f697dcb6fc"
+EXPECTED_SHA = "0d75d0abcea1f3ce12512686fa5cfb4140cc8066fc68095aab271678e081f34a"
 
 
 def sha256(path: Path) -> str:
@@ -19,7 +19,7 @@ def sha256(path: Path) -> str:
 
 
 def main() -> int:
-    if SOURCE.stat().st_size != 65_536 * 3 * 30:
+    if SOURCE.stat().st_size != 65_536 * 4 * 39:
         raise SystemExit(f"Unexpected legacy raster size: {SOURCE.stat().st_size}")
     source_sha = sha256(SOURCE)
     if source_sha != EXPECTED_SHA:
@@ -31,7 +31,7 @@ def main() -> int:
         "Noto Sans CJK TC Medium",
         EXPECTED_SHA,
         "Retained glyphs: 31338; intervals: 37",
-        "Cropped packed bitmap bytes: 1444571",
+        "Cropped packed bitmap bytes: 3126747",
         "// U+3000",
         "// U+3105",
         "// U+4E2D",
@@ -45,10 +45,10 @@ def main() -> int:
 
     renderer_body = (ROOT / "lib/GfxRenderer/GfxRenderer.cpp").read_text(encoding="utf-8")
     for token in (
-        "COMPACT_CJK_SCALE_NUM = 7",
-        "renderBuiltinFallbackGlyphScaled",
-        "fallbackAdvancePixels",
-        "fallbackMetricPixels",
+        "BUILTIN_CJK_SOURCE_CELL_WIDTH = 31",
+        "BUILTIN_CJK_LOGICAL_CELL_WIDTH = 21",
+        "renderScaledGlyphBitmap",
+        "fallbackMetricXPixels",
     ):
         if token not in renderer_body:
             raise SystemExit(f"Render-time compact CJK scaling is missing expected token: {token}")
@@ -65,11 +65,11 @@ def main() -> int:
                 "--name",
                 "paperpoint_sans_tc_15_5_medium",
                 "--width",
-                "21",
+                "31",
                 "--height",
-                "30",
+                "39",
                 "--advance",
-                "21",
+                "31",
                 "--source-sha256",
                 EXPECTED_SHA,
             ],

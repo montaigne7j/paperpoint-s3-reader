@@ -25,6 +25,6 @@ python scripts/gen_i18n.py lib/I18n/translations lib/I18n/
 ```
 ## Built-in Traditional Chinese glyph fallback
 
-The firmware now embeds **PaperPoint Sans TC Medium**, a 21×30 fixed-cell bitmap derivative generated from the maintainer-supplied Noto Sans CJK TC Medium raster. It is automatically used for CJK/full-width codepoints when no external UI font is active, so Traditional Chinese UI text no longer depends on an SD-card font.
+The firmware now embeds **PaperPoint Sans TC Medium**, a 31×39 fixed-cell bitmap derivative resampled to the historical logical 21×30 UI/reader grid generated from the maintainer-supplied Noto Sans CJK TC Medium raster. It is automatically used for CJK/full-width codepoints when no external UI font is active, so Traditional Chinese UI text no longer depends on an SD-card font.
 
 An explicitly selected external UI font still takes priority. Missing glyphs can fall back to the embedded font. See `BUILTIN_CJK_FONT.md` and `LICENSES/OFL-1.1-NotoSansCJK.txt`.

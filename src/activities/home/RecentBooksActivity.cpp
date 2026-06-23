@@ -9,6 +9,7 @@
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "RecentBooksStore.h"
+#include "activities/util/DirectTouchSelection.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -45,13 +46,17 @@ void RecentBooksActivity::onExit() {
   recentBooks.clear();
 }
 
+void RecentBooksActivity::activateSelectedBook() {
+  if (!recentBooks.empty() && selectorIndex < recentBooks.size()) {
+    LOG_DBG("RBA", "Selected recent book: %s", recentBooks[selectorIndex].path.c_str());
+    onSelectBook(recentBooks[selectorIndex].path);
+  }
+}
+
 void RecentBooksActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    if (!recentBooks.empty() && selectorIndex < static_cast<int>(recentBooks.size())) {
-      LOG_DBG("RBA", "Selected recent book: %s", recentBooks[selectorIndex].path.c_str());
-      onSelectBook(recentBooks[selectorIndex].path);
-      return;
-    }
+    activateSelectedBook();
+    return;
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
@@ -60,17 +65,33 @@ void RecentBooksActivity::loop() {
 
   int listSize = static_cast<int>(recentBooks.size());
 #if CROSSPOINT_PAPERS3
-  // On Paper S3, Up/Down move one row at a time
-  if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
-    selectorIndex = ButtonNavigator::previousIndex(static_cast<int>(selectorIndex), listSize);
-    requestUpdate();
-    return;
+  {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+    const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
+    const int targetIndex = DirectTouchSelection::hitListRow(
+        mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight}, listSize,
+        static_cast<int>(selectorIndex), metrics.listWithSubtitleRowHeight);
+    if (targetIndex >= 0) {
+      if (targetIndex == static_cast<int>(selectorIndex)) {
+        activateSelectedBook();
+      } else {
+        selectorIndex = static_cast<size_t>(targetIndex);
+        requestUpdate();
+      }
+      return;
+    }
   }
-  if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
-    selectorIndex = ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize);
+  const int pageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, true);
+  buttonNavigator.onNextRelease([this, listSize, pageItems] {
+    selectorIndex = ButtonNavigator::nextPageIndex(static_cast<int>(selectorIndex), listSize, pageItems);
     requestUpdate();
-    return;
-  }
+  });
+
+  buttonNavigator.onPreviousRelease([this, listSize, pageItems] {
+    selectorIndex = ButtonNavigator::previousPageIndex(static_cast<int>(selectorIndex), listSize, pageItems);
+    requestUpdate();
+  });
 #else
   const int pageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, true);
   buttonNavigator.onNextRelease([this, listSize] {

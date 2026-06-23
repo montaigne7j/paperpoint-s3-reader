@@ -19,8 +19,17 @@
 
 namespace {
 constexpr int textScale = 2;
+constexpr int compactLatinScale = 1;
 constexpr int hPadding = 8;
 constexpr int cornerRadius = 6;
+
+bool isAsciiLabel(const char* text) {
+  if (text == nullptr) return false;
+  for (const unsigned char* p = reinterpret_cast<const unsigned char*>(text); *p != '\0'; ++p) {
+    if (*p >= 0x80) return false;
+  }
+  return true;
+}
 void drawLargePopupProgressRing(const GfxRenderer& renderer, const int cx, const int cy, const int radius,
                                 const int thickness, const int progress, const bool state) {
   const int clamped = std::max(0, std::min(100, progress));
@@ -213,43 +222,50 @@ void LargeTextTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const
 
 void LargeTextTheme::drawTabBar(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs,
                                 bool selected) const {
+  if (tabs.empty()) return;
+
   if (selected) {
     renderer.fillRectDither(rect.x, rect.y, rect.width, rect.height, Color::LightGray);
   }
 
+  constexpr int cellPadding = 6;
   const int tabCount = static_cast<int>(tabs.size());
-  const int tabLineH = lineHeight(renderer);
-  const int textY = rect.y + std::max(0, (rect.height - tabLineH) / 2);
-  const int leftPadding = LargeTextMetrics::values.contentSidePadding;
-  const int usableWidth = rect.width - leftPadding * 2;
 
   for (int i = 0; i < tabCount; ++i) {
     const auto& tab = tabs[i];
     const auto style = tab.selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
-    const int tabW = renderer.getTextWidthScaled(UI_10_FONT_ID, tab.label, textScale, style);
+    const int cellX = rect.x + (rect.width * i) / tabCount;
+    const int nextCellX = rect.x + (rect.width * (i + 1)) / tabCount;
+    const int cellW = nextCellX - cellX;
+    const int maxTextW = std::max(1, cellW - cellPadding * 2);
 
-    int tabX = rect.x + leftPadding;
-    if (tabCount == 1) {
-      tabX = rect.x + (rect.width - tabW) / 2;
-    } else if (i == tabCount - 1) {
-      tabX = rect.x + rect.width - leftPadding - tabW;
-    } else if (i > 0) {
-      const int slotX = rect.x + leftPadding + (usableWidth * i) / (tabCount - 1);
-      tabX = slotX - tabW / 2;
+    int labelScale = textScale;
+    if (isAsciiLabel(tab.label) || renderer.getTextWidthScaled(UI_10_FONT_ID, tab.label, textScale, style) > maxTextW) {
+      labelScale = compactLatinScale;
     }
+
+    auto label = renderer.truncatedTextScaled(UI_10_FONT_ID, tab.label, maxTextW, labelScale, style);
+    const int tabW = renderer.getTextWidthScaled(UI_10_FONT_ID, label.c_str(), labelScale, style);
+    const int tabLineH = renderer.getLineHeightScaled(UI_10_FONT_ID, labelScale);
+    const int tabX = cellX + std::max(0, (cellW - tabW) / 2);
+    const int textY = rect.y + std::max(0, (rect.height - tabLineH) / 2);
 
     if (tab.selected) {
       if (selected) {
-        renderer.fillRoundedRect(tabX - hPadding, textY - 4, tabW + hPadding * 2, tabLineH + 8, cornerRadius,
+        renderer.fillRoundedRect(cellX + 2, rect.y + 2, std::max(1, cellW - 4), rect.height - 5, cornerRadius,
                                  Color::Black);
       } else {
-        renderer.fillRectDither(tabX - hPadding, rect.y, tabW + hPadding * 2, rect.height - 3, Color::LightGray);
-        renderer.drawLine(tabX - hPadding, rect.y + rect.height - 3, tabX + tabW + hPadding,
+        renderer.fillRectDither(cellX + 2, rect.y, std::max(1, cellW - 4), rect.height - 3, Color::LightGray);
+        renderer.drawLine(cellX + cellPadding, rect.y + rect.height - 3, nextCellX - cellPadding,
                           rect.y + rect.height - 3, 2, true);
       }
     }
 
-    renderer.drawTextScaled(UI_10_FONT_ID, tabX, textY, tab.label, textScale, !(tab.selected && selected), style);
+    renderer.drawTextScaled(UI_10_FONT_ID, tabX, textY, label.c_str(), labelScale, !(tab.selected && selected), style);
+
+    if (i + 1 < tabCount) {
+      renderer.drawLine(nextCellX, rect.y + 6, nextCellX, rect.y + rect.height - 8);
+    }
   }
 
   renderer.drawLine(rect.x, rect.y + rect.height - 1, rect.x + rect.width - 1, rect.y + rect.height - 1, true);
@@ -298,8 +314,6 @@ void LargeTextTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, co
   constexpr int buttonY = LargeTextMetrics::values.buttonHintsHeight;
   constexpr int buttonPositions[] = {12, 144, 276, 408};
   const char* labels[] = {btn1, btn2, btn3, btn4};
-  const char* iconLabels[] = {"<<", "o", "^", "v"};
-  const int textLineH = lineHeight(renderer);
 
   for (int i = 0; i < 4; ++i) {
     if (labels[i] == nullptr || labels[i][0] == '\0') continue;
@@ -309,11 +323,17 @@ void LargeTextTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, co
     renderer.fillRoundedRect(x, y, buttonWidth, buttonHeight, cornerRadius, Color::White);
     renderer.drawRoundedRect(x, y, buttonWidth, buttonHeight, 1, cornerRadius, true, true, false, false, true);
 
-    auto label = renderer.truncatedTextScaled(UI_10_FONT_ID, iconLabels[i], buttonWidth - 12, textScale);
-    const int textW = renderer.getTextWidthScaled(UI_10_FONT_ID, label.c_str(), textScale);
+    int labelScale = isAsciiLabel(labels[i]) ? compactLatinScale : textScale;
+    if (renderer.getTextWidthScaled(UI_10_FONT_ID, labels[i], labelScale) > buttonWidth - 12) {
+      labelScale = compactLatinScale;
+    }
+
+    auto label = renderer.truncatedTextScaled(UI_10_FONT_ID, labels[i], buttonWidth - 12, labelScale);
+    const int textW = renderer.getTextWidthScaled(UI_10_FONT_ID, label.c_str(), labelScale);
+    const int textLineH = renderer.getLineHeightScaled(UI_10_FONT_ID, labelScale);
     const int textX = x + (buttonWidth - textW) / 2;
     const int textY = y + (buttonHeight - textLineH) / 2;
-    renderer.drawTextScaled(UI_10_FONT_ID, textX, textY, label.c_str(), textScale);
+    renderer.drawTextScaled(UI_10_FONT_ID, textX, textY, label.c_str(), labelScale);
   }
 
   renderer.setOrientation(origOrientation);
@@ -463,6 +483,9 @@ void LargeTextTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgre
                               SETTINGS.statusBarBattery || clockVisible;
   const bool showProgressBar =
       SETTINGS.statusBarProgressBar != CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
+
+  orientedLeft += SETTINGS.screenMargin;
+  orientedRight += SETTINGS.screenMargin;
 
   const int screenW = renderer.getScreenWidth();
   const int screenH = renderer.getScreenHeight();

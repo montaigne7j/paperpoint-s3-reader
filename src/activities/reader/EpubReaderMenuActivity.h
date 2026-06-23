@@ -42,6 +42,7 @@ class EpubReaderMenuActivity final : public Activity {
   };
 
   static std::vector<MenuItem> buildMenuItems(bool hasFootnotes);
+  void activateSelectedMenuAction();
 
   // Fixed menu layout
   const std::vector<MenuItem> menuItems;

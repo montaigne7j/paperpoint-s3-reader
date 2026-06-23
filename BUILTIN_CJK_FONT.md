@@ -9,20 +9,20 @@ was format-converted and subset/cropped for an embedded target.
 The maintainer supplied the fixed-cell raster source as:
 
 ```text
-Noto Sans CJK TC Medium 15.5pt.21×30.bin
+Noto Sans CJK TC Medium 23.5pt.31×39.bin
 ```
 
 It was renamed in this repository to:
 
 ```text
 lib/EpdFont/builtinFonts/source/PaperPointSansTC/
-  PaperPointSansTC-Medium-15_5pt-21x30.bin
+  PaperPointSansTC-Medium-23_5pt-31x39.bin
 ```
 
 Source raster SHA-256:
 
 ```text
-bf143dd1bb632af7af6107dc4e32e8426e5cd375580a77300982a3f697dcb6fc
+0d75d0abcea1f3ce12512686fa5cfb4140cc8066fc68095aab271678e081f34a
 ```
 
 The supplied raster is treated as the project source raster generated from Noto
@@ -70,24 +70,29 @@ generator:
 
 Current generated result:
 
-- source cell: 21 × 30 pixels;
-- fixed advance: 21 pixels;
+- source cell: 31 × 39 pixels;
+- fixed advance: 31 pixels;
 - retained glyphs: 31,338;
 - Unicode intervals: 37;
-- packed bitmap bytes: 1,444,571;
+- packed bitmap bytes: 3,126,747;
 - estimated total firmware data including glyph metadata: approximately
-  1.86 MiB;
+  3.5 MiB;
 - no runtime decompression or PSRAM allocation is required.
+
+Runtime layout still uses the historical logical CJK grid of 21 × 30 pixels.
+The larger 31 × 39 source is resampled into the logical target size, so the
+reader keeps its existing layout scale while improving built-in CJK stroke
+quality.
 
 Rebuild command:
 
 ```powershell
 python scripts/embed_legacy_cjk_font.py `
-  "lib/EpdFont/builtinFonts/source/PaperPointSansTC/PaperPointSansTC-Medium-15_5pt-21x30.bin" `
+  "lib/EpdFont/builtinFonts/source/PaperPointSansTC/PaperPointSansTC-Medium-23_5pt-31x39.bin" `
   "lib/EpdFont/builtinFonts/paperpoint_sans_tc_15_5_medium.h" `
   --name paperpoint_sans_tc_15_5_medium `
-  --width 21 --height 30 --advance 21 `
-  --source-sha256 bf143dd1bb632af7af6107dc4e32e8426e5cd375580a77300982a3f697dcb6fc
+  --width 31 --height 39 --advance 31 `
+  --source-sha256 0d75d0abcea1f3ce12512686fa5cfb4140cc8066fc68095aab271678e081f34a
 ```
 
 ## Runtime behaviour
@@ -98,11 +103,12 @@ python scripts/embed_legacy_cjk_font.py `
 - UI and EPUB text therefore remain readable without an SD-card font.
 - A user-selected external UI or reader font still has priority; the embedded
   font remains available for missing glyphs.
-- Existing Latin families continue to supply proportional Latin text, bold,
-  italic and kerning. The embedded CJK derivative is one fixed medium weight.
+- Existing Latin families continue to supply proportional Latin text and bold.
+  The embedded CJK derivative is one fixed medium weight.
+
 ## Flash partition requirement
 
 The repository includes `partitions.csv` with two 7 MiB OTA application slots.
-This leaves sufficient headroom for the approximately 1.86 MiB embedded font
-while preserving OTA updates. A release build must still verify the final
-`firmware.bin` size against the 7 MiB application partition.
+The larger 31 × 39 embedded CJK font requires the font/hyphenation slimming
+changes documented in `FONT_FLASH_SLIMMING.md`. A release build must verify the
+final `firmware.bin` size against the 7 MiB application partition.

@@ -518,36 +518,41 @@ void BaseTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const char
 
 void BaseTheme::drawTabBar(const GfxRenderer& renderer, const Rect rect, const std::vector<TabInfo>& tabs,
                            bool selected) const {
-  constexpr int underlineHeight = 2;  // Height of selection underline
-  constexpr int underlineGap = 4;     // Gap between text and underline
+  if (tabs.empty()) return;
 
+  constexpr int underlineHeight = 2;
+  constexpr int underlineGap = 4;
+  constexpr int cellPadding = 6;
+
+  const int tabCount = static_cast<int>(tabs.size());
   const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  const int textY = rect.y + std::max(0, (rect.height - lineHeight) / 2) - 1;
 
-  int currentX = rect.x + BaseMetrics::values.contentSidePadding;
-
-  for (size_t i = 0; i < tabs.size(); ++i) {
+  for (int i = 0; i < tabCount; ++i) {
     const auto& tab = tabs[i];
-    const int textWidth =
-        renderer.getTextWidth(UI_12_FONT_ID, tab.label, tab.selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+    const auto style = tab.selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
+    const int cellX = rect.x + (rect.width * i) / tabCount;
+    const int nextCellX = rect.x + (rect.width * (i + 1)) / tabCount;
+    const int cellW = nextCellX - cellX;
 
-    // Draw underline for selected tab
+    auto label = renderer.truncatedText(UI_12_FONT_ID, tab.label, std::max(1, cellW - cellPadding * 2), style);
+    const int textWidth = renderer.getTextWidth(UI_12_FONT_ID, label.c_str(), style);
+    const int textX = cellX + std::max(0, (cellW - textWidth) / 2);
+
     if (tab.selected) {
       if (selected) {
-        renderer.fillRect(currentX - 3, rect.y, textWidth + 6, lineHeight + underlineGap);
+        renderer.fillRect(cellX + 2, rect.y, std::max(1, cellW - 4), rect.height - underlineHeight);
       } else {
-        renderer.fillRect(currentX, rect.y + lineHeight + underlineGap, textWidth, underlineHeight);
+        renderer.fillRect(cellX + cellPadding, rect.y + rect.height - underlineHeight - underlineGap,
+                          std::max(1, cellW - cellPadding * 2), underlineHeight);
       }
     }
 
-    // Draw tab label
-    renderer.drawText(UI_12_FONT_ID, currentX, rect.y, tab.label, !(tab.selected && selected),
-                      tab.selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+    renderer.drawText(UI_12_FONT_ID, textX, textY, label.c_str(), !(tab.selected && selected), style);
 
-    currentX += textWidth;
-    if (i + 1 < tabs.size()) {
-      const int dividerX = currentX + BaseMetrics::values.tabSpacing / 2;
-      renderer.drawLine(dividerX, rect.y + 4, dividerX, rect.y + lineHeight + 2);
-      currentX += BaseMetrics::values.tabSpacing;
+    if (i + 1 < tabCount) {
+      const int dividerX = nextCellX;
+      renderer.drawLine(dividerX, rect.y + 4, dividerX, rect.y + rect.height - 6);
     }
   }
 }
@@ -868,6 +873,10 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
                                    &orientedMarginLeft);
+  // Status bar horizontal layout follows the reader page margin so progress,
+  // title and battery align with the content area and framed backgrounds.
+  orientedMarginLeft += SETTINGS.screenMargin;
+  orientedMarginRight += SETTINGS.screenMargin;
 
   // Draw Progress Text
   const auto screenHeight = renderer.getScreenHeight();

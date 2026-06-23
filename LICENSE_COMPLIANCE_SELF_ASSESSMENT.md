@@ -7,13 +7,13 @@ Assessment date: 2026-06-20
 | Requirement | Result | Evidence |
 |---|---|---|
 | Remove the non-redistributable reading font | **Pass** | Source TTF files, generated headers, source references, settings options, conversion-script references and documentation references were removed; the automated checker rejects reintroduction |
-| Preserve existing user settings | **Pass** | Settings schema version 2 migrates the removed family and legacy Noto value to Noto Sans, and migrates the former dyslexia-font value to ReaderDyslexic |
+| Preserve existing user settings | **Pass** | Settings loading now maps removed/legacy built-in family values, including ReaderDyslexic selections, back to Noto Sans |
 | EPD_Painter Apache-2.0 compliance | **Pass with provenance caveat** | Full Apache-2.0 text, upstream/source attribution, NOTICE, SPDX headers and local modification date were added throughout the bundled source |
 | GC16 FreeBSD/BSD notice | **Pass** | Copyright, BSD-2-Clause identifier, source attribution, modification statement and complete terms were added |
 | Central notices and licence bundle | **Pass** | `THIRD_PARTY_NOTICES.md` and the `LICENSES/` directory were added and are required by the automated check |
 | LGPL binary-release method | **Process implemented; each release must execute it** | The workflow publishes application source, exact resolved LGPL component sources, object/relink material, SBOM, notices, upstream licence files and checksums |
-| Hyphenation pattern licensing | **Pass for the seven included languages** | Per-language authorship/licences are recorded in `HYPHENATION_LICENSES.md`; generated trie headers identify source release and applicable licence |
-| Generated-font notices and naming | **Pass** | Noto data carries OFL notice; the OpenDyslexic-derived generated data is renamed ReaderDyslexic; the Ubuntu generated derivative has a distinct derivative name and UFL notice |
+| Hyphenation pattern licensing | **Pass for the included English data** | English authorship/licence is recorded in `HYPHENATION_LICENSES.md`; the generated trie header identifies source release and applicable licence |
+| Generated-font notices and naming | **Pass** | Noto data carries OFL notice; ReaderDyslexic/OpenDyslexic generated data is no longer embedded; the Ubuntu generated derivative has a distinct derivative name and UFL notice |
 | Embedded Traditional Chinese font | **Pass** | PaperPoint Sans TC Medium uses a distinct derivative name, OFL-1.1 notice, source-raster SHA-256, generator, sparse Unicode intervals and checked-in provenance |
 | Image and logo inventory | **Partial—inventory complete, title clearance incomplete** | Every current file under `src/images` and `docs/images` is listed with a SHA-256 value, but some inherited assets lack authoritative creator/source records |
 | Exact PlatformIO dependency versions | **Pass** | All caret ranges were replaced with exact registry versions, immutable commit identifiers or an explicit tag; the compliance check rejects new caret ranges |

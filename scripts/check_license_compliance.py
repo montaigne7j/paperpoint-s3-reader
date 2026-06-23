@@ -55,7 +55,7 @@ required = [
     "scripts/embed_legacy_cjk_font.py",
     "scripts/validate_embedded_cjk_font.py",
     "lib/EpdFont/builtinFonts/paperpoint_sans_tc_15_5_medium.h",
-    "lib/EpdFont/builtinFonts/source/PaperPointSansTC/PaperPointSansTC-Medium-15_5pt-21x30.bin",
+    "lib/EpdFont/builtinFonts/source/PaperPointSansTC/PaperPointSansTC-Medium-23_5pt-31x39.bin",
 ]
 for item in required:
     require(item)
@@ -101,16 +101,16 @@ for path in (ROOT / "lib/EpdFont/builtinFonts").glob("*.h"):
         if (
             "SPDX-License-Identifier: OFL-1.1" not in body
             or "BUILTIN_CJK_FONT.md" not in body
-            or "bf143dd1bb632af7af6107dc4e32e8426e5cd375580a77300982a3f697dcb6fc" not in body
+            or "0d75d0abcea1f3ce12512686fa5cfb4140cc8066fc68095aab271678e081f34a" not in body
         ):
             fail(f"Embedded CJK font notice/provenance is incomplete: {path.relative_to(ROOT)}")
 
-cjk_source = ROOT / "lib/EpdFont/builtinFonts/source/PaperPointSansTC/PaperPointSansTC-Medium-15_5pt-21x30.bin"
+cjk_source = ROOT / "lib/EpdFont/builtinFonts/source/PaperPointSansTC/PaperPointSansTC-Medium-23_5pt-31x39.bin"
 if cjk_source.exists():
     digest = hashlib.sha256(cjk_source.read_bytes()).hexdigest()
-    if digest != "bf143dd1bb632af7af6107dc4e32e8426e5cd375580a77300982a3f697dcb6fc":
+    if digest != "0d75d0abcea1f3ce12512686fa5cfb4140cc8066fc68095aab271678e081f34a":
         fail(f"Embedded CJK source raster checksum changed: {digest}")
-    if cjk_source.stat().st_size != 5_898_240:
+    if cjk_source.stat().st_size != 10_223_616:
         fail(f"Embedded CJK source raster size changed: {cjk_source.stat().st_size}")
 
 all_fonts = text(ROOT / "lib/EpdFont/builtinFonts/all.h")

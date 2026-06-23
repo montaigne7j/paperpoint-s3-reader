@@ -1,8 +1,8 @@
 # PaperPoint Sans TC raster source
 
-`PaperPointSansTC-Medium-15_5pt-21x30.bin` is the repository-safe derivative filename for the maintainer-supplied source raster `Noto Sans CJK TC Medium 15.5pt.21×30.bin`.
+`PaperPointSansTC-Medium-23_5pt-31x39.bin` is the repository-safe derivative filename for the maintainer-supplied source raster `Noto Sans CJK TC Medium 23.5pt.31×39.bin`.
 
-- SHA-256: `bf143dd1bb632af7af6107dc4e32e8426e5cd375580a77300982a3f697dcb6fc`
+- SHA-256: `0d75d0abcea1f3ce12512686fa5cfb4140cc8066fc68095aab271678e081f34a`
 - Licence: SIL Open Font License 1.1
 - Full provenance: `BUILTIN_CJK_FONT.md`
 - Licence text: `LICENSES/OFL-1.1-NotoSansCJK.txt`

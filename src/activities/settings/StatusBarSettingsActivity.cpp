@@ -11,6 +11,7 @@
 #include "ClockSyncActivity.h"
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "activities/util/DirectTouchSelection.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -172,24 +173,35 @@ void StatusBarSettingsActivity::loop() {
     return;
   }
 
-  // Handle navigation
-  buttonNavigator.onNextRelease([this] {
-    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, visibleItemCount);
+#if CROSSPOINT_PAPERS3
+  {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+    const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+    const int targetIndex = DirectTouchSelection::hitListRow(
+        mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight}, visibleItemCount, selectedIndex,
+        metrics.listRowHeight);
+    if (targetIndex >= 0) {
+      if (targetIndex == selectedIndex) {
+        handleSelection();
+      } else {
+        selectedIndex = targetIndex;
+      }
+      requestUpdate();
+      return;
+    }
+  }
+#endif
+
+  // Footer Previous / Next page through the visible settings list.
+  const int pageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, false);
+  buttonNavigator.onNextRelease([this, pageItems] {
+    selectedIndex = ButtonNavigator::nextPageIndex(selectedIndex, visibleItemCount, pageItems);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousRelease([this] {
-    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, visibleItemCount);
-    requestUpdate();
-  });
-
-  buttonNavigator.onNextContinuous([this] {
-    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, visibleItemCount);
-    requestUpdate();
-  });
-
-  buttonNavigator.onPreviousContinuous([this] {
-    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, visibleItemCount);
+  buttonNavigator.onPreviousRelease([this, pageItems] {
+    selectedIndex = ButtonNavigator::previousPageIndex(selectedIndex, visibleItemCount, pageItems);
     requestUpdate();
   });
 }

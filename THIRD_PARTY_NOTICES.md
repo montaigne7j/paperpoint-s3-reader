@@ -17,7 +17,6 @@ and the complete `LICENSES/` directory.
 
 - **PaperPoint Sans TC Medium generated bitmap data** — fixed-cell, cropped and sparse-packed derivative generated from the maintainer-supplied Noto Sans CJK TC Medium raster; SIL Open Font License 1.1. The derivative uses a distinct primary name. See `BUILTIN_CJK_FONT.md` and `LICENSES/OFL-1.1-NotoSansCJK.txt`.
 - **Noto Sans source and generated bitmap data** — SIL Open Font License 1.1, copyright 2022 The Noto Project Authors. See `LICENSES/OFL-1.1-NotoSans.txt`.
-- **ReaderDyslexic generated bitmap data** — derived from OpenDyslexic under SIL OFL 1.1. The generated derivative was renamed so it does not use the Reserved Font Name `OpenDyslexic`. The unmodified source font files retain their original names. See `LICENSES/OFL-1.1-OpenDyslexic.txt`.
 - **Ubuntu derivative PaperPoint bitmap data** — format-converted derivative of Ubuntu Font Family, renamed in accordance with the Ubuntu Font Licence 1.0. See `LICENSES/UFL-1.0.txt`.
 - **OpenFontRender / FreeType** — FreeType Project License. Portions of this software are copyright © The FreeType Project. All rights reserved. See `LICENSES/FTL.txt` and `THIRD_PARTY_NOTICES_TTF.md`.
 

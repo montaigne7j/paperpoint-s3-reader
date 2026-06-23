@@ -12,8 +12,8 @@ external-font overrides.
 
 | Control | Result | Evidence |
 |---|---|---|
-| Input format recognised | **Pass** | 5,898,240 bytes = 65,536 BMP entries × 90 bytes; 21×30, row-aligned 1-bit glyph cells |
-| Source integrity | **Pass** | SHA-256 `bf143dd1bb632af7af6107dc4e32e8426e5cd375580a77300982a3f697dcb6fc` is enforced by the generator and compliance check |
+| Input format recognised | **Pass** | 10,223,616 bytes = 65,536 BMP entries × 156 bytes; 31×39, row-aligned 1-bit glyph cells |
+| Source integrity | **Pass** | SHA-256 `0d75d0abcea1f3ce12512686fa5cfb4140cc8066fc68095aab271678e081f34a` is enforced by the generator and compliance check |
 | Flash-size reduction | **Pass** | 31,338 retained glyphs, 37 sparse intervals and 1,444,571 packed bitmap bytes; approximately 1.86 MiB including glyph metadata instead of the 5.9 MB direct-index raster |
 | Runtime performance design | **Pass by design** | Direct random-access bitmaps in flash; no DEFLATE, no temporary decompression buffer and no PSRAM glyph-cache requirement |
 | Missing-glyph handling | **Pass** | Two repeated tofu/sentinel patterns are discarded; exact-glyph lookup prevents a Latin family's U+FFFD replacement from hiding the CJK fallback |
@@ -44,15 +44,15 @@ external-font overrides.
 
 ## Remaining limitations
 
-1. The CJK fallback is one 21×30 medium-weight bitmap size. Reader font-size,
+1. The CJK fallback is one 31×39 medium-weight source bitmap resampled to the reader/UI logical grid. Reader font-size,
    bold and italic settings still affect the Latin family, but CJK remains the
    same fixed raster size/weight.
 2. The embedded set covers useful BMP ranges, including basic CJK, Extension A,
    compatibility ideographs, punctuation, Bopomofo and kana. Supplementary-plane
    CJK extensions such as Extension B (`U+20000` and above) are not embedded.
 3. The embedded source raster is the maintainer-supplied `Noto Sans CJK TC
-   Medium 15.5pt.21×30.bin`, stored in the repository under the distinct
-   derivative filename `PaperPointSansTC-Medium-15_5pt-21x30.bin`.
+   Medium 23.5pt.31×39.bin`, stored in the repository under the distinct
+   derivative filename `PaperPointSansTC-Medium-23_5pt-31x39.bin`.
 4. A real `pio run -e default` on the user's machine and an on-device test are
    still required to confirm linked firmware size, baseline appearance, page
    layout and refresh performance.

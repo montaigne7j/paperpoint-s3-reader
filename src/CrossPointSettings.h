@@ -253,6 +253,10 @@ class CrossPointSettings {
 
   // Reader screen margin settings
   uint8_t screenMargin = 5;
+  // When enabled, the reader status bar follows the page margin. This is useful
+  // for framed/background themes: bottom status bar is raised by screenMargin,
+  // and status text/progress also use the same left/right margins as content.
+  uint8_t statusBarFollowsPageMargin = 0;
   // OPDS browser settings
   char opdsServerUrl[128] = "";
   char opdsUsername[64] = "";

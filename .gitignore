@@ -16,3 +16,4 @@ build
 /.venv
 *.local*
 *.zip
+test/epubs/T0253.epub

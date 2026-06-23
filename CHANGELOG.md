@@ -1,3 +1,83 @@
+# Changelog
+
+## 1.6.0 — 2026-06-23 — Direct touch, reader typography, and firmware slimming
+
+- Added direct-touch selection for the Home screen, Settings tabs, list-style screens, and multi-cover home layouts.
+- Redesigned Paper S3 footer navigation as `Back / Select / Previous / Next`; Previous and Next now move by page instead of row.
+- Added Reader Status Bar Margin Mode so the reader status bar can either stay at the bottom or follow the reading margins.
+- Added a built-in bilingual EPUB user manual installed as `/book/CrossPoint_User_Manual.epub`.
+- Updated the built-in Traditional Chinese reader fallback using the maintainer-supplied larger CJK raster source, with scalable reader metrics and improved vertical punctuation alignment.
+- Slimmed firmware by removing embedded ReaderDyslexic families, reducing Noto Sans variants, and keeping only English hyphenation data.
+- Kept Chinese-first documentation and web installer guidance aligned with the 1.6.0 browser flashing flow.
+
+### Direct Touch Selection v4
+
+- Added Reader Status Bar Margin Mode (`Status Bar Follows Margin` / `狀態列跟隨頁邊距`).
+  - Off: status bar stays at the bottom; reading content uses `max(screen margin, status bar height)`.
+  - On: status bar follows the bottom page margin; reading content uses `screen margin + status bar height`.
+  - Left/right reader margins also apply to the status bar.
+- Redesigned Paper S3 footer navigation as `Back / Select / Previous / Next`.
+  - Previous/Next are page-level navigation actions in list-style screens.
+  - Up/Down row movement is no longer used by the Paper S3 footer.
+  - The Home screen hides the footer and is direct-touch driven.
+- Fixed Traditional Chinese footer Back label.
+  - `返回` no longer includes `<<` or `«`.
+  - Chinese Large Text labels stay large; compact text is only used for long Latin labels.
+- Added a built-in bilingual EPUB user manual.
+  - Installed automatically as `/book/CrossPoint_User_Manual.epub` when browsing `/book`.
+
+### Footer navigation and Settings tab layout
+
+- Changed bottom virtual button wording from Up/Down style navigation to Back / Select / Previous / Next labels.
+- Large Text theme now draws real footer labels instead of symbolic icons (`<<`, `o`, `^`, `v`).
+- Large Text theme uses compact Latin labels for English footer buttons and Settings tabs, while keeping Chinese tab/footer labels large.
+- Settings tab bars are now four equal-width cells in Classic, Lyra, and Large Text themes so visual tabs match direct-touch hit areas.
+- Updated Traditional Chinese footer navigation labels to 前頁 / 後頁.
+
+
+### Direct Touch Selection follow-up
+
+- Added direct touch support for the Home Continue Reading card.
+- Added direct touch support for the Settings category tab bar.
+- Improved mixed Chinese/English UI label rendering by preferring the active UI font for printable ASCII and centering built-in Latin fallback glyphs within the UI line box.
+- Hid the legacy Sleep Screen Cover Mode and Sleep Screen Cover Filter settings from the device/web settings list while retaining backward-compatible settings-file parsing.
+
+
+### Larger CJK source and vertical spacing tuning
+
+### Built-in CJK 31x39 source
+- Replaced the embedded PaperPoint Sans TC source raster with the maintainer-supplied Noto Sans CJK TC Medium 23.5pt 31x39 bitmap derivative.
+- Kept the historical 21x30 logical layout target and resampled the larger 31x39 source into 21x30 * reader-scale targets.
+- Preserved the reader CJK scale range at 0.8x..2.5x with default 1.5x at reader font size 36.
+- Resampled UI fallback glyphs back to the old logical size so Classic/Lyra UI is not globally enlarged by the larger source raster.
+
+### Vertical spacing
+- Changed vertical CJK layout to use a tighter visible-ink advance so character spacing 0px is visibly closer while avoiding overlap.
+- Bumped EPUB section cache version to 38.
+
+
+### Flash footprint reduction for larger CJK font experiments
+
+### Reader font slimming
+- Removed the embedded ReaderDyslexic font families from firmware. Existing settings that selected ReaderDyslexic now migrate back to the built-in NotoSans reader fallback.
+- Reduced embedded NotoSans reader fonts to NotoSans 14 Regular/Bold, NotoSans 16 Regular/Bold, and NotoSans 8 Regular for small UI text.
+- Removed embedded NotoSans Italic/BoldItalic, 12 px, and 18 px reader variants. Italic EPUB styling now falls back to Regular; BoldItalic falls back to Bold.
+
+### Hyphenation slimming
+- Kept only English Liang hyphenation data in firmware. Other language tries are excluded because Chinese reading does not need them and English remains useful for mixed Latin text.
+
+
+### Vertical punctuation and scalable CJK reader font
+
+### Vertical punctuation and alignment fix
+- Use vertical presentation forms for CJK brackets/quotes before falling back to rotation.
+- Center built-in primary font glyphs in vertical cells so ASCII letters and numbers align with CJK glyphs.
+
+### Built-in CJK scalable reader font
+- Scale the embedded CJK fallback in reader layout from 0.8x to 2.5x, with default 1.5x at reader font size 36.
+- Apply the scaled CJK metrics to horizontal and vertical layout calculations.
+- Bump section cache version to 37.
+
 
 ## 1.5.0 — 2026-06-22 — Reader value adjust compile fix
 
@@ -63,9 +143,7 @@
 - Pinned PlatformIO library versions and added automated compliance/SBOM/relink-kit checks.
 - Added packaging of the exact resolved ArduinoWebSockets and Arduino-ESP32 source trees for each binary release.
 
-# Changelog
-
-## Unreleased
+## 2026-06-21 — Earlier Paper S3 baseline work
 
 ### UI / UX
 - **Vertical text centering** in all list rows (file browser, settings, recent books) — text, icons, subtitles, and values are now properly centered within their row height using dynamic font metrics instead of hardcoded pixel offsets

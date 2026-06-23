@@ -4,6 +4,7 @@
 #include <I18n.h>
 
 #include "MappedInputManager.h"
+#include "activities/util/DirectTouchSelection.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -32,16 +33,31 @@ void NetworkModeSelectionActivity::loop() {
 
   // Handle confirm button - select current option
   if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-    NetworkMode mode = NetworkMode::JOIN_NETWORK;
-    if (selectedIndex == 1) {
-      mode = NetworkMode::CONNECT_CALIBRE;
-    } else if (selectedIndex == 2) {
-      mode = NetworkMode::CREATE_HOTSPOT;
-    }
-    onModeSelected(mode);
+    handleCurrentSelection();
     return;
   }
 
+#if CROSSPOINT_PAPERS3
+  {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+    const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+    const int targetIndex = DirectTouchSelection::hitListRow(
+        mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight}, MENU_ITEM_COUNT, selectedIndex,
+        metrics.listWithSubtitleRowHeight);
+    if (targetIndex >= 0) {
+      if (targetIndex == selectedIndex) {
+        handleCurrentSelection();
+      } else {
+        selectedIndex = targetIndex;
+        requestUpdate();
+      }
+      return;
+    }
+  }
+#endif
+
+#if !CROSSPOINT_PAPERS3
   // Handle navigation
   buttonNavigator.onNext([this] {
     selectedIndex = ButtonNavigator::nextIndex(selectedIndex, MENU_ITEM_COUNT);
@@ -52,6 +68,7 @@ void NetworkModeSelectionActivity::loop() {
     selectedIndex = ButtonNavigator::previousIndex(selectedIndex, MENU_ITEM_COUNT);
     requestUpdate();
   });
+#endif
 }
 
 void NetworkModeSelectionActivity::render(RenderLock&&) {
@@ -82,6 +99,17 @@ void NetworkModeSelectionActivity::render(RenderLock&&) {
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();
+}
+
+
+void NetworkModeSelectionActivity::handleCurrentSelection() {
+  NetworkMode mode = NetworkMode::JOIN_NETWORK;
+  if (selectedIndex == 1) {
+    mode = NetworkMode::CONNECT_CALIBRE;
+  } else if (selectedIndex == 2) {
+    mode = NetworkMode::CREATE_HOTSPOT;
+  }
+  onModeSelected(mode);
 }
 
 void NetworkModeSelectionActivity::onModeSelected(NetworkMode mode) {

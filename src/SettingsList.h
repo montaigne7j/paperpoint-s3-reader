@@ -18,11 +18,12 @@ inline const std::vector<SettingInfo>& getSettingsList() {
                         {StrId::STR_DARK, StrId::STR_LIGHT, StrId::STR_CUSTOM, StrId::STR_COVER, StrId::STR_NONE_OPT,
                          StrId::STR_COVER_CUSTOM},
                         "sleepScreen", StrId::STR_CAT_DISPLAY),
-      SettingInfo::Enum(StrId::STR_SLEEP_COVER_MODE, &CrossPointSettings::sleepScreenCoverMode,
-                        {StrId::STR_FIT, StrId::STR_CROP}, "sleepScreenCoverMode", StrId::STR_CAT_DISPLAY),
-      SettingInfo::Enum(StrId::STR_SLEEP_COVER_FILTER, &CrossPointSettings::sleepScreenCoverFilter,
-                        {StrId::STR_NONE_OPT, StrId::STR_FILTER_CONTRAST, StrId::STR_INVERTED},
-                        "sleepScreenCoverFilter", StrId::STR_CAT_DISPLAY),
+      // Paper S3 sleep rendering now uses the prepared/custom image path or
+      // the captured reader page directly. The old cover mode/filter options
+      // are intentionally hidden from the device Settings UI and web settings
+      // list to avoid exposing controls that no longer match the active sleep
+      // workflow. Legacy values are still readable in CrossPointSettings for
+      // backward compatibility with older settings files.
       SettingInfo::Toggle(StrId::STR_SLEEP_SCREEN_ROTATE_180, &CrossPointSettings::sleepScreenRotate180,
                           "sleepScreenRotate180", StrId::STR_CAT_DISPLAY),
       SettingInfo::Enum(
@@ -46,9 +47,6 @@ inline const std::vector<SettingInfo>& getSettingsList() {
                           StrId::STR_CAT_DISPLAY),
 
       // --- Reader ---
-      SettingInfo::Enum(StrId::STR_FONT_FAMILY, &CrossPointSettings::fontFamily,
-                        {StrId::STR_NOTO_SANS, StrId::STR_READER_DYSLEXIC}, "fontFamily",
-                        StrId::STR_CAT_READER),
       SettingInfo::Value(StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize,
                          {CrossPointSettings::READER_FONT_SIZE_MIN, CrossPointSettings::READER_FONT_SIZE_MAX, 1},
                          "fontSize", StrId::STR_CAT_READER),
@@ -62,6 +60,8 @@ inline const std::vector<SettingInfo>& getSettingsList() {
                          "characterSpacing", StrId::STR_CAT_READER),
       SettingInfo::Value(StrId::STR_SCREEN_MARGIN, &CrossPointSettings::screenMargin, {5, 40, 5}, "screenMargin",
                          StrId::STR_CAT_READER),
+      SettingInfo::Toggle(StrId::STR_STATUS_BAR_FOLLOWS_MARGIN, &CrossPointSettings::statusBarFollowsPageMargin,
+                          "statusBarFollowsPageMargin", StrId::STR_CAT_READER),
       SettingInfo::Enum(StrId::STR_PARA_ALIGNMENT, &CrossPointSettings::paragraphAlignment,
                         {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER, StrId::STR_ALIGN_RIGHT,
                          StrId::STR_BOOK_S_STYLE},

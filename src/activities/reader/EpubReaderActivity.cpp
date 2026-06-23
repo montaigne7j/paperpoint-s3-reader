@@ -625,9 +625,15 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
   const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
 
-  // reserves space for automatic page turn indicator when no status bar or progress bar only
-  if (automaticPageTurnActive &&
-      (statusBarHeight == 0 || statusBarHeight == UITheme::getInstance().getProgressBarHeight())) {
+  // Reader Status Bar Margin Mode:
+  // - Off: status bar stays at the bottom; content bottom margin is at least
+  //   statusBarHeight so text never overlaps it.
+  // - On: status bar itself follows the page margin; content reserves both the
+  //   page margin and the status bar height for framed/background themes.
+  if (SETTINGS.statusBarFollowsPageMargin) {
+    orientedMarginBottom += SETTINGS.screenMargin + statusBarHeight;
+  } else if (automaticPageTurnActive &&
+             (statusBarHeight == 0 || statusBarHeight == UITheme::getInstance().getProgressBarHeight())) {
     orientedMarginBottom +=
         std::max(SETTINGS.screenMargin,
                  static_cast<uint8_t>(statusBarHeight + UITheme::getInstance().getMetrics().statusBarVerticalMargin));
@@ -1122,7 +1128,8 @@ void EpubReaderActivity::renderStatusBar() const {
     title = epub->getTitle();
   }
 
-  GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset);
+  const int statusPaddingBottom = SETTINGS.statusBarFollowsPageMargin ? SETTINGS.screenMargin : 0;
+  GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, statusPaddingBottom, textYOffset);
 }
 
 void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool savePosition) {

@@ -941,10 +941,11 @@ void ParsedText::layoutAndExtractColumns(
   (void)lineSpacing;
 
   // In vertical layout, line spacing controls the distance between columns,
-  // not the distance between characters inside one column.  Character spacing
-  // alone controls the vertical glyph-to-glyph advance here.  Use a slightly
-  // tighter base than the horizontal line box so 0 px really feels compact.
-  const int baseGlyphAdvance = std::max(1, renderer.getLineHeight(fontId) - 6);
+  // while characterSpacing controls only the distance between characters within
+  // one column.  Built-in CJK reader scaling is already reflected in
+  // renderer.getLineHeight(fontId), so 0 px means a tight, non-overlapping
+  // scaled glyph advance.
+  const int baseGlyphAdvance = std::max(1, renderer.getVerticalGlyphAdvance(fontId));
   const int glyphAdvance = std::max(1, baseGlyphAdvance + static_cast<int>(characterSpacing));
 
   const int maxCellsPerColumn =
