@@ -175,8 +175,14 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   // Browsing state
   const char* confirmLabel =
       (!entries.empty() && entries[selectorIndex].type == OpdsEntryType::BOOK) ? tr(STR_DOWNLOAD) : tr(STR_OPEN);
-  const char* searchLabel = (!searchTemplate.empty() && selectorIndex == 0) ? tr(STR_SEARCH) : tr(STR_DIR_UP);
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, searchLabel, tr(STR_DIR_DOWN));
+  const char* searchLabel = (!searchTemplate.empty() && selectorIndex == 0) ? tr(STR_SEARCH)
+                           : (ButtonNavigator::hasPreviousPage(selectorIndex, static_cast<int>(entries.size()), PAGE_ITEMS)
+                                  ? tr(STR_DIR_UP)
+                                  : "");
+  const char* nextPageLabel = ButtonNavigator::hasNextPage(selectorIndex, static_cast<int>(entries.size()), PAGE_ITEMS)
+                                  ? tr(STR_DIR_DOWN)
+                                  : "";
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, searchLabel, nextPageLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   if (entries.empty()) {

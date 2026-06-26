@@ -246,7 +246,15 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
         },
         true);
 
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+    const int pageItems = std::max(1, listHeight / std::max(1, metrics.listRowHeight));
+    const int menuPageItems = std::max(1, pageItems - summaryRows);
+    const char* prevPageLabel = ButtonNavigator::hasPreviousPage(selectedIndex, static_cast<int>(menuItems.size()), menuPageItems)
+                                    ? tr(STR_DIR_UP)
+                                    : "";
+    const char* nextPageLabel = ButtonNavigator::hasNextPage(selectedIndex, static_cast<int>(menuItems.size()), menuPageItems)
+                                    ? tr(STR_DIR_DOWN)
+                                    : "";
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), prevPageLabel, nextPageLabel);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;
@@ -336,8 +344,17 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
     }
   }
 
-  // Footer / Hints
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  // Footer / Hints.  Only show page-navigation buttons when another visible
+  // menu page exists; hidden buttons also no-op because ButtonNavigator no
+  // longer wraps page navigation at boundaries.
+  const int menuPageItems = std::max(1, availableHeight / std::max(1, lineHeight));
+  const char* prevPageLabel = ButtonNavigator::hasPreviousPage(selectedIndex, static_cast<int>(menuItems.size()), menuPageItems)
+                                  ? tr(STR_DIR_UP)
+                                  : "";
+  const char* nextPageLabel = ButtonNavigator::hasNextPage(selectedIndex, static_cast<int>(menuItems.size()), menuPageItems)
+                                  ? tr(STR_DIR_DOWN)
+                                  : "";
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), prevPageLabel, nextPageLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

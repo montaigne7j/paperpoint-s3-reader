@@ -111,6 +111,14 @@ class EPD_Painter {
   void clear();
   void fxClear();
   void paint(uint8_t* framebuffer);
+  // Experimental reader page-turn path: process 6 physical rows as a band
+  // through the full waveform sequence before advancing to the next band.
+  // This is intended only for visual scan-direction and ghosting tests.
+  void paintRowMajor(uint8_t* framebuffer, bool reverseBandOrder = false);
+  // Experimental progressive reader path: drive only a physical row range.
+  // Rows outside [activeRowStart, activeRowEnd] are sent as neutral data and
+  // the internal screenbuffer is updated only for that range.
+  void paintRowRange(uint8_t* framebuffer, int activeRowStart, int activeRowEnd);
   void paintPacked(const uint8_t* packed);
     /*
   * 顯示實體面板方向的 4bpp GC16 圖片。
@@ -178,6 +186,10 @@ class EPD_Painter {
   std::atomic<int> paintStage{0};
   bool interlace_mode = false;
   bool shouldSkipRow = false;
+  std::atomic<int> row_major_remaining_stages{0};
+  std::atomic<bool> row_major_reverse_bands{false};
+  std::atomic<int> row_major_active_row_start{-1};
+  std::atomic<int> row_major_active_row_end{-1};
 
   // ---- Internal helpers ----
   void powerOn();

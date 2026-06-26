@@ -1,57 +1,37 @@
-# GitHub Release Audit Notes
+# GitHub Release Audit Notes — V1.7.0
 
-本檔記錄 `crosspoint-reader-papers3(11).zip` 發布前檢查結果與建議調整。
+本檔記錄 `PaperPoint S3 Reader` V1.7.0 發布前檢查與整理結果。
 
-## 已檢查項目
+## 已處理的發布清理
 
-- `scripts/validate_embedded_cjk_font.py`：通過。
-- `scripts/check_license_compliance.py`：通過。
-- `scripts/generate_sbom.py`：可產生有效 SPDX JSON。
-- 專案大小約 38 MB，未發現超過 GitHub 單檔 50 MiB warning 門檻的檔案。
-- 目前最大檔案是內建 CJK 字型轉換出的 header 與來源 BIN，已低於 GitHub 一般 repo 單檔限制。
-- 已包含 `LICENSE`、`LICENSES/`、`THIRD_PARTY_NOTICES.md`、`BINARY_RELEASE_LGPL_COMPLIANCE.md`、`RELEASE_COMPLIANCE_CHECKLIST.md`、`SBOM.spdx.json`。
+- 移除舊工作目錄 `v29_progressive_work/`，避免把早期完整專案副本一起上傳。
+- 移除 `.vscode/`，其中 `c_cpp_properties.json` 與 `launch.json` 含本機 Windows 絕對路徑，對其他使用者無效。
+- 移除 `.gitmodules`，目前專案不再使用 `open-x4-sdk` submodule，保留會讓 GitHub 顯示缺失 submodule。
+- 移除 `.skills/`、`.github/skills/` 與 `CLAUDE.md`，這些是本機 AI agent 工作指南，不屬於正式 source release 必要內容。
+- 移除 `.github/FUNDING.yml`，該檔指向原 CrossPoint Reader 作者帳號；若本 fork 之後需要贊助連結，請另行建立。
+- 移除 `.gitignore` 中列出的可生成檔：`lib/I18n/I18nKeys.h`、`lib/I18n/I18nStrings.h`、`lib/I18n/I18nStrings.cpp` 與 `src/network/html/*.generated.h`。
+- 移除 `test/epubs/T0253.epub`，該檔已列入 `.gitignore`，不納入公開 source package。
 
-## 建議已處理
+## V1.7.0 定版重點
 
-### 移除本機 VS Code IntelliSense 設定
+- 版本號已更新為 `1.7.0`：`platformio.ini`、`README.md`、`docs/install/manifest.json`。
+- README / USER_GUIDE / web installer 頁面已補充 V1.7.0 page-turn cache 與 waveform 說明。
+- `CHANGELOG.md` 已新增 V1.7.0 條目。
+- Paper S3 page-turn waveform 預設值已固定在 `lib/EPD_Painter/EPD_Painter.cpp`，`platformio.ini` 保留 override 範例但不預設覆蓋。
 
-原 ZIP 內含 `.vscode/c_cpp_properties.json`，其中有本機路徑：
+## 建議發布前本機確認
 
-```text
-D:/program/paperS3/...
-C:/Users/monta/.platformio/...
-```
+1. 清除舊 build：`pio run -t clean`。
+2. 產生生成檔並驗證授權：
+   `python scripts/gen_i18n.py`
+   `python scripts/generate_sbom.py --output SBOM.spdx.json`
+   `python scripts/validate_embedded_cjk_font.py`
+   `python scripts/check_license_compliance.py`
+3. 編譯 release：`pio run -e gh_release`。
+4. 實機測試：連續上一頁 / 下一頁、UI 回內文、圖片頁回文字頁、休眠圖、檔案瀏覽與最近閱讀。
+5. 建立 tag：`v1.7.0`，讓 GitHub Actions 產生正式 release artifacts。
 
-這些路徑對其他使用者無效，也會暴露本機帳號名稱。發布版已移除 `.vscode/`。
-
-### 移除過時 submodule 設定
-
-原 ZIP 內有 `.gitmodules` 指向 `open-x4-sdk`，但目前專案不再使用該 SDK，且 ZIP 內也沒有 `open-x4-sdk/`。發布版已移除 `.gitmodules`，避免 GitHub 顯示缺失 submodule。
-
-### 移除原作者 Funding 設定
-
-原 ZIP 內 `.github/FUNDING.yml` 指向原 CrossPoint Reader 作者帳號。若本 fork 要使用自己的贊助連結，請重新建立；若不需要，建議先不要發布 Funding 設定。
-
-### 移除可由 build 產生的生成檔
-
-下列檔案已在 `.gitignore` 中，且會由 PlatformIO pre-script 產生，發布版已移除：
-
-```text
-lib/I18n/I18nKeys.h
-lib/I18n/I18nStrings.h
-lib/I18n/I18nStrings.cpp
-src/network/html/*.generated.h
-```
-
-## 仍建議發布前確認
-
-1. `platformio.ini` 的 `[crosspoint] version` 是否要從 `1.4.0` 更新到正式發布 tag，例如 `1.4.1` 或 `1.5.0`。
-2. `README.md` 中的 GitHub Pages 安裝網址是否已對應到正確 repo。
-3. GitHub Pages 是否已啟用，且 `docs/install/manifest.json` 能找到 release workflow 產生的 `merged-firmware.bin`。
-4. 若公開發佈 firmware binary，請使用 release workflow 輸出的完整附件，而不要只上傳單獨 `firmware.bin`。
-5. 若要保留 `.skills/` AI 開發指南，建議確認內容沒有個人資訊；若只給自己使用，可不放進 public repo。
-
-## 建議 release asset
+## 建議 release assets
 
 正式 tag release 建議至少包含：
 
@@ -83,3 +63,23 @@ traditional-chinese
 platformio
 arduino-esp32
 ```
+
+
+## Logo orientation / root documentation cleanup
+
+- `GfxRenderer::drawImage()` now renders built-in 1-bit assets through the normal orientation-aware pixel path, so `Logo120` appears upright on the portrait sleep screen.
+- Historical experiment and fix notes were moved from the repository root to `docs/development-notes/` to keep the GitHub project root focused on release-facing files.
+- `docs/assets/guide/` screenshots were inspected. They remain 540×960 PNG reference images for the V1.7.0 guide.
+- The built-in manual EPUB remains embedded and was updated for V1.7.0 page-turn/cache behavior.
+
+
+## r5 release-candidate checks
+
+- Home Power Off no longer calls ActivityManager::goToSleep() from inside HomeActivity::loop(); it requests deep sleep and the main loop performs the real sleep sequence.
+- Lyra Home cover-buffer snapshot uses PSRAM to avoid exhausting internal heap during the 3-covers theme.
+- EPUB progress restore rejects out-of-range spine/page values and skips invalid progress saves.
+- Power Off menu item has a visible Power icon in Lyra/Lyra 3 Covers themes.
+
+## V1.7.0 r6 check
+
+- Home Power Off icon now uses logical transparent icon rendering so it is not rotated 90 degrees on Paper S3 portrait UI.

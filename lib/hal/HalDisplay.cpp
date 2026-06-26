@@ -278,20 +278,52 @@ void HalDisplay::displayBuffer(RefreshMode mode, bool turnOffScreen) {
 
   switch (mode) {
     case FULL_REFRESH:
-      // Full clear + repaint — eliminates all ghosting
+      // Full clear + repaint — eliminates all ghosting.
       epd->clear();
       epd->setQuality(EPD_Painter::Quality::QUALITY_HIGH);
       break;
+    case PAGE_TURN_REFRESH_ORIGINAL:
+      // Original reader page-turn path: use the normal painter timing instead of
+      // the experimental band-scan path.
+      epd->setQuality(EPD_Painter::Quality::QUALITY_HIGH);
+      break;
+    case PAGE_TURN_REFRESH:
+      epd->setQuality(EPD_Painter::Quality::QUALITY_HIGH);
+      epd->paintRowMajor(frameBuffer, false);
+      return;
+    case PAGE_TURN_REFRESH_REVERSE:
+      epd->setQuality(EPD_Painter::Quality::QUALITY_HIGH);
+      epd->paintRowMajor(frameBuffer, true);
+      return;
     case HALF_REFRESH:
     case FAST_REFRESH:
     default:
-      // Use QUALITY_HIGH for all modes — QUALITY_NORMAL leaves ghost traces
-      // on e-paper because it doesn't fully drive the ink particles.
+      // Keep non-reader UI paths conservative.  QUALITY_NORMAL/FAST can leave
+      // ghost traces on menus and file browser rows, so these modes stay clean.
       epd->setQuality(EPD_Painter::Quality::QUALITY_HIGH);
       break;
   }
 
   epd->paint(frameBuffer);
+}
+
+void HalDisplay::displayBufferRows(int rowStart, int rowEnd, bool turnOffScreen) {
+  (void)turnOffScreen;
+  if (!epd || !frameBuffer) return;
+  // Avoid overwriting EPD_Painter's one-slot packed_paintbuffer while a prior
+  // progressive row-range waveform is still using its packed_fastbuffer copy
+  // and updating the internal screenbuffer.  Rendering of the next stripe can
+  // still overlap with the previous waveform; this wait happens only when the
+  // next row-range display is submitted.
+  epd->waitUntilIdle();
+  epd->setQuality(EPD_Painter::Quality::QUALITY_HIGH);
+  epd->paintRowRange(frameBuffer, rowStart, rowEnd);
+}
+
+
+void HalDisplay::waitUntilIdle() {
+  if (!epd) return;
+  epd->waitUntilIdle();
 }
 
 void HalDisplay::refreshDisplay(RefreshMode mode, bool turnOffScreen) {

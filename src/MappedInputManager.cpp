@@ -49,6 +49,10 @@ bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint
     case Button::PageForward:
       // Reader page navigation uses side buttons and can be swapped via settings.
       return (gpio.*fn)(side.pageForward);
+    case Button::SwipeLeft:
+      return (gpio.*fn)(HalGPIO::BTN_SWIPE_LEFT);
+    case Button::SwipeRight:
+      return (gpio.*fn)(HalGPIO::BTN_SWIPE_RIGHT);
   }
 
   return false;

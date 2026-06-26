@@ -1,7 +1,11 @@
 #pragma once
+#include <array>
 #include <cstdint>
+#include <memory>
+#include <vector>
 #include <Epub.h>
 #include <Epub/FootnoteEntry.h>
+#include <Epub/Page.h>
 #include <Epub/Section.h>
 
 #include "EpubReaderMenuActivity.h"
@@ -28,10 +32,76 @@ class EpubReaderActivity final : public Activity {
   bool pendingScreenshot = false;
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool automaticPageTurnActive = false;
+  bool lastPageTurnWasForward = true;
   bool pendingNextChapterPreindex = false;
   unsigned long nextChapterPreindexAt = 0UL;
   uint16_t pendingPreindexViewportWidth = 0;
   uint16_t pendingPreindexViewportHeight = 0;
+
+#if CROSSPOINT_PAPERS3
+  static constexpr int PAGE_FRAME_CACHE_SLOT_COUNT = 4;
+  struct PageFrameCacheEntry {
+    uint8_t* buffer = nullptr;
+    bool valid = false;
+    int spineIndex = -1;
+    int pageNumber = -1;
+    int width = 0;
+    int height = 0;
+    bool hasImages = false;
+    std::vector<FootnoteEntry> footnotes;
+  };
+  std::array<PageFrameCacheEntry, PAGE_FRAME_CACHE_SLOT_COUNT> pageFrameCache{};
+  int pageFrameCacheNextWrite = 0;
+  unsigned long lastPageFrameCacheWorkAt = 0;
+  unsigned long lastReaderInputAt = 0;
+  unsigned long lastVisibleDisplayIdleAt = 0;
+  bool pendingPageTurnActive = false;
+  bool pendingPageTurnForward = true;
+  unsigned long pendingPageTurnAt = 0;
+  bool lastVisiblePageHadImages = false;
+  bool restoredPageFrameHadImages = false;
+
+  struct PageFrameCacheWarmJob {
+    bool active = false;
+    int spineIndex = -1;
+    int pageNumber = -1;
+    int visiblePageNumber = -1;
+    int orientedMarginTop = 0;
+    int orientedMarginRight = 0;
+    int orientedMarginBottom = 0;
+    int orientedMarginLeft = 0;
+    size_t nextElementIndex = 0;
+    unsigned long startedAt = 0;
+    unsigned long lastChunkAt = 0;
+    std::unique_ptr<Page> page;
+    std::vector<FootnoteEntry> footnotes;
+    bool hasImages = false;
+  } pageFrameCacheWarmJob;
+
+  bool ensurePageFrameCacheAllocated();
+  void clearPageFrameCache(bool freeBuffers = false);
+  PageFrameCacheEntry* findPageFrameCacheEntry(int spineIndex, int pageNumber);
+  PageFrameCacheEntry* acquirePageFrameCacheEntry(int spineIndex, int pageNumber);
+  bool copyCurrentFrameToPageFrameCache(int spineIndex, int pageNumber, const std::vector<FootnoteEntry>& footnotes,
+                                       bool hasImages);
+  bool restorePageFrameCacheToRenderer(int spineIndex, int pageNumber, bool restoreFootnotes);
+  bool renderPageToFrameCache(int pageNumber, int orientedMarginTop, int orientedMarginRight,
+                              int orientedMarginBottom, int orientedMarginLeft);
+  bool hasReaderInputPending() const;
+  bool capturePageTurnInput(bool& isForwardTurn) const;
+  bool queuePendingPageTurn(bool isForwardTurn, const char* source);
+  void clearPendingPageTurn();
+  bool executePendingPageTurnIfReady(const char* source);
+  bool sameSectionPageTurnTarget(bool isForwardTurn, int& targetPage) const;
+  bool pageFrameCacheReadyForTurn(bool isForwardTurn);
+  bool adjacentPageFrameCachesReady();
+  void abortPageFrameCacheWarmJob();
+  bool startPageFrameCacheWarmJob(int pageNumber, int orientedMarginTop, int orientedMarginRight,
+                                  int orientedMarginBottom, int orientedMarginLeft);
+  bool continuePageFrameCacheWarmJobChunk();
+  void waitForVisibleDisplayIdle(const char* source);
+  void warmPageFrameCacheIfIdle();
+#endif
 
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;
@@ -45,6 +115,10 @@ class EpubReaderActivity final : public Activity {
 
   void renderContents(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
+#if CROSSPOINT_PAPERS3
+  bool renderContentsProgressive(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
+                                 int orientedMarginBottom, int orientedMarginLeft);
+#endif
   void renderStatusBar() const;
   void scheduleSilentIndexNextChapter(uint16_t viewportWidth, uint16_t viewportHeight);
   void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);

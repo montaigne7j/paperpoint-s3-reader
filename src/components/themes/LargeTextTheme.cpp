@@ -165,7 +165,9 @@ void drawLargeListRow(const GfxRenderer& renderer, const Rect rect, const int it
 void LargeTextTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title,
                                 const char* subtitle) const {
   renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
-  drawPowerButton(renderer, rect);
+  if (title != nullptr) {
+    drawPowerButton(renderer, rect);
+  }
 
   const bool showBatteryPercentage =
       SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS;

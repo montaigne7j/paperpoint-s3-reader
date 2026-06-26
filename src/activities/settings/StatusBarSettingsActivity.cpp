@@ -298,8 +298,15 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
       },
       true);
 
-  // Draw button hints
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_TOGGLE), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  // Draw button hints: show footer page buttons only when another page exists.
+  const int hintPageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, false);
+  const char* prevPageLabel = ButtonNavigator::hasPreviousPage(selectedIndex, visibleItemCount, hintPageItems)
+                                  ? tr(STR_DIR_UP)
+                                  : "";
+  const char* nextPageLabel = ButtonNavigator::hasNextPage(selectedIndex, visibleItemCount, hintPageItems)
+                                  ? tr(STR_DIR_DOWN)
+                                  : "";
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_TOGGLE), prevPageLabel, nextPageLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   std::string title;

@@ -435,10 +435,17 @@ void FileBrowserActivity::render(RenderLock&&) {
       }
     }
 
-    // Help text
+    // Help text: show footer page buttons only when another page exists.
+    const int listSize = static_cast<int>(files.size());
+    const char* prevPageLabel = (!files.empty() && ButtonNavigator::hasPreviousPage(static_cast<int>(selectorIndex), listSize, pageItems))
+                                    ? tr(STR_DIR_UP)
+                                    : "";
+    const char* nextPageLabel = (!files.empty() && ButtonNavigator::hasNextPage(static_cast<int>(selectorIndex), listSize, pageItems))
+                                    ? tr(STR_DIR_DOWN)
+                                    : "";
     const auto labels =
         mappedInput.mapLabels(basepath == "/" ? tr(STR_HOME) : tr(STR_BACK), files.empty() ? "" : tr(STR_OPEN),
-                              files.empty() ? "" : tr(STR_DIR_UP), files.empty() ? "" : tr(STR_DIR_DOWN));
+                              prevPageLabel, nextPageLabel);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
     if (crossedPage) {

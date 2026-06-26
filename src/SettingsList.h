@@ -36,7 +36,8 @@ inline const std::vector<SettingInfo>& getSettingsList() {
                         StrId::STR_CAT_DISPLAY),
       SettingInfo::Enum(
           StrId::STR_REFRESH_FREQ, &CrossPointSettings::refreshFrequency,
-          {StrId::STR_PAGES_1, StrId::STR_PAGES_5, StrId::STR_PAGES_10, StrId::STR_PAGES_15, StrId::STR_PAGES_30},
+          {StrId::STR_PAGES_1, StrId::STR_PAGES_5, StrId::STR_PAGES_10, StrId::STR_PAGES_15, StrId::STR_PAGES_30,
+           StrId::STR_PAGES_NEVER},
           "refreshFrequency", StrId::STR_CAT_DISPLAY),
       SettingInfo::Enum(StrId::STR_UI_THEME, &CrossPointSettings::uiTheme,
                         {StrId::STR_THEME_CLASSIC, StrId::STR_THEME_LYRA, StrId::STR_THEME_LYRA_EXTENDED,
@@ -45,6 +46,8 @@ inline const std::vector<SettingInfo>& getSettingsList() {
                         StrId::STR_CAT_DISPLAY),
       SettingInfo::Toggle(StrId::STR_SUNLIGHT_FADING_FIX, &CrossPointSettings::fadingFix, "fadingFix",
                           StrId::STR_CAT_DISPLAY),
+      SettingInfo::Toggle(StrId::STR_READER_CONTENT_INVERT, &CrossPointSettings::readerContentInvert,
+                          "readerContentInvert", StrId::STR_CAT_DISPLAY),
 
       // --- Reader ---
       SettingInfo::Value(StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize,
@@ -86,6 +89,11 @@ inline const std::vector<SettingInfo>& getSettingsList() {
       // --- Controls ---
       SettingInfo::Toggle(StrId::STR_LONG_PRESS_SKIP, &CrossPointSettings::longPressChapterSkip, "longPressChapterSkip",
                           StrId::STR_CAT_CONTROLS),
+      SettingInfo::Toggle(StrId::STR_SWIPE_PAGE_TURN, &CrossPointSettings::swipePageTurnEnabled,
+                          "swipePageTurnEnabled", StrId::STR_CAT_CONTROLS),
+      SettingInfo::Enum(StrId::STR_PAGE_TURN_REFRESH_MODE, &CrossPointSettings::pageTurnRefreshMode,
+                        {StrId::STR_PAGE_TURN_REFRESH_ORIGINAL, StrId::STR_PAGE_TURN_REFRESH_BAND_SCAN},
+                        "pageTurnRefreshMode", StrId::STR_CAT_CONTROLS),
 
       // --- System ---
       SettingInfo::Enum(StrId::STR_TIME_TO_SLEEP, &CrossPointSettings::sleepTimeout,

@@ -22,6 +22,7 @@
 #include "components/icons/hotspot.h"
 #include "components/icons/image24.h"
 #include "components/icons/library.h"
+#include "components/icons/power.h"
 #include "components/icons/recent.h"
 #include "components/icons/settings2.h"
 #include "components/icons/text24.h"
@@ -105,6 +106,8 @@ const uint8_t* iconForName(UIIcon icon, int size) {
         return WifiIcon;
       case UIIcon::Hotspot:
         return HotspotIcon;
+      case UIIcon::Power:
+        return PowerIcon;
       default:
         return nullptr;
     }
@@ -302,7 +305,9 @@ void LyraTheme::drawBatteryRight(const GfxRenderer& renderer, Rect rect, const b
 
 void LyraTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle) const {
   renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
-  drawPowerButton(renderer, rect);
+  if (title != nullptr) {
+    drawPowerButton(renderer, rect);
+  }
 
   const bool showBatteryPercentage =
       SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS;

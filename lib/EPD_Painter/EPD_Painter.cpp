@@ -17,6 +17,7 @@
 #include <soc/lcd_cam_struct.h>
 #include <string.h>
 
+#include <algorithm>
 #include <cstring>
 
 #include "EPD_Painter.h"
@@ -120,6 +121,183 @@ static inline void gpio_clear_fast(uint8_t pin) {
 }
 
 #define PASS_COUNT 13
+
+
+// =============================================================================
+// Paper S3 page-turn transition-aware soft grayscale band-scan parameters
+// =============================================================================
+// This path is used only by paintRowMajor() / PAGE_TURN_REFRESH.
+// It uses band-major scanning with per-pixel drive generation and a
+// previous-frame-aware transition rule:
+//   prev white -> curr white : optional lighter cleanup pass, then neutral
+//   prev white -> curr non-white : use the current-frame schedule
+//   prev black -> curr white : lighter * N, then neutral
+//   prev black -> curr black : optional darker reinforcement pass, then neutral
+//   all other transitions : use the current-frame schedule
+//
+// Stable Paper S3 defaults. Override from platformio.ini only for testing:
+#ifndef EPD_PAGE_TURN_BAND_ROWS
+#define EPD_PAGE_TURN_BAND_ROWS 540
+#endif
+
+#ifndef EPD_PAGE_TURN_PASS_COUNT
+#define EPD_PAGE_TURN_PASS_COUNT 8
+#endif
+
+#ifndef EPD_PAGE_TURN_PASS_DELAY_MS
+#define EPD_PAGE_TURN_PASS_DELAY_MS 5
+#endif
+
+// Independent hold time after page-turn pass 0.  Pass 0 is also where the
+// same-white lighter cleanup and same-black darker reinforcement run.  The
+// Paper S3 V1.7.0 profile intentionally keeps this short and uses the normal
+// pass delay for the remaining passes.
+#ifndef EPD_PAGE_TURN_FIRST_PASS_DELAY_MS
+#define EPD_PAGE_TURN_FIRST_PASS_DELAY_MS 1
+#endif
+
+#ifndef EPD_PAGE_TURN_BLACK_DRIVE
+#define EPD_PAGE_TURN_BLACK_DRIVE 0x55
+#endif
+
+#ifndef EPD_PAGE_TURN_WHITE_DRIVE
+#define EPD_PAGE_TURN_WHITE_DRIVE 0xAA
+#endif
+
+#ifndef EPD_PAGE_TURN_SPECIAL_DRIVE
+#define EPD_PAGE_TURN_SPECIAL_DRIVE 0xFF
+#endif
+
+#ifndef EPD_PAGE_TURN_ENABLE_WHITE_STAY_LIGHTER
+#define EPD_PAGE_TURN_ENABLE_WHITE_STAY_LIGHTER 1
+#endif
+
+#ifndef EPD_PAGE_TURN_ENABLE_BLACK_STAY_DARKER
+#define EPD_PAGE_TURN_ENABLE_BLACK_STAY_DARKER 1
+#endif
+
+#ifndef EPD_PAGE_TURN_WHITE_STAY_LIGHTER_PASSES
+#define EPD_PAGE_TURN_WHITE_STAY_LIGHTER_PASSES 1
+#endif
+
+#ifndef EPD_PAGE_TURN_BLACK_STAY_DARKER_PASSES
+#define EPD_PAGE_TURN_BLACK_STAY_DARKER_PASSES 1
+#endif
+
+#ifndef EPD_PAGE_TURN_BLACK_TO_WHITE_LIGHTER_PASSES
+#define EPD_PAGE_TURN_BLACK_TO_WHITE_LIGHTER_PASSES 5
+#endif
+
+// Current-frame 8-pass soft schedule:
+//   target 00 white : lighter * 5, special(3) * 1, neutral * 2
+//   target 01 gray1 : lighter * 5, darker * 1, neutral * 2
+//   target 10 gray2 : lighter * 5, darker * 2, neutral * 1
+//   target 11 black : darker  * 5, special(3) * 1, neutral * 2
+static IRAM_ATTR uint8_t epd_painter_page_turn_current_drive_for_pixel(uint8_t current_pixel,
+                                                                        uint8_t pass,
+                                                                        uint8_t darker_drive,
+                                                                        uint8_t lighter_drive,
+                                                                        uint8_t special_drive) {
+  switch (current_pixel & 0x03) {
+    case 0x00:  // white
+      if (pass < 5) return lighter_drive;
+      if (pass == 5) return special_drive;
+      return 0x00;
+
+    case 0x01:  // gray 1
+      if (pass < 5) return lighter_drive;
+      if (pass == 5) return darker_drive;
+      return 0x00;
+
+    case 0x02:  // gray 2
+      if (pass < 5) return lighter_drive;
+      if (pass < 7) return darker_drive;
+      return 0x00;
+
+    default:  // black
+      if (pass < 5) return darker_drive;
+      if (pass == 5) return special_drive;
+      return 0x00;
+  }
+}
+
+// Per-pixel transition-aware waveform schedule, 8 passes by default.
+static IRAM_ATTR uint8_t epd_painter_page_turn_drive_for_pixel(uint8_t current_pixel,
+                                                               uint8_t previous_pixel,
+                                                               uint8_t pass,
+                                                               uint8_t darker_drive,
+                                                               uint8_t lighter_drive,
+                                                               uint8_t special_drive) {
+  const uint8_t curr = current_pixel & 0x03;
+  const uint8_t prev = previous_pixel & 0x03;
+
+  if (prev == 0x00 && curr == 0x00) {
+#if EPD_PAGE_TURN_ENABLE_WHITE_STAY_LIGHTER
+    // White stays white: optional light cleanup pulse(s), then neutral.
+    return (pass < EPD_PAGE_TURN_WHITE_STAY_LIGHTER_PASSES) ? lighter_drive : 0x00;
+#else
+    return 0x00;
+#endif
+  }
+
+  if (prev == 0x00 && curr != 0x00) {
+    // White becomes gray/black: do not suppress the new ink; use current schedule.
+    return epd_painter_page_turn_current_drive_for_pixel(curr, pass, darker_drive, lighter_drive, special_drive);
+  }
+
+  if (prev == 0x03 && curr == 0x00) {
+    // Black becomes white: stronger cleanup path for old text ghosting.
+    return (pass < EPD_PAGE_TURN_BLACK_TO_WHITE_LIGHTER_PASSES) ? lighter_drive : 0x00;
+  }
+
+  if (prev == 0x03 && curr == 0x03) {
+#if EPD_PAGE_TURN_ENABLE_BLACK_STAY_DARKER
+    // Black stays black: optional dark reinforcement pulse(s), then neutral.
+    return (pass < EPD_PAGE_TURN_BLACK_STAY_DARKER_PASSES) ? darker_drive : 0x00;
+#else
+    return 0x00;
+#endif
+  }
+
+  // Gray-related transitions keep the current-frame soft schedule.
+  return epd_painter_page_turn_current_drive_for_pixel(curr, pass, darker_drive, lighter_drive, special_drive);
+}
+
+// Build one physical row of direct drive data from the current target frame and
+// the previous software screen buffer.  Sources are packed 2bpp:
+// 00=white, 01=gray1, 10=gray2, 11=black.
+// Output is packed ink drive per pixel/column for the requested pass.
+// This is per-pixel/column, not 64-pixel chunk scheduled.
+static IRAM_ATTR void epd_painter_build_previous_aware_waveform_row(const uint8_t* current_row,
+                                                                    const uint8_t* previous_row,
+                                                                    uint8_t* output,
+                                                                    uint32_t length_bytes,
+                                                                    uint8_t pass,
+                                                                    uint8_t darker_drive,
+                                                                    uint8_t lighter_drive,
+                                                                    uint8_t special_drive) {
+  for (uint32_t i = 0; i < length_bytes; ++i) {
+    const uint8_t cur = current_row[i];
+    const uint8_t prev = previous_row[i];
+
+    const uint8_t c0 = (cur >> 6) & 0x03;
+    const uint8_t c1 = (cur >> 4) & 0x03;
+    const uint8_t c2 = (cur >> 2) & 0x03;
+    const uint8_t c3 = cur & 0x03;
+
+    const uint8_t p0 = (prev >> 6) & 0x03;
+    const uint8_t p1 = (prev >> 4) & 0x03;
+    const uint8_t p2 = (prev >> 2) & 0x03;
+    const uint8_t p3 = prev & 0x03;
+
+    const uint8_t d0 = epd_painter_page_turn_drive_for_pixel(c0, p0, pass, darker_drive, lighter_drive, special_drive);
+    const uint8_t d1 = epd_painter_page_turn_drive_for_pixel(c1, p1, pass, darker_drive, lighter_drive, special_drive);
+    const uint8_t d2 = epd_painter_page_turn_drive_for_pixel(c2, p2, pass, darker_drive, lighter_drive, special_drive);
+    const uint8_t d3 = epd_painter_page_turn_drive_for_pixel(c3, p3, pass, darker_drive, lighter_drive, special_drive);
+
+    output[i] = (d0 & 0xC0) | (d1 & 0x30) | (d2 & 0x0C) | (d3 & 0x03);
+  }
+}
 
 EPD_Painter::EPD_Painter(const Config& config, bool portrait) {
   _config = config;
@@ -463,6 +641,7 @@ void EPD_Painter::powerOff() {
 void EPD_Painter::paint(uint8_t* framebuffer) {
   if (!_paint_buffer_sem) return;
   xSemaphoreTake(_paint_buffer_sem, portMAX_DELAY);
+  row_major_remaining_stages.store(0);
 
   if (_config.rotation == Rotation::ROTATION_CW)
     compact_pixels_rotated_cw(framebuffer, packed_paintbuffer, _config.height, _config.width);
@@ -479,11 +658,84 @@ void EPD_Painter::paint(uint8_t* framebuffer) {
 }
 
 // =============================================================================
+// paintRowMajor() — previous-aware soft grayscale band scan.
+//
+// This keeps the band-major timing path and per-pixel row data
+// generation, but adds the requested previous-frame override:
+//   previous white : lighter*1 + neutral*7
+//   previous black : darker*1  + neutral*7
+//   previous gray  : use the current-frame 8-pass soft schedule
+//
+// Band height, pass count, and pass delay are compile-time parameters near the
+// top of this file: EPD_PAGE_TURN_BAND_ROWS, EPD_PAGE_TURN_PASS_COUNT,
+// EPD_PAGE_TURN_PASS_DELAY_MS.
+//
+// Reader-page-turn-only path tuned for Paper S3.
+// =============================================================================
+void EPD_Painter::paintRowMajor(uint8_t* framebuffer, bool reverseBandOrder) {
+  if (!_paint_buffer_sem) return;
+  xSemaphoreTake(_paint_buffer_sem, portMAX_DELAY);
+
+  if (_config.rotation == Rotation::ROTATION_CW)
+    compact_pixels_rotated_cw(framebuffer, packed_paintbuffer, _config.height, _config.width);
+  else
+    epd_painter_compact_pixels(framebuffer, packed_paintbuffer, _config.width * _config.height);
+
+  // One row/band-major stage only.  This intentionally
+  // avoids the normal two paint stages so the scan test is fast enough to use.
+  row_major_reverse_bands.store(reverseBandOrder);
+  row_major_active_row_start.store(-1);
+  row_major_active_row_end.store(-1);
+  row_major_remaining_stages.store(interlace_mode ? 0 : 1);
+  paintStage = (interlace_mode ? 3 : 1);
+  xSemaphoreGive(_paint_buffer_sem);
+
+  // wait until this buffer has been picked up by the paint loop.
+  while (paintStage == (interlace_mode ? 3 : 1)) {
+    vTaskDelay(1);
+  }
+}
+
+void EPD_Painter::paintRowRange(uint8_t* framebuffer, int activeRowStart, int activeRowEnd) {
+  if (!_paint_buffer_sem) return;
+  if (activeRowStart > activeRowEnd) return;
+
+  activeRowStart = std::max(0, std::min<int>(_config.height - 1, activeRowStart));
+  activeRowEnd = std::max(0, std::min<int>(_config.height - 1, activeRowEnd));
+  if (activeRowStart > activeRowEnd) return;
+
+  xSemaphoreTake(_paint_buffer_sem, portMAX_DELAY);
+
+  if (_config.rotation == Rotation::ROTATION_CW)
+    compact_pixels_rotated_cw(framebuffer, packed_paintbuffer, _config.height, _config.width);
+  else
+    epd_painter_compact_pixels(framebuffer, packed_paintbuffer, _config.width * _config.height);
+
+  // Same transition-aware row-major waveform as paintRowMajor(), but the
+  // paint task will drive only this physical row range and leave all other
+  // rows neutral.  The software screenbuffer is updated only for this range.
+  row_major_reverse_bands.store(false);
+  row_major_active_row_start.store(activeRowStart);
+  row_major_active_row_end.store(activeRowEnd);
+  row_major_remaining_stages.store(interlace_mode ? 0 : 1);
+  paintStage = (interlace_mode ? 3 : 1);
+  xSemaphoreGive(_paint_buffer_sem);
+
+  // Wait until the paint task has picked up packed_paintbuffer.  The waveform
+  // itself continues asynchronously, matching the existing paintRowMajor()
+  // behavior used by reader page turns.
+  while (paintStage == (interlace_mode ? 3 : 1)) {
+    vTaskDelay(1);
+  }
+}
+
+// =============================================================================
 // paintPacked() — like paint() but skips compaction; buffer is already 2bpp
 // =============================================================================
 void EPD_Painter::paintPacked(const uint8_t* packed) {
   if (!_paint_buffer_sem) return;
   xSemaphoreTake(_paint_buffer_sem, portMAX_DELAY);
+  row_major_remaining_stages.store(0);
   memcpy(packed_paintbuffer, packed, (_config.width * _config.height) / 4);
   paintStage = (interlace_mode ? 3 : 2);
   xSemaphoreGive(_paint_buffer_sem);
@@ -501,6 +753,7 @@ void EPD_Painter::paintPacked(const uint8_t* packed) {
 void EPD_Painter::unpaintPacked(const uint8_t* packed) {
   if (!_paint_buffer_sem) return;
   xSemaphoreTake(_paint_buffer_sem, portMAX_DELAY);
+  row_major_remaining_stages.store(0);
   memcpy(packed_screenbuffer, packed, packed_row_bytes * _config.height);
   memset(packed_paintbuffer, 0x00, packed_row_bytes * _config.height);
   paintStage = (interlace_mode ? 3 : 2);
@@ -517,6 +770,7 @@ void EPD_Painter::unpaintPacked(const uint8_t* packed) {
 void EPD_Painter::paintLater(uint8_t* framebuffer) {
   if (!_paint_buffer_sem) return;
   xSemaphoreTake(_paint_buffer_sem, portMAX_DELAY);
+  row_major_remaining_stages.store(0);
   // const int64_t t0 = esp_timer_get_time();
 
   if (_config.rotation == Rotation::ROTATION_CW)
@@ -547,20 +801,36 @@ void EPD_Painter::_paint_task_body() {
 
     xSemaphoreTake(_paint_buffer_sem, portMAX_DELAY);
     memcpy(packed_fastbuffer, packed_paintbuffer, packed_row_bytes * _config.height);
+    const bool rowMajorThisStage = (row_major_remaining_stages.load() > 0) && !interlace_mode;
+    const bool reverseBandOrderThisStage = rowMajorThisStage && row_major_reverse_bands.load();
+    const int activeRowStartThisStage = rowMajorThisStage ? row_major_active_row_start.load() : -1;
+    const int activeRowEndThisStage = rowMajorThisStage ? row_major_active_row_end.load() : -1;
+    const bool rowRangeThisStage = rowMajorThisStage && activeRowStartThisStage >= 0 && activeRowEndThisStage >= activeRowStartThisStage;
+    if (rowMajorThisStage) {
+      row_major_remaining_stages.fetch_sub(1);
+      // Row-range mode is one-shot.  Clear it as soon as this stage owns the
+      // values so a later full paintRowMajor() does not inherit the range.
+      if (rowRangeThisStage) {
+        row_major_active_row_start.store(-1);
+        row_major_active_row_end.store(-1);
+      }
+    }
     xSemaphoreGive(_paint_buffer_sem);
 
     paintStage -= 1;
 
     PanelPowerGuard guard(*this);
 
-    for (int row = 0; row < _config.height; row++) {
-      uint8_t* fb_row = packed_fastbuffer + row * packed_row_bytes;
-      uint8_t* sb_row = packed_screenbuffer + row * packed_row_bytes;
+    if (!rowMajorThisStage) {
+      for (int row = 0; row < _config.height; row++) {
+        uint8_t* fb_row = packed_fastbuffer + row * packed_row_bytes;
+        uint8_t* sb_row = packed_screenbuffer + row * packed_row_bytes;
 
-      if (interlace_mode) {
-        bitmask[row] = epd_painter_ink(fb_row, sb_row, packed_row_bytes, row % 2 ? 0xffffffff : 0x00);
-      } else {
-        bitmask[row] = epd_painter_ink(fb_row, sb_row, packed_row_bytes, 0xffffffff);
+        if (interlace_mode) {
+          bitmask[row] = epd_painter_ink(fb_row, sb_row, packed_row_bytes, row % 2 ? 0xffffffff : 0x00);
+        } else {
+          bitmask[row] = epd_painter_ink(fb_row, sb_row, packed_row_bytes, 0xffffffff);
+        }
       }
     }
 
@@ -582,23 +852,121 @@ void EPD_Painter::_paint_task_body() {
       wf_len = 13;
     }
 
-    for (uint8_t pass = 0; pass < wf_len; pass++) {
-      uint8_t lighter_wf[3] = {(uint8_t)(lt_wf[2 * wf_len + pass] * 0x55), (uint8_t)(lt_wf[1 * wf_len + pass] * 0x55),
-                               (uint8_t)(lt_wf[0 * wf_len + pass] * 0x55)};
-      uint8_t darker_wf[3] = {(uint8_t)(dk_wf[2 * wf_len + pass] * 0x55), (uint8_t)(dk_wf[1 * wf_len + pass] * 0x55),
-                              (uint8_t)(dk_wf[0 * wf_len + pass] * 0x55)};
+    if (rowMajorThisStage) {
+      /*
+       * Transition-aware soft grayscale band scan.
+       *
+       * This page-turn-only path bypasses the normal 64-pixel chunk
+       * darker/lighter scheduling.  Each physical pixel/column is driven by
+       * the previous -> current transition:
+       *   prev 00 + curr 00 : optional lighter cleanup + neutral
+       *   prev 00 + curr !=00: use current-frame schedule
+       *   prev 11 + curr 00 : lighter*N + neutral
+       *   prev 11 + curr 11 : optional darker reinforcement + neutral
+       *   other transitions : use current-frame schedule
+       *
+       * Current-frame schedule:
+       *   current 00 white : lighter*5 + special*1 + neutral*2
+       *   current 01 gray1 : lighter*5 + darker*1 + neutral*2
+       *   current 10 gray2 : lighter*5 + darker*2 + neutral*1
+       *   current 11 black : darker*5  + special*1 + neutral*2
+       *
+       * The scan remains band-major:
+       *   band rows 0..N-1 receive pass 0..P-1, then next band, ...
+       *
+       * Tunables are at the top of this file:
+       *   EPD_PAGE_TURN_BAND_ROWS
+       *   EPD_PAGE_TURN_PASS_COUNT
+       *   EPD_PAGE_TURN_PASS_DELAY_MS
+       *   EPD_PAGE_TURN_FIRST_PASS_DELAY_MS
+       *   EPD_PAGE_TURN_ENABLE_WHITE_STAY_LIGHTER
+       *   EPD_PAGE_TURN_ENABLE_BLACK_STAY_DARKER
+       */
+      static constexpr int kRowsPerBand = EPD_PAGE_TURN_BAND_ROWS;
+      static constexpr int kBandPassCount = EPD_PAGE_TURN_PASS_COUNT;
+      static constexpr int kBandPassDelayMs = EPD_PAGE_TURN_PASS_DELAY_MS;
+      static constexpr int kBandFirstPassDelayMs = EPD_PAGE_TURN_FIRST_PASS_DELAY_MS;
+      static constexpr uint8_t kBlackDrive = EPD_PAGE_TURN_BLACK_DRIVE;
+      static constexpr uint8_t kWhiteDrive = EPD_PAGE_TURN_WHITE_DRIVE;
+      static constexpr uint8_t kSpecialDrive = EPD_PAGE_TURN_SPECIAL_DRIVE;
 
-      for (int row = 0; row < _config.height; row++) {
-        uint8_t* fb_row = packed_fastbuffer + row * packed_row_bytes;
-        epd_painter_convert_packed_fb_to_ink(fb_row, dma_buffer, packed_row_bytes, darker_wf, bitmask[row]);
-        epd_painter_convert_packed_fb_to_ink(fb_row, dma_buffer, packed_row_bytes, lighter_wf, ~bitmask[row]);
-        sendRow(row == 0, false, false);
+      memset(dma_buffer1, 0x00, packed_row_bytes);
+      memset(dma_buffer2, 0x00, packed_row_bytes);
+
+      const int bandCount = rowRangeThisStage ? 1 : ((_config.height + kRowsPerBand - 1) / kRowsPerBand);
+      for (int bandIndex = 0; bandIndex < bandCount; ++bandIndex) {
+        int band_start = 0;
+        int band_end = _config.height - 1;
+        if (rowRangeThisStage) {
+          band_start = std::max(0, std::min<int>(_config.height - 1, activeRowStartThisStage));
+          band_end = std::max(0, std::min<int>(_config.height - 1, activeRowEndThisStage));
+        } else {
+          const int logicalBandIndex = reverseBandOrderThisStage ? (bandCount - 1 - bandIndex) : bandIndex;
+          band_start = logicalBandIndex * kRowsPerBand;
+          band_end = std::min(_config.height - 1, band_start + kRowsPerBand - 1);
+        }
+
+        for (uint8_t pass = 0; pass < kBandPassCount; pass++) {
+          // Hardware gate scan is still physical row 0→N.  To avoid mirrored rows,
+          // reverse mode changes only the active band order; each pass still sends
+          // rows in physical order and uses neutral data before/after the active band.
+          for (int row = 0; row < _config.height; row++) {
+            if (row >= band_start && row <= band_end) {
+              const uint8_t* fb_row = packed_fastbuffer + row * packed_row_bytes;
+              const uint8_t* prev_row = packed_screenbuffer + row * packed_row_bytes;
+              epd_painter_build_previous_aware_waveform_row(fb_row, prev_row, dma_buffer, packed_row_bytes, pass, kBlackDrive, kWhiteDrive, kSpecialDrive);
+            } else {
+              memset(dma_buffer, 0x00, packed_row_bytes);
+            }
+            sendRow(row == 0, row == _config.height - 1, false);
+          }
+
+          const int passDelayMs = (pass == 0) ? kBandFirstPassDelayMs : kBandPassDelayMs;
+          if (passDelayMs > 0) {
+            EPD_DELAY_MS(passDelayMs);
+          }
+        }
+
+        if ((bandIndex & 0x07) == 0) {
+          vTaskDelay(1);  // keep the WDT fed during long page-turn scans
+        }
       }
 
-      if (_config.quality == Quality::QUALITY_HIGH) {
-        EPD_DELAY_MS(8);
-      } else if (_config.quality == Quality::QUALITY_NORMAL) {
-        EPD_DELAY_MS(2);
+      // Keep the software screenbuffer coherent for the next normal UI refresh.
+      // Full band-scan declares the entire target frame current; row-range mode
+      // updates only the rows that actually received drive pulses.
+      if (rowRangeThisStage) {
+        const int copy_start = std::max(0, std::min<int>(_config.height - 1, activeRowStartThisStage));
+        const int copy_end = std::max(0, std::min<int>(_config.height - 1, activeRowEndThisStage));
+        if (copy_start <= copy_end) {
+          memcpy(packed_screenbuffer + copy_start * packed_row_bytes,
+                 packed_fastbuffer + copy_start * packed_row_bytes,
+                 static_cast<size_t>(copy_end - copy_start + 1) * packed_row_bytes);
+        }
+      } else {
+        memcpy(packed_screenbuffer, packed_fastbuffer, packed_row_bytes * _config.height);
+      }
+    } else {
+      for (uint8_t pass = 0; pass < wf_len; pass++) {
+        uint8_t lighter_wf[3] = {(uint8_t)(lt_wf[2 * wf_len + pass] * 0x55),
+                                 (uint8_t)(lt_wf[1 * wf_len + pass] * 0x55),
+                                 (uint8_t)(lt_wf[0 * wf_len + pass] * 0x55)};
+        uint8_t darker_wf[3] = {(uint8_t)(dk_wf[2 * wf_len + pass] * 0x55),
+                                (uint8_t)(dk_wf[1 * wf_len + pass] * 0x55),
+                                (uint8_t)(dk_wf[0 * wf_len + pass] * 0x55)};
+
+        for (int row = 0; row < _config.height; row++) {
+          uint8_t* fb_row = packed_fastbuffer + row * packed_row_bytes;
+          epd_painter_convert_packed_fb_to_ink(fb_row, dma_buffer, packed_row_bytes, darker_wf, bitmask[row]);
+          epd_painter_convert_packed_fb_to_ink(fb_row, dma_buffer, packed_row_bytes, lighter_wf, ~bitmask[row]);
+          sendRow(row == 0, false, false);
+        }
+
+        if (_config.quality == Quality::QUALITY_HIGH) {
+          EPD_DELAY_MS(8);
+        } else if (_config.quality == Quality::QUALITY_NORMAL) {
+          EPD_DELAY_MS(2);
+        }
       }
     }
 

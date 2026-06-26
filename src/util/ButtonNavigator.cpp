@@ -88,6 +88,18 @@ int ButtonNavigator::previousIndex(const int currentIndex, const int totalItems)
   return (currentIndex + totalItems - 1) % totalItems;
 }
 
+
+bool ButtonNavigator::hasNextPage(const int currentIndex, const int totalItems, const int itemsPerPage) {
+  if (totalItems <= 0 || itemsPerPage <= 0) return false;
+  if (totalItems <= itemsPerPage) return false;
+  return (currentIndex / itemsPerPage) < ((totalItems - 1) / itemsPerPage);
+}
+
+bool ButtonNavigator::hasPreviousPage(const int currentIndex, const int totalItems, const int itemsPerPage) {
+  if (totalItems <= 0 || itemsPerPage <= 0) return false;
+  if (totalItems <= itemsPerPage) return false;
+  return (currentIndex / itemsPerPage) > 0;
+}
 int ButtonNavigator::nextPageIndex(const int currentIndex, const int totalItems, const int itemsPerPage) {
   if (totalItems <= 0 || itemsPerPage <= 0) return 0;
 
@@ -99,7 +111,7 @@ int ButtonNavigator::nextPageIndex(const int currentIndex, const int totalItems,
   const int lastPageIndex = (totalItems - 1) / itemsPerPage;
   const int currentPageIndex = currentIndex / itemsPerPage;
   const int rowInPage = currentIndex % itemsPerPage;
-  const int nextPageIndex = (currentPageIndex < lastPageIndex) ? (currentPageIndex + 1) : 0;
+  const int nextPageIndex = (currentPageIndex < lastPageIndex) ? (currentPageIndex + 1) : currentPageIndex;
   const int candidate = nextPageIndex * itemsPerPage + rowInPage;
   const int lastInTargetPage = std::min(totalItems - 1, (nextPageIndex + 1) * itemsPerPage - 1);
   return std::min(candidate, lastInTargetPage);
@@ -113,7 +125,7 @@ int ButtonNavigator::previousPageIndex(const int currentIndex, const int totalIt
   const int lastPageIndex = (totalItems - 1) / itemsPerPage;
   const int currentPageIndex = currentIndex / itemsPerPage;
   const int rowInPage = currentIndex % itemsPerPage;
-  const int previousPageIndex = (currentPageIndex > 0) ? (currentPageIndex - 1) : lastPageIndex;
+  const int previousPageIndex = (currentPageIndex > 0) ? (currentPageIndex - 1) : currentPageIndex;
   const int candidate = previousPageIndex * itemsPerPage + rowInPage;
   const int lastInTargetPage = std::min(totalItems - 1, (previousPageIndex + 1) * itemsPerPage - 1);
   return std::min(candidate, lastInTargetPage);

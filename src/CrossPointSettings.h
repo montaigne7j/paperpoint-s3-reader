@@ -169,7 +169,15 @@ class CrossPointSettings {
     REFRESH_10 = 2,
     REFRESH_15 = 3,
     REFRESH_30 = 4,
+    REFRESH_NEVER = 5,
     REFRESH_FREQUENCY_COUNT
+  };
+
+  // Reader page-turn refresh mode.
+  enum PAGE_TURN_REFRESH_MODE {
+    PAGE_TURN_REFRESH_ORIGINAL = 0,
+    PAGE_TURN_REFRESH_BAND_SCAN = 1,
+    PAGE_TURN_REFRESH_MODE_COUNT
   };
 
   // Short power button press actions
@@ -247,8 +255,10 @@ class CrossPointSettings {
 
   // Auto-sleep timeout setting (default 10 minutes)
   uint8_t sleepTimeout = SLEEP_10_MIN;
-  // E-ink refresh frequency (default 15 pages)
-  uint8_t refreshFrequency = REFRESH_15;
+  // E-ink full refresh frequency.  Default is no scheduled full refresh for
+  // reader pages; page-turn waveform tuning is clean enough and avoids the
+  // disruptive full flash during reading.
+  uint8_t refreshFrequency = REFRESH_NEVER;
   uint8_t hyphenationEnabled = 0;
 
   // Reader screen margin settings
@@ -263,12 +273,18 @@ class CrossPointSettings {
   char opdsPassword[64] = "";
   // Hide battery percentage
   uint8_t hideBatteryPercentage = HIDE_NEVER;
+  // Reader content inversion: black page background, white text, inverted images.
+  uint8_t readerContentInvert = 0;
   // Long-press chapter skip on side buttons
 #if CROSSPOINT_PAPERS3
   uint8_t longPressChapterSkip = 0;
 #else
   uint8_t longPressChapterSkip = 1;
 #endif
+  // Enable horizontal swipe page turns in reader.
+  uint8_t swipePageTurnEnabled = 1;
+  // Reader page-turn refresh mode. Default to the tuned Paper S3 band-scan mode.
+  uint8_t pageTurnRefreshMode = PAGE_TURN_REFRESH_BAND_SCAN;
   // UI Theme
   uint8_t uiTheme = LYRA;
   // Sunlight fading compensation

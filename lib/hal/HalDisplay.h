@@ -19,9 +19,12 @@ class HalDisplay {
 
   // Refresh modes
   enum RefreshMode {
-    FULL_REFRESH,  // Full refresh with complete waveform
-    HALF_REFRESH,  // Half refresh - balanced quality and speed
-    FAST_REFRESH   // Fast refresh
+    FULL_REFRESH,                  // Full refresh with complete waveform
+    HALF_REFRESH,                  // Half refresh - balanced quality and speed
+    FAST_REFRESH,                  // Fast refresh for UI paths
+    PAGE_TURN_REFRESH_ORIGINAL,    // Reader page-turn refresh: original normal paint path
+    PAGE_TURN_REFRESH,             // Reader page-turn refresh: band-scan normal band order
+    PAGE_TURN_REFRESH_REVERSE      // Reader page-turn refresh: band-scan reverse band order
   };
 
   // Initialize the display hardware and driver
@@ -62,6 +65,11 @@ class HalDisplay {
                             bool fromProgmem = false) const;
 
   void displayBuffer(RefreshMode mode = RefreshMode::FAST_REFRESH, bool turnOffScreen = false);
+  // Experimental reader progressive render path: drive only physical rows in
+  // [rowStart, rowEnd] with the same transition-aware page-turn waveform.
+  void displayBufferRows(int rowStart, int rowEnd, bool turnOffScreen = false);
+  // Block until the underlying EPD painter has completed any asynchronous waveform.
+  void waitUntilIdle();
   void refreshDisplay(RefreshMode mode = RefreshMode::FAST_REFRESH, bool turnOffScreen = false);
 
   // Power management

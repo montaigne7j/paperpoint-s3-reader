@@ -65,6 +65,11 @@ class ActivityManager {
   // This variable must only be set by the main loop, to avoid race conditions
   bool requestedUpdate = false;
 
+  // Set by activities that want the main loop to enter real deep sleep.
+  // The main loop consumes this flag and calls enterDeepSleep() outside of
+  // Activity::loop(), avoiding recursive ActivityManager::loop() calls.
+  bool deepSleepRequested = false;
+
  public:
   explicit ActivityManager(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : renderer(renderer), mappedInput(mappedInput), renderingMutex(xSemaphoreCreateMutex()) {
@@ -91,6 +96,8 @@ class ActivityManager {
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
   void goToCrashReport();
   void goHome();
+  void requestDeepSleep();
+  bool consumeDeepSleepRequest();
 
   // This will move current activity to stack instead of deleting it
   void pushActivity(std::unique_ptr<Activity>&& activity);

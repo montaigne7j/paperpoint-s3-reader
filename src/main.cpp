@@ -600,6 +600,11 @@ void loop() {
 
   const unsigned long activityStartTime = millis();
   activityManager.loop();
+  if (activityManager.consumeDeepSleepRequest()) {
+    LOG_DBG("SLP", "Deep sleep requested by UI");
+    enterDeepSleep();
+    return;
+  }
 #if CROSSPOINT_PAPERS3
   const bool renderBusy = RenderLock::peek();
   if (renderBusy) {

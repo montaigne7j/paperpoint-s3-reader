@@ -245,14 +245,8 @@ void XtcReaderActivity::renderPage() {
       }
     }
 
-    // Single paint
-    if (pagesUntilFullRefresh <= 1) {
-      renderer.displayBuffer(HalDisplay::FULL_REFRESH);
-      pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
-    } else {
-      renderer.displayBuffer();
-      pagesUntilFullRefresh--;
-    }
+    // Single paint with the same page-turn refresh cycle used by EPUB/TXT.
+    ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
     free(pageBuffer);
 
@@ -283,14 +277,8 @@ void XtcReaderActivity::renderPage() {
 
   // XTC pages already have status bar pre-rendered, no need to add our own
 
-  // Display with appropriate refresh
-  if (pagesUntilFullRefresh <= 1) {
-    renderer.displayBuffer(HalDisplay::FULL_REFRESH);
-    pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
-  } else {
-    renderer.displayBuffer();
-    pagesUntilFullRefresh--;
-  }
+  // Display with the same page-turn refresh cycle used by EPUB/TXT.
+  ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
   LOG_DBG("XTR", "Rendered page %lu/%lu (%u-bit)", currentPage + 1, xtc->getPageCount(), bitDepth);
 }

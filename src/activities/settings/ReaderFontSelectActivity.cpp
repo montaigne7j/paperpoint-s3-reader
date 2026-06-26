@@ -121,7 +121,14 @@ void ReaderFontSelectActivity::render(RenderLock&&) {
       [this](int index) { return itemTitle(index); }, [this](int index) { return itemSubtitle(index); }, nullptr,
       [activeIndex](int index) { return index == activeIndex ? tr(STR_SELECTED) : ""; }, true);
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const int hintPageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, true);
+  const char* prevPageLabel = ButtonNavigator::hasPreviousPage(selectedIndex, totalItems(), hintPageItems)
+                                  ? tr(STR_DIR_UP)
+                                  : "";
+  const char* nextPageLabel = ButtonNavigator::hasNextPage(selectedIndex, totalItems(), hintPageItems)
+                                  ? tr(STR_DIR_DOWN)
+                                  : "";
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), prevPageLabel, nextPageLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

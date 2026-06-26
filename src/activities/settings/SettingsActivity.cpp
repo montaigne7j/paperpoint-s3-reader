@@ -394,7 +394,17 @@ void SettingsActivity::render(RenderLock&&) {
           selected.valuePtr == &CrossPointSettings::characterSpacing));
     confirmLabel = opensSelector ? tr(STR_SELECT) : tr(STR_TOGGLE);
   }
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const int currentListIndex = std::max(0, selectedSettingIndex - 1);
+  const int listPageItems = std::max(1, (pageHeight - (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight +
+                                                      metrics.buttonHintsHeight + metrics.verticalSpacing * 2)) /
+                                           std::max(1, metrics.listRowHeight));
+  const char* prevPageLabel = ButtonNavigator::hasPreviousPage(currentListIndex, settingsCount, listPageItems)
+                                  ? tr(STR_DIR_UP)
+                                  : "";
+  const char* nextPageLabel = ButtonNavigator::hasNextPage(currentListIndex, settingsCount, listPageItems)
+                                  ? tr(STR_DIR_DOWN)
+                                  : "";
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, prevPageLabel, nextPageLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   // Always use standard refresh for settings screen

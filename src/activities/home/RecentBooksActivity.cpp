@@ -142,8 +142,15 @@ void RecentBooksActivity::render(RenderLock&&) {
         [this](int index) { return UITheme::getFileIcon(recentBooks[index].path); });
   }
 
-  // Help text
-  const auto labels = mappedInput.mapLabels(tr(STR_HOME), tr(STR_OPEN), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  // Help text: show footer page buttons only when another page exists.
+  const int hintPageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, true);
+  const char* prevPageLabel = ButtonNavigator::hasPreviousPage(static_cast<int>(selectorIndex), static_cast<int>(recentBooks.size()), hintPageItems)
+                                  ? tr(STR_DIR_UP)
+                                  : "";
+  const char* nextPageLabel = ButtonNavigator::hasNextPage(static_cast<int>(selectorIndex), static_cast<int>(recentBooks.size()), hintPageItems)
+                                  ? tr(STR_DIR_DOWN)
+                                  : "";
+  const auto labels = mappedInput.mapLabels(tr(STR_HOME), tr(STR_OPEN), prevPageLabel, nextPageLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

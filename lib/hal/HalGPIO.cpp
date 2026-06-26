@@ -1,6 +1,7 @@
 #include <HalGPIO.h>
 #include <Logging.h>
 #include <SPI.h>
+#include "../../src/CrossPointSettings.h"
 
 // Touch zones in LOGICAL portrait coordinates (540 wide x 960 tall).
 // The physical display is 960x540 landscape; GfxRenderer rotates to portrait.
@@ -131,6 +132,8 @@ void HalGPIO::update() {
     touch.update();  // Drain pending touch reports
     touchActive = false;
     sawMultiTouch = false;
+    horizontalSwipeFired = false;
+    horizontalSwipeDirection = 0;
     return;
   }
 
@@ -151,14 +154,54 @@ void HalGPIO::update() {
       touchActive = true;
       touchStartX = lastTouchX;
       touchStartY = lastTouchY;
+      horizontalSwipeFired = false;
+      horizontalSwipeDirection = 0;
     }
 
-    // While finger is down, report the zone button as pressed (for held-time detection).
-    // Use touchStart (not current) position so the zone stays locked to the initial tap
-    // intent and doesn't bounce across zone boundaries when the finger drifts slightly.
-    int btn = touchZoneToButton(touchStartX, touchStartY);
-    if (btn >= 0 && btn < HALGPIO_NUM_BUTTONS) {
-      currentState |= (1 << btn);
+    // Reader horizontal swipe: classify movement first.  A gesture and a tap
+    // must be mutually exclusive; once horizontalSwipeFired is set, the release
+    // frame will never be treated as a zone tap.  If swipe page turn is disabled
+    // we still mark it as a swipe to suppress accidental taps, but we do not emit
+    // BTN_SWIPE_LEFT / BTN_SWIPE_RIGHT.
+    if (footerHeight == 0 && !sawMultiTouch && !horizontalSwipeFired) {
+      int16_t startLogicalX = 0;
+      int16_t startLogicalY = 0;
+      int16_t lastLogicalX = 0;
+      int16_t lastLogicalY = 0;
+      transformTouchPoint(touchStartX, touchStartY, &startLogicalX, &startLogicalY);
+      transformTouchPoint(lastTouchX, lastTouchY, &lastLogicalX, &lastLogicalY);
+
+      const int16_t dx = lastLogicalX - startLogicalX;
+      const int16_t dy = lastLogicalY - startLogicalY;
+      const int16_t absDx = dx >= 0 ? dx : -dx;
+      const int16_t absDy = dy >= 0 ? dy : -dy;
+      if (absDx >= HORIZONTAL_SWIPE_THRESHOLD && absDx >= absDy + HORIZONTAL_SWIPE_DOMINANCE_MARGIN) {
+        horizontalSwipeFired = true;
+        horizontalSwipeDirection = dx < 0 ? -1 : 1;
+        if (SETTINGS.swipePageTurnEnabled) {
+          if (horizontalSwipeDirection < 0) {
+            currentState |= (1 << BTN_SWIPE_LEFT);
+            LOG_DBG("TOUCH", "swipe left dx=%d dy=%d", dx, dy);
+          } else {
+            currentState |= (1 << BTN_SWIPE_RIGHT);
+            LOG_DBG("TOUCH", "swipe right dx=%d dy=%d", dx, dy);
+          }
+        } else {
+          LOG_DBG("TOUCH", "horizontal swipe ignored by setting dir=%d dx=%d dy=%d", horizontalSwipeDirection, dx, dy);
+        }
+      }
+    }
+
+    // While finger is down, only report an already-confirmed horizontal swipe.
+    // Tap zones are resolved on finger-up after we know the motion did not form
+    // a swipe.  This prevents tap and swipe from becoming true in the same
+    // touch sequence.
+    if (horizontalSwipeFired && SETTINGS.swipePageTurnEnabled) {
+      if (horizontalSwipeDirection < 0) {
+        currentState |= (1 << BTN_SWIPE_LEFT);
+      } else if (horizontalSwipeDirection > 0) {
+        currentState |= (1 << BTN_SWIPE_RIGHT);
+      }
     }
   } else if (touchActive) {
     // Finger just lifted — classify the gesture
@@ -203,27 +246,49 @@ void HalGPIO::update() {
       currentState |= (1 << BTN_TWO_FINGER);
       LOG_DBG("TOUCH", "2-finger tap -> BACK");
     } else {
-      // Single finger: check for swipe vs tap (reader only)
+      // Single finger: first classify swipe, then tap.  Horizontal swipe may
+      // already have fired during movement; in that case do not emit a tap on
+      // release.  If it did not fire earlier, the release frame still gets one
+      // final chance to classify a horizontal or vertical swipe.
       int16_t startLogicalX = 0;
       int16_t startLogicalY = 0;
       int16_t lastLogicalX = 0;
       int16_t lastLogicalY = 0;
       transformTouchPoint(touchStartX, touchStartY, &startLogicalX, &startLogicalY);
       transformTouchPoint(lastTouchX, lastTouchY, &lastLogicalX, &lastLogicalY);
-      int16_t deltaY = lastLogicalY - startLogicalY;
+      const int16_t deltaX = lastLogicalX - startLogicalX;
+      const int16_t deltaY = lastLogicalY - startLogicalY;
+      const int16_t absDx = deltaX >= 0 ? deltaX : -deltaX;
+      const int16_t absDy = deltaY >= 0 ? deltaY : -deltaY;
 
-      if (deltaY < -SWIPE_THRESHOLD) {
+      if (horizontalSwipeFired) {
+        LOG_DBG("TOUCH", "horizontal swipe release dir=%d", horizontalSwipeDirection);
+      } else if (absDx >= HORIZONTAL_SWIPE_THRESHOLD && absDx >= absDy + HORIZONTAL_SWIPE_DOMINANCE_MARGIN) {
+        horizontalSwipeDirection = deltaX < 0 ? -1 : 1;
+        if (SETTINGS.swipePageTurnEnabled) {
+          if (horizontalSwipeDirection < 0) {
+            currentState |= (1 << BTN_SWIPE_LEFT);
+            LOG_DBG("TOUCH", "swipe left release dx=%d dy=%d", deltaX, deltaY);
+          } else {
+            currentState |= (1 << BTN_SWIPE_RIGHT);
+            LOG_DBG("TOUCH", "swipe right release dx=%d dy=%d", deltaX, deltaY);
+          }
+        } else {
+          LOG_DBG("TOUCH", "horizontal swipe release ignored by setting dir=%d dx=%d dy=%d", horizontalSwipeDirection, deltaX, deltaY);
+        }
+      } else if (deltaY < -SWIPE_THRESHOLD && absDy >= absDx + HORIZONTAL_SWIPE_DOMINANCE_MARGIN) {
         // Swiped up (finger moved upward)
         currentState |= (1 << BTN_SWIPE_UP);
         currentState |= (1 << BTN_UP);
         LOG_DBG("TOUCH", "swipe up dy=%d", deltaY);
-      } else if (deltaY > SWIPE_THRESHOLD) {
+      } else if (deltaY > SWIPE_THRESHOLD && absDy >= absDx + HORIZONTAL_SWIPE_DOMINANCE_MARGIN) {
         // Swiped down (finger moved downward)
         currentState |= (1 << BTN_SWIPE_DOWN);
         currentState |= (1 << BTN_DOWN);
         LOG_DBG("TOUCH", "swipe down dy=%d", deltaY);
       } else {
-        // Tap — map to zone based on touch-down position
+        // Tap — map to zone based on touch-down position only after the whole
+        // touch sequence has failed the swipe tests.
         int btn = touchZoneToButton(touchStartX, touchStartY);
         if (btn >= 0 && btn < HALGPIO_NUM_BUTTONS) {
           currentState |= (1 << btn);
@@ -233,6 +298,8 @@ void HalGPIO::update() {
     }
 
     sawMultiTouch = false;
+    horizontalSwipeFired = false;
+    horizontalSwipeDirection = 0;
   }
 
   // Track press timing
@@ -255,6 +322,8 @@ void HalGPIO::clearState() {
   lastHeldTime = 0;
   touchActive = false;
   sawMultiTouch = false;
+  horizontalSwipeFired = false;
+  horizontalSwipeDirection = 0;
   contentTapReleased = false;
   cooldownUntil = millis() + 200;  // Suppress input for 200ms after activity transition
 }

@@ -1,6 +1,7 @@
 #include "EpubReaderActivity.h"
 
 #include <Epub/Page.h>
+#include <Epub/PageRenderProfiler.h>
 #include <Epub/blocks/TextBlock.h>
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
@@ -9,6 +10,9 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <esp_system.h>
+#if CROSSPOINT_PAPERS3
+#include <esp_heap_caps.h>
+#endif
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -26,6 +30,9 @@
 #include "fontIds.h"
 #include "util/ScreenshotUtil.h"
 
+#include <algorithm>
+#include <cstring>
+#include <cstdlib>
 #include <functional>
 #include <vector>
 #include <string>
@@ -35,6 +42,14 @@
 namespace {
 // pagesPerRefresh now comes from SETTINGS.getRefreshFrequency()
 constexpr unsigned long skipChapterMs = 700;
+#if CROSSPOINT_PAPERS3
+constexpr unsigned long pageFrameCacheIdleDelayMs = 120;
+constexpr unsigned long pageFrameCacheWorkCooldownMs = 80;
+constexpr uint8_t pageFrameCacheCooperativeChunks = 20;
+constexpr unsigned long pageFrameCacheChunkBudgetMs = 45;
+constexpr uint8_t foregroundProgressiveStripeCount = 10;
+constexpr uint8_t foregroundProgressiveElementsPerRefresh = 2;
+#endif
 // pages per minute, first item is 1 to prevent division by zero if accessed
 const std::vector<int> PAGE_TURN_LABELS = {1, 1, 3, 6, 12};
 
@@ -47,6 +62,165 @@ int clampPercent(int percent) {
   }
   return percent;
 }
+
+int firstReadableSpineIndex(Epub* epub) {
+  if (!epub || epub->getSpineItemsCount() <= 0) {
+    return 0;
+  }
+  const int textSpineIndex = epub->getSpineIndexForTextReference();
+  if (textSpineIndex >= 0 && textSpineIndex < epub->getSpineItemsCount()) {
+    return textSpineIndex;
+  }
+  return epub->getSpineItemsCount() > 1 ? 1 : 0;
+}
+
+void prepareReaderContentBackground(
+    GfxRenderer& renderer,
+    const int orientedMarginTop,
+    const int orientedMarginRight,
+    const int orientedMarginBottom,
+    const int orientedMarginLeft
+) {
+  renderer.setInvertDrawing(false);
+  if (!SETTINGS.readerContentInvert) {
+    return;
+  }
+
+  // Invert Reader Content means the entire reader page surface is black,
+  // including margins and the status bar region.  The previous v24 build only
+  // filled the text viewport, which left a white frame around all four edges.
+  renderer.fillRect(0, 0, renderer.getScreenWidth(), renderer.getScreenHeight(), true);
+  (void)orientedMarginTop;
+  (void)orientedMarginRight;
+  (void)orientedMarginBottom;
+  (void)orientedMarginLeft;
+}
+
+void beginReaderContentRender(GfxRenderer& renderer) {
+  renderer.setInvertDrawing(SETTINGS.readerContentInvert != 0);
+}
+
+void endReaderContentRender(GfxRenderer& renderer) {
+  renderer.setInvertDrawing(false);
+}
+
+#if CROSSPOINT_PAPERS3
+struct ProgressiveElementInfo {
+  size_t index = 0;
+  int rowStart = 0;
+  int rowEnd = 0;
+  int rowCenter = 0;
+  uint8_t stripe = 0;
+};
+
+bool progressiveRowsAscending(const GfxRenderer& renderer, const bool isForwardTurn) {
+  // Foreground progressive rendering is a visual reveal effect, not the same as
+  // the final page-turn waveform direction.  On Paper S3 portrait orientation,
+  // lower physical rows correspond to the right side of the portrait reader
+  // surface, while higher physical rows correspond to the left side.
+  //
+  // V32 request for vertical reading:
+  //   previous page (swipe left)  : reveal from right to left
+  //   next page     (swipe right) : reveal from left to right
+  //
+  // Therefore vertical previous turns use ascending physical rows, while
+  // vertical next turns use descending physical rows.  Keep the previous
+  // horizontal layout behaviour for now.
+  if (SETTINGS.readingLayout == CrossPointSettings::VERTICAL_LAYOUT) {
+    const bool portraitLike =
+        renderer.getOrientation() == GfxRenderer::Orientation::Portrait ||
+        renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+    if (portraitLike) {
+      return !isForwardTurn;
+    }
+  }
+
+  const bool logicalRightToLeft =
+      (SETTINGS.readingLayout == CrossPointSettings::VERTICAL_LAYOUT) ? isForwardTurn : !isForwardTurn;
+  bool reversePhysicalBands = ReaderUtils::physicalBandReverseForLogicalRightToLeft(renderer);
+  if (!logicalRightToLeft) {
+    reversePhysicalBands = !reversePhysicalBands;
+  }
+  return !reversePhysicalBands;
+}
+
+uint8_t stripeForPhysicalRow(const int row) {
+  const int clamped = std::max(0, std::min<int>(HalDisplay::DISPLAY_HEIGHT - 1, row));
+  int stripe = (clamped * foregroundProgressiveStripeCount) / HalDisplay::DISPLAY_HEIGHT;
+  if (stripe < 0) stripe = 0;
+  if (stripe >= foregroundProgressiveStripeCount) stripe = foregroundProgressiveStripeCount - 1;
+  return static_cast<uint8_t>(stripe);
+}
+
+void physicalRowsForStripe(const uint8_t stripe, int& rowStart, int& rowEnd) {
+  rowStart = (HalDisplay::DISPLAY_HEIGHT * stripe) / foregroundProgressiveStripeCount;
+  rowEnd = (HalDisplay::DISPLAY_HEIGHT * (stripe + 1)) / foregroundProgressiveStripeCount - 1;
+  rowStart = std::max(0, std::min<int>(HalDisplay::DISPLAY_HEIGHT - 1, rowStart));
+  rowEnd = std::max(0, std::min<int>(HalDisplay::DISPLAY_HEIGHT - 1, rowEnd));
+}
+
+void logProgressiveInternalHeap(const char* phase) {
+  const uint32_t freeInternal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  const uint32_t minInternal = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  const uint32_t maxAllocInternal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  LOG_DBG(
+      "PRG",
+      "internal heap %s: Free=%lu Min=%lu MaxAlloc=%lu",
+      phase ? phase : "?",
+      static_cast<unsigned long>(freeInternal),
+      static_cast<unsigned long>(minInternal),
+      static_cast<unsigned long>(maxAllocInternal)
+  );
+}
+
+ProgressiveElementInfo makeProgressiveElementInfo(
+    const GfxRenderer& renderer,
+    const PageElement& element,
+    const int fontId,
+    const int xOffset,
+    const int yOffset
+) {
+  const int lineHeight = std::max(1, renderer.getLineHeight(fontId));
+  int logicalX = element.xPos + xOffset;
+  int logicalY = element.yPos + yOffset;
+  int logicalW = lineHeight + SETTINGS.getReaderCharacterSpacing() + 8;
+  int logicalH = lineHeight + 8;
+
+  if (element.getTag() == TAG_PageLine) {
+    const auto& line = static_cast<const PageLine&>(element);
+    const auto& block = line.getBlock();
+    if (block && block->isVertical()) {
+      logicalY = 0;
+      logicalH = renderer.getScreenHeight();
+      logicalW = std::max(logicalW, lineHeight + 12);
+    } else {
+      logicalX = 0;
+      logicalW = renderer.getScreenWidth();
+      logicalH = std::max(logicalH, lineHeight + 8);
+    }
+  } else if (element.getTag() == TAG_PageImage) {
+    const auto& image = static_cast<const PageImage&>(element);
+    logicalW = std::max(1, static_cast<int>(image.getImageBlock().getWidth()));
+    logicalH = std::max(1, static_cast<int>(image.getImageBlock().getHeight()));
+  }
+
+  int rowStart = 0;
+  int rowEnd = 0;
+  renderer.logicalRectToPhysicalRows(logicalX, logicalY, logicalW, logicalH, &rowStart, &rowEnd);
+  if (rowStart > rowEnd) std::swap(rowStart, rowEnd);
+  // Expand slightly so anti-aliased glyph edges and punctuation offsets do not
+  // get left behind outside the refreshed physical row range.
+  rowStart = std::max(0, rowStart - 4);
+  rowEnd = std::min<int>(HalDisplay::DISPLAY_HEIGHT - 1, rowEnd + 4);
+
+  ProgressiveElementInfo info{};
+  info.rowStart = rowStart;
+  info.rowEnd = rowEnd;
+  info.rowCenter = (rowStart + rowEnd) / 2;
+  info.stripe = stripeForPhysicalRow(info.rowCenter);
+  return info;
+}
+#endif
 
 }  // namespace
 
@@ -73,6 +247,14 @@ void EpubReaderActivity::onEnter() {
     if (dataSize == 4 || dataSize == 6) {
       currentSpineIndex = data[0] + (data[1] << 8);
       nextPageNumber = data[2] + (data[3] << 8);
+      // UINT16_MAX is an in-memory sentinel used when moving to the previous
+      // chapter's last page.  It should never be treated as a persisted page
+      // number; if a stale/corrupt progress file contains it, reset to a safe
+      // first-page fallback instead of jumping to the end of the chapter.
+      if (nextPageNumber == UINT16_MAX) {
+        LOG_DBG("ERS", "Ignoring invalid saved progress sentinel for spine %d", currentSpineIndex);
+        nextPageNumber = 0;
+      }
       cachedSpineIndex = currentSpineIndex;
       LOG_DBG("ERS", "Loaded cache: %d, %d", currentSpineIndex, nextPageNumber);
     }
@@ -80,16 +262,25 @@ void EpubReaderActivity::onEnter() {
       cachedChapterTotalPageCount = data[4] + (data[5] << 8);
     }
   }
+  const int spineCount = epub->getSpineItemsCount();
   if (isFirstOpen) {
-    int textSpineIndex = epub->getSpineIndexForTextReference();
-    if (textSpineIndex > 0) {
-      currentSpineIndex = textSpineIndex;
-      LOG_DBG("ERS", "First open: navigating to text reference at spine %d", textSpineIndex);
-    } else if (epub->getSpineItemsCount() > 1) {
-      // No text reference found; skip spine 0 (likely cover page) if the book has multiple spine items
-      currentSpineIndex = 1;
-      LOG_DBG("ERS", "First open: no text reference, skipping cover (spine 0 -> 1)");
+    currentSpineIndex = firstReadableSpineIndex(epub.get());
+    if (currentSpineIndex > 0) {
+      LOG_DBG("ERS", "First open: navigating to first readable spine %d", currentSpineIndex);
     }
+  } else if (spineCount <= 0 || currentSpineIndex < 0 || currentSpineIndex >= spineCount) {
+    const int fallbackSpine = firstReadableSpineIndex(epub.get());
+    LOG_DBG(
+        "ERS",
+        "Ignoring invalid saved spine index: %d (spineCount=%d), resetting to spine %d page 0",
+        currentSpineIndex,
+        spineCount,
+        fallbackSpine
+    );
+    currentSpineIndex = fallbackSpine;
+    nextPageNumber = 0;
+    cachedSpineIndex = currentSpineIndex;
+    cachedChapterTotalPageCount = 0;
   }
 
   // Save current epub as last opened epub and add to recent books
@@ -98,11 +289,20 @@ void EpubReaderActivity::onEnter() {
   RECENT_BOOKS.addBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath());
 
   // Trigger first update
+#if CROSSPOINT_PAPERS3
+  clearPageFrameCache(false);
+  lastReaderInputAt = millis();
+  lastVisibleDisplayIdleAt = lastReaderInputAt;
+  lastPageFrameCacheWorkAt = 0;
+#endif
   requestUpdate();
 }
 
 void EpubReaderActivity::onExit() {
   Activity::onExit();
+#if CROSSPOINT_PAPERS3
+  clearPageFrameCache(true);
+#endif
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
@@ -111,14 +311,649 @@ void EpubReaderActivity::onExit() {
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
   section.reset();
+#if CROSSPOINT_PAPERS3
+  clearPageFrameCache(false);
+#endif
   epub.reset();
 }
 
+
+#if CROSSPOINT_PAPERS3
+bool EpubReaderActivity::ensurePageFrameCacheAllocated() {
+  const size_t bufferSize = GfxRenderer::getBufferSize();
+  for (auto& entry : pageFrameCache) {
+    if (entry.buffer) {
+      continue;
+    }
+    entry.buffer = static_cast<uint8_t*>(heap_caps_malloc(bufferSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!entry.buffer) {
+      entry.buffer = static_cast<uint8_t*>(std::malloc(bufferSize));
+    }
+    if (!entry.buffer) {
+      LOG_ERR("ERS", "Frame cache alloc failed (%u bytes)", static_cast<unsigned>(bufferSize));
+      clearPageFrameCache(true);
+      return false;
+    }
+  }
+  return true;
+}
+
+void EpubReaderActivity::clearPageFrameCache(const bool freeBuffers) {
+  for (auto& entry : pageFrameCache) {
+    entry.valid = false;
+    entry.spineIndex = -1;
+    entry.pageNumber = -1;
+    entry.width = 0;
+    entry.height = 0;
+    entry.hasImages = false;
+    entry.footnotes.clear();
+    if (freeBuffers && entry.buffer) {
+      std::free(entry.buffer);
+      entry.buffer = nullptr;
+    }
+  }
+  pageFrameCacheNextWrite = 0;
+  abortPageFrameCacheWarmJob();
+  clearPendingPageTurn();
+}
+
+EpubReaderActivity::PageFrameCacheEntry* EpubReaderActivity::findPageFrameCacheEntry(
+    const int spineIndex,
+    const int pageNumber
+) {
+  const int width = renderer.getScreenWidth();
+  const int height = renderer.getScreenHeight();
+  for (auto& entry : pageFrameCache) {
+    if (entry.valid && entry.spineIndex == spineIndex && entry.pageNumber == pageNumber &&
+        entry.width == width && entry.height == height && entry.buffer) {
+      return &entry;
+    }
+  }
+  return nullptr;
+}
+
+EpubReaderActivity::PageFrameCacheEntry* EpubReaderActivity::acquirePageFrameCacheEntry(
+    const int spineIndex,
+    const int pageNumber
+) {
+  if (!ensurePageFrameCacheAllocated()) {
+    return nullptr;
+  }
+
+  if (auto* existing = findPageFrameCacheEntry(spineIndex, pageNumber)) {
+    return existing;
+  }
+
+  for (auto& entry : pageFrameCache) {
+    if (!entry.valid && entry.buffer) {
+      return &entry;
+    }
+  }
+
+  // Ring-buffer replacement.  No page framebuffer is shifted or moved; only this
+  // slot's metadata is retargeted to the new page.
+  PageFrameCacheEntry* selected = nullptr;
+  for (int i = 0; i < PAGE_FRAME_CACHE_SLOT_COUNT; i++) {
+    auto& candidate = pageFrameCache[pageFrameCacheNextWrite];
+    pageFrameCacheNextWrite = (pageFrameCacheNextWrite + 1) % PAGE_FRAME_CACHE_SLOT_COUNT;
+    // Prefer not to evict the currently visible page if another slot can be used.
+    if (!(candidate.spineIndex == currentSpineIndex && section && candidate.pageNumber == section->currentPage)) {
+      selected = &candidate;
+      break;
+    }
+  }
+  if (!selected) {
+    selected = &pageFrameCache[pageFrameCacheNextWrite];
+    pageFrameCacheNextWrite = (pageFrameCacheNextWrite + 1) % PAGE_FRAME_CACHE_SLOT_COUNT;
+  }
+  return selected;
+}
+
+bool EpubReaderActivity::copyCurrentFrameToPageFrameCache(
+    const int spineIndex,
+    const int pageNumber,
+    const std::vector<FootnoteEntry>& footnotes,
+    const bool hasImages
+) {
+  auto* entry = acquirePageFrameCacheEntry(spineIndex, pageNumber);
+  if (!entry || !entry->buffer) {
+    return false;
+  }
+
+  std::memcpy(entry->buffer, renderer.getFrameBuffer(), GfxRenderer::getBufferSize());
+  entry->valid = true;
+  entry->spineIndex = spineIndex;
+  entry->pageNumber = pageNumber;
+  entry->width = renderer.getScreenWidth();
+  entry->height = renderer.getScreenHeight();
+  entry->hasImages = hasImages;
+  entry->footnotes = footnotes;
+  LOG_DBG("ERS", "Frame cache stored: slot=%d spine=%d page=%d", static_cast<int>(entry - pageFrameCache.data()), spineIndex, pageNumber);
+  return true;
+}
+
+bool EpubReaderActivity::restorePageFrameCacheToRenderer(
+    const int spineIndex,
+    const int pageNumber,
+    const bool restoreFootnotes
+) {
+  auto* entry = findPageFrameCacheEntry(spineIndex, pageNumber);
+  if (!entry || !entry->buffer) {
+    return false;
+  }
+  std::memcpy(renderer.getFrameBuffer(), entry->buffer, GfxRenderer::getBufferSize());
+  restoredPageFrameHadImages = entry->hasImages;
+  if (restoreFootnotes) {
+    currentPageFootnotes = entry->footnotes;
+  }
+  renderer.beginFrame();
+  LOG_DBG("ERS", "Frame cache hit: slot=%d spine=%d page=%d", static_cast<int>(entry - pageFrameCache.data()), spineIndex, pageNumber);
+  return true;
+}
+
+bool EpubReaderActivity::hasReaderInputPending() const {
+  return mappedInput.wasAnyPressed() || mappedInput.wasAnyReleased() || mappedInput.wasTapped();
+}
+
+bool EpubReaderActivity::capturePageTurnInput(bool& isForwardTurn) const {
+  const bool reverseHorizontalZones =
+      SETTINGS.readingLayout ==
+      CrossPointSettings::VERTICAL_LAYOUT;
+
+  auto [prevTriggered, nextTriggered] =
+      ReaderUtils::detectPageTurn(
+          mappedInput,
+          reverseHorizontalZones
+      );
+
+  if (prevTriggered == nextTriggered) {
+    return false;
+  }
+
+  isForwardTurn = nextTriggered;
+  return true;
+}
+
+bool EpubReaderActivity::queuePendingPageTurn(const bool isForwardTurn, const char* source) {
+  lastReaderInputAt = millis();
+  if (pendingPageTurnActive) {
+    LOG_DBG(
+        "ERS",
+        "Page turn input ignored: pending already active old=%s new=%s source=%s",
+        pendingPageTurnForward ? "next" : "prev",
+        isForwardTurn ? "next" : "prev",
+        source ? source : "?"
+    );
+    return false;
+  }
+
+  pendingPageTurnActive = true;
+  pendingPageTurnForward = isForwardTurn;
+  pendingPageTurnAt = millis();
+  LOG_DBG(
+      "ERS",
+      "Page turn queued: dir=%s source=%s curSpine=%d curPage=%d",
+      pendingPageTurnForward ? "next" : "prev",
+      source ? source : "?",
+      currentSpineIndex,
+      section ? section->currentPage : -1
+  );
+  return true;
+}
+
+void EpubReaderActivity::clearPendingPageTurn() {
+  pendingPageTurnActive = false;
+  pendingPageTurnForward = true;
+  pendingPageTurnAt = 0;
+}
+
+void EpubReaderActivity::waitForVisibleDisplayIdle(const char* source) {
+  const auto idleStart = millis();
+  renderer.waitDisplayIdle();
+  lastVisibleDisplayIdleAt = millis();
+  lastReaderInputAt = lastVisibleDisplayIdleAt;
+  LOG_DBG(
+      "ERS",
+      "Visible display idle: source=%s wait=%lums",
+      source ? source : "?",
+      lastVisibleDisplayIdleAt - idleStart
+  );
+}
+
+bool EpubReaderActivity::executePendingPageTurnIfReady(const char* source) {
+  if (!pendingPageTurnActive) {
+    return false;
+  }
+
+  if (!section || RenderLock::peek()) {
+    return false;
+  }
+
+  // A queued turn is a single, explicit user command.  Once its own target
+  // page frame is ready, execute it immediately; do not wait for both adjacent
+  // pages.  This keeps the pending command responsive while still preventing
+  // stacked/swallowed swipes from skipping pages.
+  if (!pageFrameCacheReadyForTurn(pendingPageTurnForward)) {
+    return false;
+  }
+
+  const bool isForwardTurn = pendingPageTurnForward;
+  const unsigned long queuedFor = millis() - pendingPageTurnAt;
+  clearPendingPageTurn();
+  mappedInput.clearState();
+  LOG_DBG(
+      "ERS",
+      "Executing queued page turn: dir=%s source=%s queuedFor=%lums",
+      isForwardTurn ? "next" : "prev",
+      source ? source : "?",
+      queuedFor
+  );
+  pageTurn(isForwardTurn);
+  return true;
+}
+
+bool EpubReaderActivity::sameSectionPageTurnTarget(const bool isForwardTurn, int& targetPage) const {
+  if (!section || section->pageCount <= 0) {
+    return false;
+  }
+
+  if (isForwardTurn) {
+    if (section->currentPage < section->pageCount - 1) {
+      targetPage = section->currentPage + 1;
+      return true;
+    }
+    return false;
+  }
+
+  if (section->currentPage > 0) {
+    targetPage = section->currentPage - 1;
+    return true;
+  }
+  return false;
+}
+
+bool EpubReaderActivity::pageFrameCacheReadyForTurn(const bool isForwardTurn) {
+  if (pageFrameCacheWarmJob.active) {
+    return false;
+  }
+
+  int targetPage = -1;
+  if (!sameSectionPageTurnTarget(isForwardTurn, targetPage)) {
+    // Chapter boundary turns can still need a section load/index.  Do not block
+    // them forever here; the normal render path will handle the cross-spine page.
+    return true;
+  }
+
+  return findPageFrameCacheEntry(currentSpineIndex, targetPage) != nullptr;
+}
+
+bool EpubReaderActivity::adjacentPageFrameCachesReady() {
+  if (!section || section->pageCount <= 0 || pageFrameCacheWarmJob.active) {
+    return false;
+  }
+
+  int targetPage = -1;
+  if (sameSectionPageTurnTarget(true, targetPage) &&
+      !findPageFrameCacheEntry(currentSpineIndex, targetPage)) {
+    return false;
+  }
+
+  if (sameSectionPageTurnTarget(false, targetPage) &&
+      !findPageFrameCacheEntry(currentSpineIndex, targetPage)) {
+    return false;
+  }
+
+  return true;
+}
+
+void EpubReaderActivity::abortPageFrameCacheWarmJob() {
+  renderer.setInvertDrawing(false);
+  if (!pageFrameCacheWarmJob.active && !pageFrameCacheWarmJob.page) {
+    return;
+  }
+  LOG_DBG(
+      "ERS",
+      "Frame cache job aborted: spine=%d page=%d nextElement=%u",
+      pageFrameCacheWarmJob.spineIndex,
+      pageFrameCacheWarmJob.pageNumber,
+      static_cast<unsigned>(pageFrameCacheWarmJob.nextElementIndex)
+  );
+  pageFrameCacheWarmJob.page.reset();
+  pageFrameCacheWarmJob.footnotes.clear();
+  pageFrameCacheWarmJob = PageFrameCacheWarmJob{};
+}
+
+bool EpubReaderActivity::startPageFrameCacheWarmJob(
+    const int pageNumber,
+    const int orientedMarginTop,
+    const int orientedMarginRight,
+    const int orientedMarginBottom,
+    const int orientedMarginLeft
+) {
+  if (!section || pageNumber < 0 || pageNumber >= section->pageCount) {
+    return false;
+  }
+  if (findPageFrameCacheEntry(currentSpineIndex, pageNumber)) {
+    return true;
+  }
+  if (!ensurePageFrameCacheAllocated()) {
+    return false;
+  }
+
+  const int visiblePage = section->currentPage;
+  auto savedFootnotes = currentPageFootnotes;
+  section->currentPage = pageNumber;
+  auto page = section->loadPageFromSectionFile();
+  section->currentPage = visiblePage;
+  currentPageFootnotes = std::move(savedFootnotes);
+
+  if (!page) {
+    return false;
+  }
+
+  pageFrameCacheWarmJob = PageFrameCacheWarmJob{};
+  pageFrameCacheWarmJob.active = true;
+  pageFrameCacheWarmJob.spineIndex = currentSpineIndex;
+  pageFrameCacheWarmJob.pageNumber = pageNumber;
+  pageFrameCacheWarmJob.visiblePageNumber = visiblePage;
+  pageFrameCacheWarmJob.orientedMarginTop = orientedMarginTop;
+  pageFrameCacheWarmJob.orientedMarginRight = orientedMarginRight;
+  pageFrameCacheWarmJob.orientedMarginBottom = orientedMarginBottom;
+  pageFrameCacheWarmJob.orientedMarginLeft = orientedMarginLeft;
+  pageFrameCacheWarmJob.startedAt = millis();
+  pageFrameCacheWarmJob.lastChunkAt = pageFrameCacheWarmJob.startedAt;
+  pageFrameCacheWarmJob.footnotes = page->footnotes;
+  pageFrameCacheWarmJob.hasImages = page->hasImages();
+  pageFrameCacheWarmJob.page = std::move(page);
+
+  renderer.clearScreen();
+  prepareReaderContentBackground(renderer, orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
+  beginReaderContentRender(renderer);
+  if (SETTINGS.textAntiAliasing) {
+    renderer.setRenderMode(GfxRenderer::GRAYSCALE_DIRECT);
+  }
+
+  LOG_DBG(
+      "ERS",
+      "Frame cache job start: spine=%d page=%d elements=%u",
+      pageFrameCacheWarmJob.spineIndex,
+      pageFrameCacheWarmJob.pageNumber,
+      static_cast<unsigned>(pageFrameCacheWarmJob.page->elements.size())
+  );
+  return true;
+}
+
+bool EpubReaderActivity::continuePageFrameCacheWarmJobChunk() {
+  if (!pageFrameCacheWarmJob.active || !pageFrameCacheWarmJob.page) {
+    return false;
+  }
+  if (hasReaderInputPending()) {
+    // Background page analysis/cache owns the reader until it finishes.
+    // Keep exactly one page-turn command pending; all later page-turn inputs are
+    // consumed until that pending command is actually executed.
+    bool pendingForward = true;
+    if (capturePageTurnInput(pendingForward)) {
+      queuePendingPageTurn(pendingForward, "cache-job");
+    } else {
+      lastReaderInputAt = millis();
+      LOG_DBG("ERS", "Reader non-page-turn input ignored while frame cache job is active");
+    }
+    mappedInput.clearState();
+  }
+  int pendingTargetPage = -1;
+  if (pendingPageTurnActive && sameSectionPageTurnTarget(pendingPageTurnForward, pendingTargetPage) &&
+      pendingTargetPage != pageFrameCacheWarmJob.pageNumber) {
+    LOG_DBG(
+        "ERS",
+        "Frame cache job retargeted for pending turn: oldPage=%d targetPage=%d dir=%s",
+        pageFrameCacheWarmJob.pageNumber,
+        pendingTargetPage,
+        pendingPageTurnForward ? "next" : "prev"
+    );
+    abortPageFrameCacheWarmJob();
+    return false;
+  }
+
+  if (!section || pageFrameCacheWarmJob.spineIndex != currentSpineIndex) {
+    abortPageFrameCacheWarmJob();
+    return false;
+  }
+  if (findPageFrameCacheEntry(pageFrameCacheWarmJob.spineIndex, pageFrameCacheWarmJob.pageNumber)) {
+    abortPageFrameCacheWarmJob();
+    return true;
+  }
+
+  auto* page = pageFrameCacheWarmJob.page.get();
+  const size_t totalElements = page->elements.size();
+  const size_t elementsPerChunk = std::max<size_t>(
+      1,
+      (totalElements + pageFrameCacheCooperativeChunks - 1) / pageFrameCacheCooperativeChunks
+  );
+  const size_t startElement = pageFrameCacheWarmJob.nextElementIndex;
+  const unsigned long chunkStart = millis();
+  size_t renderedElements = 0;
+
+  while (pageFrameCacheWarmJob.nextElementIndex < totalElements) {
+    page->elements[pageFrameCacheWarmJob.nextElementIndex]->render(
+        renderer,
+        SETTINGS.getReaderFontId(),
+        pageFrameCacheWarmJob.orientedMarginLeft,
+        pageFrameCacheWarmJob.orientedMarginTop
+    );
+    pageFrameCacheWarmJob.nextElementIndex++;
+    renderedElements++;
+
+    if (renderedElements >= elementsPerChunk) {
+      break;
+    }
+    if ((millis() - chunkStart) >= pageFrameCacheChunkBudgetMs) {
+      break;
+    }
+  }
+
+  pageFrameCacheWarmJob.lastChunkAt = millis();
+  LOG_DBG(
+      "ERS",
+      "Frame cache chunk: page=%d elements=%u..%u/%u time=%lums",
+      pageFrameCacheWarmJob.pageNumber,
+      static_cast<unsigned>(startElement),
+      static_cast<unsigned>(pageFrameCacheWarmJob.nextElementIndex),
+      static_cast<unsigned>(totalElements),
+      pageFrameCacheWarmJob.lastChunkAt - chunkStart
+  );
+
+  if (pageFrameCacheWarmJob.nextElementIndex < totalElements) {
+    return false;
+  }
+
+  renderer.setRenderMode(GfxRenderer::BW);
+  endReaderContentRender(renderer);
+
+  const int visiblePage = section->currentPage;
+  auto savedFootnotes = currentPageFootnotes;
+  section->currentPage = pageFrameCacheWarmJob.pageNumber;
+  renderStatusBar();
+  const bool stored = copyCurrentFrameToPageFrameCache(
+      pageFrameCacheWarmJob.spineIndex,
+      pageFrameCacheWarmJob.pageNumber,
+      pageFrameCacheWarmJob.footnotes,
+      pageFrameCacheWarmJob.hasImages
+  );
+  section->currentPage = visiblePage;
+  currentPageFootnotes = std::move(savedFootnotes);
+
+  const int finishedPage = pageFrameCacheWarmJob.pageNumber;
+  const unsigned long totalMs = millis() - pageFrameCacheWarmJob.startedAt;
+  pageFrameCacheWarmJob.page.reset();
+  pageFrameCacheWarmJob.footnotes.clear();
+  pageFrameCacheWarmJob = PageFrameCacheWarmJob{};
+  lastPageFrameCacheWorkAt = millis();
+
+  // Restore the visible frame if it is cached.  This keeps the renderer buffer
+  // sane after cooperative cache drawing, but it never drives the e-paper.
+  if (section) {
+    restorePageFrameCacheToRenderer(currentSpineIndex, section->currentPage, false);
+  }
+
+  LOG_DBG(
+      "ERS",
+      "Frame cache render cooperative: page=%d stored=%d total=%lums",
+      finishedPage,
+      stored ? 1 : 0,
+      totalMs
+  );
+  return stored;
+}
+
+bool EpubReaderActivity::renderPageToFrameCache(
+    const int pageNumber,
+    const int orientedMarginTop,
+    const int orientedMarginRight,
+    const int orientedMarginBottom,
+    const int orientedMarginLeft
+) {
+  if (!section || pageNumber < 0 || pageNumber >= section->pageCount) {
+    return false;
+  }
+  if (findPageFrameCacheEntry(currentSpineIndex, pageNumber)) {
+    return true;
+  }
+  if (!ensurePageFrameCacheAllocated()) {
+    return false;
+  }
+
+  const int visiblePage = section->currentPage;
+  auto savedFootnotes = currentPageFootnotes;
+  section->currentPage = pageNumber;
+  auto page = section->loadPageFromSectionFile();
+  if (!page) {
+    section->currentPage = visiblePage;
+    currentPageFootnotes = std::move(savedFootnotes);
+    return false;
+  }
+
+  const auto start = millis();
+  auto footnotes = page->footnotes;
+  renderer.clearScreen();
+  prepareReaderContentBackground(renderer, orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
+  beginReaderContentRender(renderer);
+
+  if (SETTINGS.textAntiAliasing) {
+    renderer.setRenderMode(GfxRenderer::GRAYSCALE_DIRECT);
+  }
+
+  page->render(
+      renderer,
+      SETTINGS.getReaderFontId(),
+      orientedMarginLeft,
+      orientedMarginTop
+  );
+
+  renderer.setRenderMode(GfxRenderer::BW);
+  endReaderContentRender(renderer);
+  renderStatusBar();
+  const bool stored = copyCurrentFrameToPageFrameCache(currentSpineIndex, pageNumber, footnotes, page->hasImages());
+
+  section->currentPage = visiblePage;
+  currentPageFootnotes = std::move(savedFootnotes);
+  LOG_DBG("ERS", "Frame cache render: page=%d stored=%d time=%lums", pageNumber, stored ? 1 : 0, millis() - start);
+  (void)orientedMarginBottom;
+  return stored;
+}
+
+void EpubReaderActivity::warmPageFrameCacheIfIdle() {
+  if (!epub || !section || section->pageCount <= 0) {
+    abortPageFrameCacheWarmJob();
+    return;
+  }
+
+  if (RenderLock::peek()) {
+    return;
+  }
+
+  if (pageFrameCacheWarmJob.active) {
+    RenderLock lock(*this);
+    continuePageFrameCacheWarmJobChunk();
+    return;
+  }
+
+  const unsigned long now = millis();
+  const bool pendingTurn = pendingPageTurnActive;
+  const unsigned long idleFor = now - lastReaderInputAt;
+  if (!pendingTurn && idleFor < pageFrameCacheIdleDelayMs) {
+    return;
+  }
+
+  if (!pendingTurn && lastPageFrameCacheWorkAt != 0 &&
+      (now - lastPageFrameCacheWorkAt) < pageFrameCacheWorkCooldownMs) {
+    return;
+  }
+
+  int top = 0;
+  int right = 0;
+  int bottom = 0;
+  int left = 0;
+  renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+  top += SETTINGS.screenMargin;
+  left += SETTINGS.screenMargin;
+  right += SETTINGS.screenMargin;
+
+  const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
+  if (SETTINGS.statusBarFollowsPageMargin) {
+    bottom += SETTINGS.screenMargin + statusBarHeight;
+  } else if (automaticPageTurnActive &&
+             (statusBarHeight == 0 || statusBarHeight == UITheme::getInstance().getProgressBarHeight())) {
+    bottom += std::max(SETTINGS.screenMargin,
+                       static_cast<uint8_t>(statusBarHeight + UITheme::getInstance().getMetrics().statusBarVerticalMargin));
+  } else {
+    bottom += std::max(SETTINGS.screenMargin, statusBarHeight);
+  }
+
+  const int cur = section->currentPage;
+  int pendingTarget = -1;
+  const bool hasSameSectionPendingTarget = pendingTurn && sameSectionPageTurnTarget(pendingPageTurnForward, pendingTarget);
+  const int oppositeTarget = hasSameSectionPendingTarget ? (pendingPageTurnForward ? cur - 1 : cur + 1) : -1;
+  const std::array<int, 3> candidates = hasSameSectionPendingTarget
+      ? std::array<int, 3>{pendingTarget, cur, oppositeTarget}
+      : std::array<int, 3>{cur, cur + 1, cur - 1};
+  if (pendingTurn) {
+    LOG_DBG(
+        "ERS",
+        "Frame cache warm pending-priority: dir=%s cur=%d target=%d idleFor=%lums cooldownBypassed=1",
+        pendingPageTurnForward ? "next" : "prev",
+        cur,
+        hasSameSectionPendingTarget ? pendingTarget : -1,
+        idleFor
+    );
+  }
+  for (const int pageNumber : candidates) {
+    if (pageNumber < 0 || pageNumber >= section->pageCount) {
+      continue;
+    }
+    if (findPageFrameCacheEntry(currentSpineIndex, pageNumber)) {
+      continue;
+    }
+
+    RenderLock lock(*this);
+    if (startPageFrameCacheWarmJob(pageNumber, top, right, bottom, left)) {
+      continuePageFrameCacheWarmJobChunk();
+    }
+    return;
+  }
+}
+#endif
+
 void EpubReaderActivity::openReaderSettings() {
+#if CROSSPOINT_PAPERS3
+  abortPageFrameCacheWarmJob();
+#endif
   onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction::READER_SETTINGS);
 }
 
 void EpubReaderActivity::openReaderMenu() {
+#if CROSSPOINT_PAPERS3
+  abortPageFrameCacheWarmJob();
+#endif
   if (!epub) {
     return;
   }
@@ -151,6 +986,44 @@ void EpubReaderActivity::loop() {
     finish();
     return;
   }
+
+#if CROSSPOINT_PAPERS3
+  // The visible renderer and the background frame-cache renderer both hold
+  // RenderLock while they touch the shared Section/renderer state.  While it is
+  // busy, keep exactly one page-turn command pending and consume any later
+  // page-turn inputs until that command is executed.
+  if (RenderLock::peek()) {
+    if (mappedInput.wasAnyPressed() || mappedInput.wasAnyReleased() || mappedInput.wasTapped()) {
+      bool pendingForward = true;
+      if (capturePageTurnInput(pendingForward)) {
+        queuePendingPageTurn(pendingForward, "render-busy");
+      } else {
+        lastReaderInputAt = millis();
+        LOG_DBG("ERS", "Reader non-page-turn input ignored while render/cache busy");
+      }
+      mappedInput.clearState();
+    }
+    return;
+  }
+
+  if (pendingPageTurnActive) {
+    if (executePendingPageTurnIfReady("reader-loop")) {
+      return;
+    }
+    if (mappedInput.wasAnyPressed() || mappedInput.wasAnyReleased() || mappedInput.wasTapped()) {
+      bool ignoredForward = true;
+      if (capturePageTurnInput(ignoredForward)) {
+        queuePendingPageTurn(ignoredForward, "pending-active");
+      } else {
+        lastReaderInputAt = millis();
+        LOG_DBG("ERS", "Reader non-page-turn input ignored while page turn pending");
+      }
+      mappedInput.clearState();
+    }
+    warmPageFrameCacheIfIdle();
+    return;
+  }
+#endif
 
   if (automaticPageTurnActive) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
@@ -249,6 +1122,9 @@ void EpubReaderActivity::loop() {
       RenderLock lock(*this);
       silentIndexNextChapterIfNeeded(pendingPreindexViewportWidth, pendingPreindexViewportHeight);
     }
+#if CROSSPOINT_PAPERS3
+    warmPageFrameCacheIfIdle();
+#endif
     return;
   }
 
@@ -279,9 +1155,13 @@ void EpubReaderActivity::loop() {
     // We don't want to delete the section mid-render, so grab the semaphore
     {
       RenderLock lock(*this);
+      lastPageTurnWasForward = nextTriggered;
       nextPageNumber = 0;
       currentSpineIndex = nextTriggered ? currentSpineIndex + 1 : currentSpineIndex - 1;
       section.reset();
+#if CROSSPOINT_PAPERS3
+  clearPageFrameCache(false);
+#endif
     }
     requestUpdate();
     return;
@@ -292,6 +1172,31 @@ void EpubReaderActivity::loop() {
     requestUpdate();
     return;
   }
+
+#if CROSSPOINT_PAPERS3
+  // Deterministic cache-gated page turns: while the current page's adjacent
+  // same-section frame caches are being prepared, keep one requested turn as a
+  // pending command.  Later page-turn inputs are ignored until this command is
+  // executed, so multiple swipes cannot stack up and skip pages.
+  const bool requestedForwardTurn = !prevTriggered;
+  if (!adjacentPageFrameCachesReady() || !pageFrameCacheReadyForTurn(requestedForwardTurn)) {
+    int targetPage = -1;
+    const bool sameSectionTarget = sameSectionPageTurnTarget(requestedForwardTurn, targetPage);
+    queuePendingPageTurn(requestedForwardTurn, "cache-not-ready");
+    LOG_DBG(
+        "ERS",
+        "Page turn pending until frame cache ready: dir=%s cur=%d target=%d sameSection=%d warmActive=%d",
+        requestedForwardTurn ? "next" : "prev",
+        section ? section->currentPage : -1,
+        sameSectionTarget ? targetPage : -1,
+        sameSectionTarget ? 1 : 0,
+        pageFrameCacheWarmJob.active ? 1 : 0
+    );
+    mappedInput.clearState();
+    warmPageFrameCacheIfIdle();
+    return;
+  }
+#endif
 
   if (prevTriggered) {
     pageTurn(false);
@@ -360,6 +1265,9 @@ void EpubReaderActivity::jumpToPercent(int percent) {
     nextPageNumber = 0;
     pendingPercentJump = true;
     section.reset();
+#if CROSSPOINT_PAPERS3
+  clearPageFrameCache(false);
+#endif
   }
 }
 
@@ -376,6 +1284,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
               currentSpineIndex = std::get<ChapterResult>(result.data).spineIndex;
               nextPageNumber = 0;
               section.reset();
+#if CROSSPOINT_PAPERS3
+  clearPageFrameCache(false);
+#endif
             }
           });
       break;
@@ -399,6 +1310,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
               nextPageNumber = section->currentPage;
             }
             section.reset();
+#if CROSSPOINT_PAPERS3
+  clearPageFrameCache(false);
+#endif
           });
       break;
     }
@@ -469,6 +1383,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
           uint16_t backupPage = section->currentPage;
           uint16_t backupPageCount = section->pageCount;
           section.reset();
+#if CROSSPOINT_PAPERS3
+  clearPageFrameCache(false);
+#endif
           epub->clearCache();
           epub->setupCacheDir();
           saveProgress(backupSpine, backupPage, backupPageCount);
@@ -500,6 +1417,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
                   currentSpineIndex = sync.spineIndex;
                   nextPageNumber = sync.page;
                   section.reset();
+#if CROSSPOINT_PAPERS3
+  clearPageFrameCache(false);
+#endif
                 }
               }
             });
@@ -533,6 +1453,9 @@ void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
 
     // Reset section to force re-layout in the new orientation.
     section.reset();
+#if CROSSPOINT_PAPERS3
+  clearPageFrameCache(false);
+#endif
   }
 }
 
@@ -558,10 +1481,19 @@ void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption
       nextPageNumber = section->currentPage;
     }
     section.reset();
+#if CROSSPOINT_PAPERS3
+  clearPageFrameCache(false);
+#endif
   }
 }
 
 void EpubReaderActivity::pageTurn(bool isForwardTurn) {
+  lastPageTurnWasForward = isForwardTurn;
+#if CROSSPOINT_PAPERS3
+  clearPendingPageTurn();
+  abortPageFrameCacheWarmJob();
+  lastReaderInputAt = millis();
+#endif
   if (isForwardTurn) {
     if (section->currentPage < section->pageCount - 1) {
       section->currentPage++;
@@ -572,6 +1504,9 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
         nextPageNumber = 0;
         currentSpineIndex++;
         section.reset();
+#if CROSSPOINT_PAPERS3
+  clearPageFrameCache(false);
+#endif
       }
     }
   } else {
@@ -584,6 +1519,9 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
         nextPageNumber = UINT16_MAX;
         currentSpineIndex--;
         section.reset();
+#if CROSSPOINT_PAPERS3
+  clearPageFrameCache(false);
+#endif
       }
     }
   }
@@ -677,6 +1615,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
                                       SETTINGS.imageRendering, SETTINGS.readingLayout, popupFn, popupProgressFn)) {
         LOG_ERR("ERS", "Failed to persist page data to SD");
         section.reset();
+#if CROSSPOINT_PAPERS3
+  clearPageFrameCache(false);
+#endif
         return;
       }
 #if CROSSPOINT_PAPERS3
@@ -691,6 +1632,11 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       section->currentPage = section->pageCount - 1;
     } else {
       section->currentPage = nextPageNumber;
+      if (section->currentPage < 0 || section->currentPage >= section->pageCount) {
+        LOG_DBG("ERS", "Saved page out of range: %d (pageCount=%d), resetting to first page",
+                section->currentPage, section->pageCount);
+        section->currentPage = 0;
+      }
     }
 
     if (!pendingAnchor.empty()) {
@@ -745,12 +1691,37 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     return;
   }
 
+#if CROSSPOINT_PAPERS3
+  if (restorePageFrameCacheToRenderer(currentSpineIndex, section->currentPage, true)) {
+    const auto t0 = millis();
+    if (lastVisiblePageHadImages && !restoredPageFrameHadImages) {
+      renderer.requestFullRefresh();
+      LOG_DBG("ERS", "Full refresh requested: image page -> text page cache hit");
+    }
+    ReaderUtils::displayWithRefreshCycle(
+        renderer,
+        pagesUntilFullRefresh,
+        lastPageTurnWasForward
+    );
+    waitForVisibleDisplayIdle("cache-hit");
+    lastVisiblePageHadImages = restoredPageFrameHadImages;
+    LOG_DBG(
+        "ERS",
+        "Page render: cache=hit display=%lums total=%lums",
+        millis() - t0,
+        millis() - t0
+    );
+  } else
+#endif
   {
     auto p = section->loadPageFromSectionFile();
     if (!p) {
       LOG_ERR("ERS", "Failed to load page from SD - clearing section cache");
       section->clearCache();
       section.reset();
+#if CROSSPOINT_PAPERS3
+  clearPageFrameCache(false);
+#endif
       requestUpdate();  // Try again after clearing cache
                         // TODO: prevent infinite loop if the page keeps failing to load for some reason
       automaticPageTurnActive = false;
@@ -767,6 +1738,12 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   scheduleSilentIndexNextChapter(renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight,
                                  renderer.getScreenHeight() - orientedMarginTop - orientedMarginBottom);
   saveProgress(currentSpineIndex, section->currentPage, section->pageCount);
+#if CROSSPOINT_PAPERS3
+  // Give the user an idle window after each visible page update before warming
+  // frame cache, otherwise a cache render can start immediately after a slow
+  // page render and make the next tap feel ignored.
+  lastReaderInputAt = millis();
+#endif
 
   if (pendingScreenshot) {
     pendingScreenshot = false;
@@ -834,11 +1811,25 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
 }
 
 void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount) {
+  if (!epub || spineIndex < 0 || spineIndex >= epub->getSpineItemsCount() ||
+      currentPage < 0 || currentPage == UINT16_MAX ||
+      (pageCount > 0 && currentPage >= pageCount)) {
+    LOG_DBG(
+        "ERS",
+        "Progress save skipped: invalid spine=%d page=%d pageCount=%d spineCount=%d",
+        spineIndex,
+        currentPage,
+        pageCount,
+        epub ? epub->getSpineItemsCount() : -1
+    );
+    return;
+  }
+
   FsFile f;
   if (Storage.openFileForWrite("ERS", epub->getCachePath() + "/progress.bin", f)) {
     uint8_t data[6];
-    data[0] = currentSpineIndex & 0xFF;
-    data[1] = (currentSpineIndex >> 8) & 0xFF;
+    data[0] = spineIndex & 0xFF;
+    data[1] = (spineIndex >> 8) & 0xFF;
     data[2] = currentPage & 0xFF;
     data[3] = (currentPage >> 8) & 0xFF;
     data[4] = pageCount & 0xFF;
@@ -850,6 +1841,313 @@ void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
   }
 }
 
+
+#if CROSSPOINT_PAPERS3
+bool EpubReaderActivity::renderContentsProgressive(
+    std::unique_ptr<Page> page,
+    const int orientedMarginTop,
+    const int orientedMarginRight,
+    const int orientedMarginBottom,
+    const int orientedMarginLeft
+) {
+  if (!page || page->hasImages()) {
+    return false;
+  }
+  if (SETTINGS.readingLayout != CrossPointSettings::VERTICAL_LAYOUT) {
+    return false;
+  }
+
+  const auto t0 = millis();
+  auto* fcm = renderer.getFontCacheManager();
+  fcm->resetStats();
+  const uint32_t heapBefore = esp_get_free_heap_size();
+  fcm->logStats("prewarm");
+  const auto tPrewarm = millis();
+  LOG_DBG(
+      "ERS",
+      "Heap: before=%lu after=%lu delta=%ld",
+      heapBefore,
+      esp_get_free_heap_size(),
+      static_cast<int32_t>(esp_get_free_heap_size()) - static_cast<int32_t>(heapBefore)
+  );
+
+  const int fontId = SETTINGS.getReaderFontId();
+  std::vector<ProgressiveElementInfo> elementInfo;
+  elementInfo.reserve(page->elements.size());
+  for (size_t i = 0; i < page->elements.size(); ++i) {
+    ProgressiveElementInfo info = makeProgressiveElementInfo(
+        renderer,
+        *page->elements[i],
+        fontId,
+        orientedMarginLeft,
+        orientedMarginTop
+    );
+    info.index = i;
+    elementInfo.push_back(info);
+  }
+
+  const bool rowsAscending = progressiveRowsAscending(renderer, lastPageTurnWasForward);
+  std::stable_sort(
+      elementInfo.begin(),
+      elementInfo.end(),
+      [rowsAscending](const ProgressiveElementInfo& a, const ProgressiveElementInfo& b) {
+        if (a.rowCenter == b.rowCenter) {
+          return rowsAscending ? (a.index < b.index) : (a.index > b.index);
+        }
+        return rowsAscending ? (a.rowCenter < b.rowCenter) : (a.rowCenter > b.rowCenter);
+      }
+  );
+
+  renderer.clearScreen();
+  prepareReaderContentBackground(renderer, orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
+  beginReaderContentRender(renderer);
+  if (SETTINGS.textAntiAliasing) {
+    renderer.setRenderMode(GfxRenderer::GRAYSCALE_DIRECT);
+  }
+
+  LOG_DBG(
+      "PRG",
+      "foreground grouped progressive start: elements=%u groupSize=%u order=%s refreshMode=%s cacheMissOnly=1",
+      static_cast<unsigned>(elementInfo.size()),
+      static_cast<unsigned>(foregroundProgressiveElementsPerRefresh),
+      rowsAscending ? "physical-row-ascending" : "physical-row-descending",
+      SETTINGS.pageTurnRefreshMode == CrossPointSettings::PAGE_TURN_REFRESH_ORIGINAL ? "single-refresh-path" : "band-scan"
+  );
+  logProgressiveInternalHeap("start");
+
+  // The page-turn gesture that triggered this render can still be physically
+  // down/releasing while the first progressive groups are being drawn.  Drain it
+  // before we start polling inside the render loop, otherwise the same gesture
+  // (or a second gesture during the render) can be processed by the reader loop
+  // after this page finishes, advancing the page number without a matching
+  // visible render.  V32 ignores gestures while a foreground cache-miss render
+  // is in progress; the user can swipe again after the page is complete.
+  mappedInput.clearState();
+  bool inputDuringProgressiveRender = false;
+
+  const auto tElementsStart = millis();
+  unsigned renderedElements = 0;
+  unsigned refreshGroups = 0;
+  unsigned long textTotal = 0;
+  unsigned long imageTotal = 0;
+  unsigned long displayTotal = 0;
+  unsigned long slowestDraw = 0;
+  size_t slowestIndex = 0;
+
+  size_t groupBeginOrder = 0;
+  int groupRowStart = HalDisplay::DISPLAY_HEIGHT - 1;
+  int groupRowEnd = 0;
+  unsigned groupElements = 0;
+  unsigned long groupDrawTotal = 0;
+  bool groupHasContent = false;
+
+  const auto flushGroup = [&](const size_t nextOrderIndex) {
+    if (!groupHasContent) {
+      return;
+    }
+
+    groupRowStart = std::max(0, std::min<int>(HalDisplay::DISPLAY_HEIGHT - 1, groupRowStart));
+    groupRowEnd = std::max(0, std::min<int>(HalDisplay::DISPLAY_HEIGHT - 1, groupRowEnd));
+    if (groupRowStart > groupRowEnd) {
+      std::swap(groupRowStart, groupRowEnd);
+    }
+
+    const auto tDisplayStart = millis();
+    renderer.displayPhysicalRows(groupRowStart, groupRowEnd);
+    const auto tDisplayEnd = millis();
+    const unsigned long displayMs = tDisplayEnd - tDisplayStart;
+    displayTotal += displayMs;
+    ++refreshGroups;
+
+    LOG_DBG(
+        "PRG",
+        "group %u elements=%u order=%u..%u rows=%d..%d draw=%lums displayCall=%lums",
+        refreshGroups,
+        groupElements,
+        static_cast<unsigned>(groupBeginOrder + 1),
+        static_cast<unsigned>(nextOrderIndex),
+        groupRowStart,
+        groupRowEnd,
+        groupDrawTotal,
+        displayMs
+    );
+
+    groupBeginOrder = nextOrderIndex;
+    groupRowStart = HalDisplay::DISPLAY_HEIGHT - 1;
+    groupRowEnd = 0;
+    groupElements = 0;
+    groupDrawTotal = 0;
+    groupHasContent = false;
+
+    // Keep the touch system fresh between visible chunks.  We do not abort the
+    // foreground page render here because that would leave a half-old/half-new
+    // page on screen.  The next reader loop can handle the queued input after
+    // the current page has reached a consistent complete state.
+    mappedInput.update();
+    if (hasReaderInputPending()) {
+      lastReaderInputAt = millis();
+      inputDuringProgressiveRender = true;
+      LOG_DBG(
+          "PRG",
+          "input observed and will be ignored during grouped progressive after group=%u elements=%u/%u",
+          refreshGroups,
+          renderedElements,
+          static_cast<unsigned>(elementInfo.size())
+      );
+      mappedInput.clearState();
+    }
+  };
+
+  for (size_t orderIndex = 0; orderIndex < elementInfo.size(); ++orderIndex) {
+    const auto& info = elementInfo[orderIndex];
+    if (info.index >= page->elements.size()) {
+      continue;
+    }
+
+    const auto& element = page->elements[info.index];
+    const PageElementTag tag = element->getTag();
+    const auto tDrawStart = millis();
+    {
+      PageRenderProfiler::Scoped pageRenderProfile(true);
+      element->render(
+          renderer,
+          fontId,
+          orientedMarginLeft,
+          orientedMarginTop
+      );
+    }
+    const auto tDrawEnd = millis();
+
+    const unsigned long drawMs = tDrawEnd - tDrawStart;
+    if (tag == TAG_PageImage) {
+      imageTotal += drawMs;
+    } else {
+      textTotal += drawMs;
+    }
+    if (drawMs > slowestDraw) {
+      slowestDraw = drawMs;
+      slowestIndex = info.index;
+    }
+
+    if (!groupHasContent) {
+      groupBeginOrder = orderIndex;
+      groupHasContent = true;
+    }
+    groupRowStart = std::min(groupRowStart, info.rowStart);
+    groupRowEnd = std::max(groupRowEnd, info.rowEnd);
+    ++groupElements;
+    groupDrawTotal += drawMs;
+    ++renderedElements;
+
+    LOG_DBG(
+        "PRG",
+        "element %u/%u index=%u tag=%u rows=%d..%d center=%d draw=%lums",
+        static_cast<unsigned>(orderIndex + 1),
+        static_cast<unsigned>(elementInfo.size()),
+        static_cast<unsigned>(info.index),
+        static_cast<unsigned>(tag),
+        info.rowStart,
+        info.rowEnd,
+        info.rowCenter,
+        drawMs
+    );
+
+    if (groupElements >= foregroundProgressiveElementsPerRefresh) {
+      flushGroup(orderIndex + 1);
+    }
+  }
+  flushGroup(elementInfo.size());
+
+  renderer.setRenderMode(GfxRenderer::BW);
+  endReaderContentRender(renderer);
+  const auto tElementsEnd = millis();
+
+  const auto tStatusStart = millis();
+  renderStatusBar();
+  int statusRowStart = 0;
+  int statusRowEnd = 0;
+  const int statusHeight = std::max<int>(
+      1,
+      UITheme::getInstance().getStatusBarHeight() +
+          UITheme::getInstance().getMetrics().statusBarVerticalMargin * 2 +
+          SETTINGS.screenMargin
+  );
+  renderer.logicalRectToPhysicalRows(
+      0,
+      std::max(0, renderer.getScreenHeight() - statusHeight),
+      renderer.getScreenWidth(),
+      statusHeight,
+      &statusRowStart,
+      &statusRowEnd
+  );
+  renderer.displayPhysicalRows(statusRowStart, statusRowEnd);
+  const auto tStatusEnd = millis();
+
+  fcm->logStats("page_render");
+
+  const auto tIdleBeforeCacheStart = millis();
+  renderer.waitDisplayIdle();
+  const auto tIdleBeforeCacheEnd = millis();
+  logProgressiveInternalHeap("before-cache-store");
+
+  const auto tCacheStoreStart = millis();
+  if (section) {
+    copyCurrentFrameToPageFrameCache(currentSpineIndex, section->currentPage, currentPageFootnotes, false);
+  }
+  const auto tCacheStoreEnd = millis();
+
+  // Do not let any gesture sampled during the visible page render become a
+  // delayed page turn after the current framebuffer has already been stored.
+  // This fixes the observed "swipe during render, next swipe jumps two pages"
+  // state mismatch by treating all touches during foreground rendering as
+  // consumed/no-op.
+  mappedInput.clearState();
+  if (inputDuringProgressiveRender) {
+    LOG_DBG("PRG", "input drained after grouped progressive render");
+  } else {
+    LOG_DBG("PRG", "input state cleared after grouped progressive render");
+  }
+
+  LOG_DBG(
+      "ERS",
+      "render phase: displayIdleBeforeCache=%lums cacheStore=%lums",
+      tIdleBeforeCacheEnd - tIdleBeforeCacheStart,
+      tCacheStoreEnd - tCacheStoreStart
+  );
+  logProgressiveInternalHeap("done");
+
+  LOG_DBG(
+      "PRG",
+      "foreground grouped progressive done: elements=%u groups=%u draw=%lums text=%lums image=%lums displayCalls=%lums status=%lums idleBeforeCache=%lums slowestIndex=%u slowest=%lums",
+      renderedElements,
+      refreshGroups,
+      tElementsEnd - tElementsStart,
+      textTotal,
+      imageTotal,
+      displayTotal,
+      tStatusEnd - tStatusStart,
+      tIdleBeforeCacheEnd - tIdleBeforeCacheStart,
+      static_cast<unsigned>(slowestIndex),
+      slowestDraw
+  );
+
+  LOG_DBG(
+      "ERS",
+      "Page render progressive-groups: prewarm=%lums render=%lums status=%lums idleBeforeCache=%lums cacheStore=%lums total=%lums",
+      tPrewarm - t0,
+      tElementsEnd - tPrewarm,
+      tStatusEnd - tStatusStart,
+      tIdleBeforeCacheEnd - tIdleBeforeCacheStart,
+      tCacheStoreEnd - tCacheStoreStart,
+      millis() - t0
+  );
+
+  (void)orientedMarginBottom;
+  (void)orientedMarginRight;
+  return true;
+}
+#endif
+
 void EpubReaderActivity::renderContents(
     std::unique_ptr<Page> page,
     const int orientedMarginTop,
@@ -857,7 +2155,14 @@ void EpubReaderActivity::renderContents(
     const int orientedMarginBottom,
     const int orientedMarginLeft
 ) {
+#if CROSSPOINT_PAPERS3
+  // V1.7.0 simplification: visible cache-miss pages are rendered into the
+  // framebuffer once and displayed once.  The previous foreground grouped
+  // progressive path is intentionally bypassed; next/previous responsiveness is
+  // now provided by deterministic adjacent-page frame cache readiness instead.
+#endif
   const auto t0 = millis();
+  const bool currentPageHasImages = page ? page->hasImages() : false;
 
   // V1.5 固定直排測試開關。
   constexpr bool ENABLE_VERTICAL_RENDER_TEST = false;
@@ -865,25 +2170,26 @@ void EpubReaderActivity::renderContents(
   auto* fcm = renderer.getFontCacheManager();
   fcm->resetStats();
 
-  // Font prewarm:
-  // 第一次 page->render() 只做字型掃描，不會真正畫到 framebuffer。
+  // Font prewarm is disabled for the framebuffer-cache page-turn path.
+  // On the tested TTF/CJK path it produced no FDC hits and added ~700-800ms.
+  constexpr bool ENABLE_READER_FONT_PREWARM = false;
   const uint32_t heapBefore = esp_get_free_heap_size();
 
-  auto scope = fcm->createPrewarmScope();
+  if (ENABLE_READER_FONT_PREWARM) {
+    auto scope = fcm->createPrewarmScope();
 
-  page->render(
-      renderer,
-      SETTINGS.getReaderFontId(),
-      orientedMarginLeft,
-      orientedMarginTop
-  );
+    page->render(
+        renderer,
+        SETTINGS.getReaderFontId(),
+        orientedMarginLeft,
+        orientedMarginTop
+    );
 
-  scope.endScanAndPrewarm();
+    scope.endScanAndPrewarm();
+  }
 
   const uint32_t heapAfter = esp_get_free_heap_size();
-
   fcm->logStats("prewarm");
-
   const auto tPrewarm = millis();
 
   LOG_DBG(
@@ -981,26 +2287,59 @@ void EpubReaderActivity::renderContents(
    * 若開啟 anti-aliasing，正文先使用 GRAYSCALE_DIRECT。
    * 這裡的 page->render() 才是真正畫到 framebuffer 的 render pass。
    */
+  const auto tBackgroundStart = millis();
+  prepareReaderContentBackground(renderer, orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
+  const auto tBackgroundEnd = millis();
+  beginReaderContentRender(renderer);
+  const auto tBeginContentEnd = millis();
+
   if (SETTINGS.textAntiAliasing) {
     renderer.setRenderMode(
         GfxRenderer::GRAYSCALE_DIRECT
     );
   }
+  const auto tModeSetEnd = millis();
 
-  page->render(
-      renderer,
-      SETTINGS.getReaderFontId(),
-      orientedMarginLeft,
-      orientedMarginTop
-  );
+  {
+    PageRenderProfiler::Scoped pageRenderProfile(true);
+    page->render(
+        renderer,
+        SETTINGS.getReaderFontId(),
+        orientedMarginLeft,
+        orientedMarginTop
+    );
+  }
+  const auto tPageRenderEnd = millis();
 
   // 固定測試字先使用 BW 模式，避免測試階段受灰階混合影響。
   renderer.setRenderMode(GfxRenderer::BW);
+  endReaderContentRender(renderer);
+  const auto tEndContentEnd = millis();
 
+  LOG_DBG(
+      "ERS",
+      "render phase: background=%lums beginContent=%lums modeSet=%lums pageRender=%lums endContent=%lums",
+      tBackgroundEnd - tBackgroundStart,
+      tBeginContentEnd - tBackgroundEnd,
+      tModeSetEnd - tBeginContentEnd,
+      tPageRenderEnd - tModeSetEnd,
+      tEndContentEnd - tPageRenderEnd
+  );
+
+  const auto tVerticalTestStart = millis();
   if (ENABLE_VERTICAL_RENDER_TEST) {
     renderVerticalTest();
   }
+  const auto tVerticalTestEnd = millis();
   renderStatusBar();
+  const auto tStatusBarEnd = millis();
+
+  LOG_DBG(
+      "ERS",
+      "render phase: verticalTest=%lums statusBar=%lums",
+      tVerticalTestEnd - tVerticalTestStart,
+      tStatusBarEnd - tVerticalTestEnd
+  );
 
   fcm->logStats("page_render");
 
@@ -1013,8 +2352,13 @@ void EpubReaderActivity::renderContents(
    * 2. 再重新畫完整頁面。
    */
   const bool imagePageWithAA =
-      page->hasImages() &&
+      currentPageHasImages &&
       SETTINGS.textAntiAliasing;
+
+  if (lastVisiblePageHadImages && !currentPageHasImages) {
+    renderer.requestFullRefresh();
+    LOG_DBG("ERS", "Full refresh requested: image page -> text page cache miss");
+  }
 
   if (imagePageWithAA) {
     int16_t imgX = 0;
@@ -1032,28 +2376,38 @@ void EpubReaderActivity::renderContents(
           imgY + orientedMarginTop,
           imgW,
           imgH,
-          false
+          SETTINGS.readerContentInvert ? true : false
       );
 
+      // Keep the existing pre-clean step for image pages.  This path is not
+      // the visible page-turn effect; the final paint below uses the dedicated
+      // page-turn refresh cycle.
       renderer.displayBuffer(
           HalDisplay::FAST_REFRESH
       );
+      renderer.waitDisplayIdle();
+      LOG_DBG("ERS", "Image pre-clean display idle before final render");
 
       // 第二次完整繪製。
       renderer.setRenderMode(
           GfxRenderer::GRAYSCALE_DIRECT
       );
+      beginReaderContentRender(renderer);
 
-      page->render(
-          renderer,
-          SETTINGS.getReaderFontId(),
-          orientedMarginLeft,
-          orientedMarginTop
-      );
+      {
+        PageRenderProfiler::Scoped pageRenderProfile(true);
+        page->render(
+            renderer,
+            SETTINGS.getReaderFontId(),
+            orientedMarginLeft,
+            orientedMarginTop
+        );
+      }
 
       renderer.setRenderMode(
           GfxRenderer::BW
       );
+      endReaderContentRender(renderer);
 
       // 第二次 page->render() 後，也必須重新畫測試字與狀態列。
       if (ENABLE_VERTICAL_RENDER_TEST) {
@@ -1062,20 +2416,36 @@ void EpubReaderActivity::renderContents(
 
       renderStatusBar();
 
-      renderer.displayBuffer(
-          HalDisplay::FAST_REFRESH
+      ReaderUtils::displayWithRefreshCycle(
+          renderer,
+          pagesUntilFullRefresh,
+          lastPageTurnWasForward
       );
     } else {
-      renderer.displayBuffer(
-          HalDisplay::HALF_REFRESH
+      ReaderUtils::displayWithRefreshCycle(
+          renderer,
+          pagesUntilFullRefresh,
+          lastPageTurnWasForward
       );
     }
   } else {
     ReaderUtils::displayWithRefreshCycle(
         renderer,
-        pagesUntilFullRefresh
+        pagesUntilFullRefresh,
+        lastPageTurnWasForward
     );
   }
+
+#if CROSSPOINT_PAPERS3
+  waitForVisibleDisplayIdle("cache-miss");
+  const auto tCacheStoreStart = millis();
+  if (section) {
+    copyCurrentFrameToPageFrameCache(currentSpineIndex, section->currentPage, currentPageFootnotes, currentPageHasImages);
+  }
+  lastVisiblePageHadImages = currentPageHasImages;
+  const auto tCacheStoreEnd = millis();
+  LOG_DBG("ERS", "render phase: cacheStore=%lums", tCacheStoreEnd - tCacheStoreStart);
+#endif
 
   const auto tDisplay = millis();
   const auto tEnd = millis();
@@ -1129,7 +2499,10 @@ void EpubReaderActivity::renderStatusBar() const {
   }
 
   const int statusPaddingBottom = SETTINGS.statusBarFollowsPageMargin ? SETTINGS.screenMargin : 0;
+  const bool previousInvertDrawing = renderer.getInvertDrawing();
+  renderer.setInvertDrawing(SETTINGS.readerContentInvert != 0);
   GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, statusPaddingBottom, textYOffset);
+  renderer.setInvertDrawing(previousInvertDrawing);
 }
 
 void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool savePosition) {
@@ -1171,6 +2544,9 @@ void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool s
     currentSpineIndex = targetSpineIndex;
     nextPageNumber = 0;
     section.reset();
+#if CROSSPOINT_PAPERS3
+  clearPageFrameCache(false);
+#endif
   }
   requestUpdate();
   LOG_DBG("ERS", "Navigated to spine %d for href: %s", targetSpineIndex, hrefStr.c_str());
@@ -1187,6 +2563,9 @@ void EpubReaderActivity::restoreSavedPosition() {
     currentSpineIndex = pos.spineIndex;
     nextPageNumber = pos.pageNumber;
     section.reset();
+#if CROSSPOINT_PAPERS3
+  clearPageFrameCache(false);
+#endif
   }
   requestUpdate();
 }

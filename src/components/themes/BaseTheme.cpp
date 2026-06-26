@@ -459,7 +459,9 @@ void BaseTheme::drawPowerButton(const GfxRenderer& renderer, const Rect headerRe
 }
 
 void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle) const {
-  drawPowerButton(renderer, rect);
+  if (title != nullptr) {
+    drawPowerButton(renderer, rect);
+  }
 
   // Hide last battery draw
   constexpr int maxBatteryWidth = 80;

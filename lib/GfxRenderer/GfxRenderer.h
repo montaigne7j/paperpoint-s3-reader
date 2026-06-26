@@ -35,6 +35,7 @@ class GfxRenderer {
   RenderMode renderMode;
   Orientation orientation;
   bool fadingFix;
+  bool invertDrawing = false;
   mutable bool forceNextFullRefresh = false;  // Consumed by displayBuffer()
   uint8_t* frameBuffer = nullptr;
   uint8_t* bwBufferStored = nullptr;  // Single PSRAM allocation for BW buffer backup
@@ -226,6 +227,8 @@ void renderExternalGlyph(
 
   // Fading fix control
   void setFadingFix(const bool enabled) { fadingFix = enabled; }
+  void setInvertDrawing(const bool enabled) { invertDrawing = enabled; }
+  bool getInvertDrawing() const { return invertDrawing; }
 
   // Screen ops
   int getScreenWidth() const;
@@ -233,6 +236,9 @@ void renderExternalGlyph(
   // Start timing a render that does not clear the whole framebuffer first.
   void beginFrame() const;
   void displayBuffer(HalDisplay::RefreshMode refreshMode = HalDisplay::FAST_REFRESH) const;
+  void displayPhysicalRows(int rowStart, int rowEnd) const;
+  void waitDisplayIdle() const;
+  void logicalRectToPhysicalRows(int x, int y, int width, int height, int* rowStart, int* rowEnd) const;
 
   /*
   * 顯示全螢幕 GC16 Bitmap。

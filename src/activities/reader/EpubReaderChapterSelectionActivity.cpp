@@ -487,7 +487,13 @@ void EpubReaderChapterSelectionActivity::render(RenderLock&&) {
       renderer.drawTextScaled(UI_10_FONT_ID, textX, displayY + textYOff, chapterName.c_str(), LARGE_TEXT_SCALE, true);
     }
 
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+    const char* prevPageLabel = ButtonNavigator::hasPreviousPage(selectorIndex, totalItems, pageItems)
+                                    ? tr(STR_DIR_UP)
+                                    : "";
+    const char* nextPageLabel = ButtonNavigator::hasNextPage(selectorIndex, totalItems, pageItems)
+                                    ? tr(STR_DIR_DOWN)
+                                    : "";
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), prevPageLabel, nextPageLabel);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
     renderer.displayBuffer();
@@ -545,7 +551,13 @@ void EpubReaderChapterSelectionActivity::render(RenderLock&&) {
     renderer.drawText(UI_10_FONT_ID, textX, displayY + textYOff, chapterName.c_str(), !isSelected);
   }
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const char* prevPageLabel = ButtonNavigator::hasPreviousPage(selectorIndex, totalItems, pageItems)
+                                  ? tr(STR_DIR_UP)
+                                  : "";
+  const char* nextPageLabel = ButtonNavigator::hasNextPage(selectorIndex, totalItems, pageItems)
+                                  ? tr(STR_DIR_DOWN)
+                                  : "";
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), prevPageLabel, nextPageLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

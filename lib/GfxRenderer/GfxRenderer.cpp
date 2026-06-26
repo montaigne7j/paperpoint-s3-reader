@@ -1482,7 +1482,8 @@ void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
 
   // 8bpp: one byte per pixel, 0=white, 3=black
   const uint32_t index = phyY * HalDisplay::DISPLAY_WIDTH + phyX;
-  frameBuffer[index] = state ? 3 : 0;
+  const bool finalState = invertDrawing ? !state : state;
+  frameBuffer[index] = finalState ? 3 : 0;
 }
 
 void GfxRenderer::drawPixelGray(const int x, const int y, const uint8_t epdValue) const {
@@ -1491,7 +1492,7 @@ void GfxRenderer::drawPixelGray(const int x, const int y, const uint8_t epdValue
   rotateCoordinates(orientation, x, y, &phyX, &phyY);
   if (phyX < 0 || phyX >= HalDisplay::DISPLAY_WIDTH || phyY < 0 || phyY >= HalDisplay::DISPLAY_HEIGHT) return;
   const uint32_t index = phyY * HalDisplay::DISPLAY_WIDTH + phyX;
-  frameBuffer[index] = epdValue;
+  frameBuffer[index] = invertDrawing ? (3 - std::min<uint8_t>(epdValue, 3)) : epdValue;
 }
 int GfxRenderer::getTextWidthExternalReader(
     const int fontId,
@@ -2535,30 +2536,52 @@ void GfxRenderer::fillRoundedRect(const int x, const int y, const int width, con
 }
 
 void GfxRenderer::drawImage(const uint8_t bitmap[], const int x, const int y, const int width, const int height) const {
-  int rotatedX = 0;
-  int rotatedY = 0;
-  rotateCoordinates(orientation, x, y, &rotatedX, &rotatedY);
-  // Rotate origin corner
-  switch (orientation) {
-    case Portrait:
-      rotatedY = rotatedY - height;
-      break;
-    case PortraitInverted:
-      rotatedX = rotatedX - width;
-      break;
-    case LandscapeClockwise:
-      rotatedY = rotatedY - height;
-      rotatedX = rotatedX - width;
-      break;
-    case LandscapeCounterClockwise:
-      break;
+  /*
+   * Source images are 1-bit packed in logical image order.  Older builds
+   * translated only the origin and then copied the packed bits directly to the
+   * physical framebuffer.  That made square 1-bit assets such as Logo120 look
+   * rotated on portrait-oriented Paper S3 screens, most visibly on the default
+   * sleep screen.
+   *
+   * drawImage() is used only for small built-in UI assets, so a per-pixel path
+   * is acceptable and keeps the bitmap orientation consistent with normal
+   * renderer drawing in every screen orientation.
+   */
+  if (bitmap == nullptr || width <= 0 || height <= 0) return;
+
+  const int imageWidthBytes = (width + 7) / 8;
+  for (int row = 0; row < height; ++row) {
+    const int logicalY = y + row;
+    for (int col = 0; col < width; ++col) {
+      const uint8_t srcByte = bitmap[row * imageWidthBytes + col / 8];
+      const bool sourceWhite = (srcByte & (0x80 >> (col % 8))) != 0;
+      drawPixel(x + col, logicalY, !sourceWhite);
+    }
   }
-  // TODO: Rotate bits
-  display.drawImage(bitmap, rotatedX, rotatedY, width, height);
 }
 
 void GfxRenderer::drawIcon(const uint8_t bitmap[], const int x, const int y, const int width, const int height) const {
-  display.drawImageTransparent(bitmap, y, getScreenWidth() - width - x, height, width);
+  /*
+   * Icons are stored as normal 1-bit logical bitmaps.  The old Paper S3 path
+   * copied the packed bytes directly to the physical framebuffer with swapped
+   * coordinates, which made newly added asymmetric icons such as Power appear
+   * rotated by 90 degrees.  Draw icons through the logical pixel path instead
+   * so they follow the same orientation as text and other UI elements.
+   *
+   * White source pixels are transparent; only black pixels are drawn.
+   */
+  if (bitmap == nullptr || width <= 0 || height <= 0) return;
+
+  const int imageWidthBytes = (width + 7) / 8;
+  for (int row = 0; row < height; ++row) {
+    for (int col = 0; col < width; ++col) {
+      const uint8_t srcByte = bitmap[row * imageWidthBytes + col / 8];
+      const bool sourceWhite = (srcByte & (0x80 >> (col % 8))) != 0;
+      if (!sourceWhite) {
+        drawPixel(x + col, y + row, true);
+      }
+    }
+  }
 }
 
 void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, const int maxWidth, const int maxHeight,
@@ -2833,14 +2856,63 @@ bool GfxRenderer::displayGc16Bitmap(
 
 void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const {
   auto elapsed = millis() - start_ms;
-  LOG_DBG("GFX", "Time = %lu ms from clearScreen to displayBuffer", elapsed);
   // If a full refresh was requested (e.g. activity transition), override the mode
   auto mode = refreshMode;
+  const bool forcedFull = forceNextFullRefresh;
   if (forceNextFullRefresh) {
     mode = HalDisplay::FULL_REFRESH;
     forceNextFullRefresh = false;
   }
+  LOG_DBG(
+      "GFX",
+      "Time = %lu ms from clearScreen to displayBuffer mode=%d forcedFull=%d",
+      elapsed,
+      static_cast<int>(mode),
+      forcedFull ? 1 : 0
+  );
   display.displayBuffer(mode, fadingFix);
+}
+
+void GfxRenderer::displayPhysicalRows(int rowStart, int rowEnd) const {
+  if (rowStart > rowEnd) return;
+  rowStart = std::max(0, std::min<int>(HalDisplay::DISPLAY_HEIGHT - 1, rowStart));
+  rowEnd = std::max(0, std::min<int>(HalDisplay::DISPLAY_HEIGHT - 1, rowEnd));
+  if (rowStart > rowEnd) return;
+  LOG_DBG("GFX", "Progressive rows %d..%d at %lu ms from clearScreen", rowStart, rowEnd, millis() - start_ms);
+  display.displayBufferRows(rowStart, rowEnd, fadingFix);
+}
+
+void GfxRenderer::waitDisplayIdle() const {
+  display.waitUntilIdle();
+}
+
+void GfxRenderer::logicalRectToPhysicalRows(
+    const int x,
+    const int y,
+    const int width,
+    const int height,
+    int* rowStart,
+    int* rowEnd
+) const {
+  if (!rowStart || !rowEnd) return;
+  const int x0 = x;
+  const int y0 = y;
+  const int x1 = x + std::max(1, width) - 1;
+  const int y1 = y + std::max(1, height) - 1;
+
+  int px = 0;
+  int py = 0;
+  int minRow = HalDisplay::DISPLAY_HEIGHT - 1;
+  int maxRow = 0;
+  const int corners[4][2] = {{x0, y0}, {x1, y0}, {x0, y1}, {x1, y1}};
+  for (const auto& c : corners) {
+    rotateCoordinates(orientation, c[0], c[1], &px, &py);
+    minRow = std::min(minRow, py);
+    maxRow = std::max(maxRow, py);
+  }
+
+  *rowStart = std::max(0, std::min<int>(HalDisplay::DISPLAY_HEIGHT - 1, minRow));
+  *rowEnd = std::max(0, std::min<int>(HalDisplay::DISPLAY_HEIGHT - 1, maxRow));
 }
 
 std::string GfxRenderer::truncatedText(const int fontId, const char* text, const int maxWidth,

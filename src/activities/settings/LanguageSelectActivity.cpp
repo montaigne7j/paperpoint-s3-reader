@@ -102,7 +102,14 @@ void LanguageSelectActivity::render(RenderLock&&) {
       true);
 
   // Button hints
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const int hintPageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, false);
+  const char* prevPageLabel = ButtonNavigator::hasPreviousPage(static_cast<int>(selectedIndex), totalItems, hintPageItems)
+                                  ? tr(STR_DIR_UP)
+                                  : "";
+  const char* nextPageLabel = ButtonNavigator::hasNextPage(static_cast<int>(selectedIndex), totalItems, hintPageItems)
+                                  ? tr(STR_DIR_DOWN)
+                                  : "";
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), prevPageLabel, nextPageLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

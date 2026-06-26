@@ -4,7 +4,7 @@
 #include <HalTouch.h>
 
 // Number of virtual buttons (touch zones + gestures + power)
-#define HALGPIO_NUM_BUTTONS 10
+#define HALGPIO_NUM_BUTTONS 12
 
 class HalGPIO {
  public:
@@ -56,6 +56,8 @@ class HalGPIO {
   static constexpr uint8_t BTN_SWIPE_UP = 7;    // Explicit swipe-up gesture
   static constexpr uint8_t BTN_SWIPE_DOWN = 8;  // Explicit swipe-down gesture
   static constexpr uint8_t BTN_TWO_FINGER = 9;  // 2-finger tap (also sets BTN_BACK)
+  static constexpr uint8_t BTN_SWIPE_LEFT = 10;   // Horizontal swipe left (fires before release)
+  static constexpr uint8_t BTN_SWIPE_RIGHT = 11;  // Horizontal swipe right (fires before release)
 
   // On-screen shutdown hotspot used by non-reader UI screens.
   // Non-reader activities are portrait-only, so this is the top-left 64x64 px area.
@@ -85,7 +87,11 @@ class HalGPIO {
   int16_t touchStartX = -1;                       // X at touch-down
   int16_t touchStartY = -1;                       // Y at touch-down
   bool sawMultiTouch = false;                     // Saw 2+ fingers during this touch sequence
-  static constexpr int16_t SWIPE_THRESHOLD = 50;  // Min Y movement for swipe (px)
+  bool horizontalSwipeFired = false;               // Reader horizontal swipe already emitted for this touch
+  int8_t horizontalSwipeDirection = 0;             // -1 = left, +1 = right
+  static constexpr int16_t SWIPE_THRESHOLD = 50;   // Min Y movement for swipe (px)
+  static constexpr int16_t HORIZONTAL_SWIPE_THRESHOLD = 80;  // Min X movement for early page swipe (px)
+  static constexpr int16_t HORIZONTAL_SWIPE_DOMINANCE_MARGIN = 20;
   static constexpr int16_t TAP_DRIFT_THRESHOLD = 35;  // Max movement for a content-area direct tap (px)
 
   // Footer nav bar height (portrait pixels from bottom edge)

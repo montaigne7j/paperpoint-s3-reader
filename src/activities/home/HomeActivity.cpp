@@ -6,11 +6,17 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Logging.h>
 #include <Utf8.h>
 #include <Xtc.h>
 
+#include <algorithm>
 #include <cstring>
+#include <cstdlib>
 #include <vector>
+#if CROSSPOINT_PAPERS3
+#include <esp_heap_caps.h>
+#endif
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -21,7 +27,7 @@
 #include "fontIds.h"
 
 int HomeActivity::getMenuItemCount() const {
-  int count = 4;  // File Browser, Recents, File transfer, Settings
+  int count = 5;  // File Browser, Recents, File transfer, Settings, Power Off
   if (!recentBooks.empty()) {
     count += recentBooks.size();
   }
@@ -148,8 +154,16 @@ bool HomeActivity::storeCoverBuffer() {
   freeCoverBuffer();
 
   const size_t bufferSize = GfxRenderer::getBufferSize();
+#if CROSSPOINT_PAPERS3
+  // The cover snapshot is a full display-sized buffer.  Keep it in PSRAM so
+  // Home's Lyra 3-covers view does not exhaust internal heap and make the next
+  // touch/menu action unstable.
+  coverBuffer = static_cast<uint8_t*>(heap_caps_malloc(bufferSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+#else
   coverBuffer = static_cast<uint8_t*>(malloc(bufferSize));
+#endif
   if (!coverBuffer) {
+    LOG_DBG("HOME", "Cover framebuffer snapshot skipped: alloc %u bytes failed", static_cast<unsigned>(bufferSize));
     return false;
   }
 
@@ -174,7 +188,11 @@ bool HomeActivity::restoreCoverBuffer() {
 
 void HomeActivity::freeCoverBuffer() {
   if (coverBuffer) {
+#if CROSSPOINT_PAPERS3
+    heap_caps_free(coverBuffer);
+#else
     free(coverBuffer);
+#endif
     coverBuffer = nullptr;
   }
   coverBufferStored = false;
@@ -188,7 +206,8 @@ void HomeActivity::activateSelectedItem() {
   const int recentsIdx = idx++;
   const int opdsLibraryIdx = hasOpdsUrl ? idx++ : -1;
   const int fileTransferIdx = idx++;
-  const int settingsIdx = idx;
+  const int settingsIdx = idx++;
+  const int powerOffIdx = idx;
 
   if (selectorIndex >= 0 && selectorIndex < static_cast<int>(recentBooks.size())) {
     onSelectBook(recentBooks[selectorIndex].path);
@@ -202,6 +221,8 @@ void HomeActivity::activateSelectedItem() {
     onFileTransferOpen();
   } else if (menuSelectedIndex == settingsIdx) {
     onSettingsOpen();
+  } else if (menuSelectedIndex == powerOffIdx) {
+    onPowerOff();
   }
 }
 
@@ -223,13 +244,33 @@ void HomeActivity::loop() {
     const int tapX = mappedInput.wasContentTapReleased() ? mappedInput.getContentTapX() : mappedInput.getTouchX();
     const int tapY = mappedInput.wasContentTapReleased() ? mappedInput.getContentTapY() : mappedInput.getTouchY();
     if (!recentBooks.empty() && hasTap) {
+      const int visibleRecentBooks = std::min(static_cast<int>(recentBooks.size()), metrics.homeRecentBooksCount);
       const Rect recentRect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight};
       if (tapX >= recentRect.x && tapX < recentRect.x + recentRect.width &&
           tapY >= recentRect.y && tapY < recentRect.y + recentRect.height) {
-        if (selectorIndex == 0) {
+        int targetRecentIndex = 0;
+        if (visibleRecentBooks > 1) {
+          const int tileWidth = std::max(1, (pageWidth - 2 * metrics.contentSidePadding) / visibleRecentBooks);
+          targetRecentIndex = -1;
+          for (int i = 0; i < visibleRecentBooks; ++i) {
+            const int tileX0 = metrics.contentSidePadding + tileWidth * i;
+            const int tileX1 = (i == visibleRecentBooks - 1) ? (pageWidth - metrics.contentSidePadding)
+                                                              : (tileX0 + tileWidth);
+            if (tapX >= tileX0 && tapX < tileX1) {
+              targetRecentIndex = i;
+              break;
+            }
+          }
+          // If the tap was in the small side margin, keep the legacy behavior and
+          // select the first card rather than accidentally opening another card.
+          if (targetRecentIndex < 0) {
+            targetRecentIndex = 0;
+          }
+        }
+        if (selectorIndex == targetRecentIndex) {
           activateSelectedItem();
         } else {
-          selectorIndex = 0;
+          selectorIndex = targetRecentIndex;
           requestUpdate();
         }
         return;
@@ -286,8 +327,8 @@ void HomeActivity::render(RenderLock&&) {
 
   // Build menu items dynamically
   std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_MENU_RECENT_BOOKS), tr(STR_FILE_TRANSFER),
-                                        tr(STR_SETTINGS_TITLE)};
-  std::vector<UIIcon> menuIcons = {Folder, Recent, Transfer, Settings};
+                                        tr(STR_SETTINGS_TITLE), tr(STR_POWER_OFF)};
+  std::vector<UIIcon> menuIcons = {Folder, Recent, Transfer, Settings, Power};
 
   if (hasOpdsUrl) {
     // Insert OPDS Browser after File Browser
@@ -319,7 +360,10 @@ void HomeActivity::render(RenderLock&&) {
   }
 }
 
-void HomeActivity::onSelectBook(const std::string& path) { activityManager.goToReader(path); }
+void HomeActivity::onSelectBook(const std::string& path) {
+  LOG_DBG("HOME", "Opening recent book: index=%d path=%s", selectorIndex, path.c_str());
+  activityManager.goToReader(path);
+}
 
 void HomeActivity::onFileBrowserOpen() { activityManager.goToFileBrowser(); }
 
@@ -330,3 +374,9 @@ void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
+
+void HomeActivity::onPowerOff() {
+  mappedInput.clearState();
+  LOG_DBG("HOME", "Power off selected from home menu");
+  activityManager.requestDeepSleep();
+}

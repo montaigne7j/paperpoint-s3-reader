@@ -101,6 +101,8 @@ void ActivityManager::loop() {
         if (currentActivity->isReaderActivity()) {
           ReaderUtils::applyOrientation(currentActivity->renderer, SETTINGS.orientation);
           currentActivity->mappedInput.setTouchOrientation(SETTINGS.orientation);
+          currentActivity->renderer.requestFullRefresh();
+          LOG_DBG("ACT", "Full refresh requested when returning from UI to reader");
         }
 #endif
         // Handle result if necessary
@@ -206,8 +208,31 @@ void ActivityManager::goToReader(std::string path) {
 }
 
 void ActivityManager::goToSleep() {
-  replaceActivity(std::make_unique<SleepActivity>(renderer, mappedInput));
-  loop();  // Important: sleep screen must be rendered immediately, the caller will go to sleep right after this returns
+  // This method is called from enterDeepSleep() in the main loop.  Do not call
+  // ActivityManager::loop() here: if a UI activity also requested sleep from
+  // inside its loop(), re-entering loop() can repeatedly process the same touch
+  // event and overflow the loopTask stack.  Instead, synchronously replace the
+  // current activity with SleepActivity and render it once.
+  pendingActivity = std::make_unique<SleepActivity>(renderer, mappedInput);
+  pendingAction = PendingAction::Replace;
+
+  {
+    RenderLock lock;
+    if (currentActivity) {
+      exitActivity(lock);
+    }
+    while (!stackActivities.empty()) {
+      stackActivities.back()->onExit();
+      stackActivities.pop_back();
+    }
+    currentActivity = std::move(pendingActivity);
+    pendingAction = PendingAction::None;
+  }
+
+  if (currentActivity) {
+    currentActivity->onEnter();
+    requestUpdateAndWait();
+  }
 }
 
 void ActivityManager::goToBoot() { replaceActivity(std::make_unique<BootActivity>(renderer, mappedInput)); }
@@ -219,6 +244,14 @@ void ActivityManager::goToFullScreenMessage(std::string message, EpdFontFamily::
 void ActivityManager::goToCrashReport() { replaceActivity(std::make_unique<CrashActivity>(renderer, mappedInput)); }
 
 void ActivityManager::goHome() { replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInput)); }
+
+void ActivityManager::requestDeepSleep() { deepSleepRequested = true; }
+
+bool ActivityManager::consumeDeepSleepRequest() {
+  const bool requested = deepSleepRequested;
+  deepSleepRequested = false;
+  return requested;
+}
 
 void ActivityManager::pushActivity(std::unique_ptr<Activity>&& activity) {
 #if CROSSPOINT_PAPERS3

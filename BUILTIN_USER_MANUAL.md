@@ -16,3 +16,9 @@ The manual content is bilingual:
 2. English second.
 
 It covers home/menu operation, settings, direct touch selection, footer button behavior, and reading page operation.
+
+## V1.7.0 status
+
+The manual is still embedded in firmware as `src/resources/BuiltinManualEpub.cpp` and is installed automatically to `/book/CrossPoint_User_Manual.epub` on the SD card.  A copy of the generated EPUB is also kept at `docs/CrossPoint_User_Manual.epub` for release review.
+
+The V1.7.0 manual text mentions the pending page-turn guard, neighboring frame cache behavior, and the band-scan page-turn refresh mode.

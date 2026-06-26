@@ -15,9 +15,13 @@
 
 ## 目前重點
 
-- 目前版本：**1.6.0**。
+- 目前版本：**1.7.0**。
 - 中文優先的 M5Paper S3 電子紙閱讀器韌體。
-- 內建 **PaperPoint Sans TC Medium** 繁中文字型 fallback；1.6.0 改用較大的 31x39 來源重新取樣，閱讀中文字可放大到更適合 Paper S3 的尺寸。
+- 內建 **PaperPoint Sans TC Medium** 繁中文字型 fallback；閱讀中文字可放大到更適合 Paper S3 的尺寸。
+- 1.7.0 將閱讀翻頁定版為「鄰頁 framebuffer cache ready 後才接受翻頁」策略：避免連續 swipe 疊加造成跳頁，並讓上一頁 / 下一頁在 cache 命中時速度更一致。
+- 1.7.0 採用 Paper S3 穩定版 band-scan page-turn waveform：540-row band、8 pass、第一 pass 1ms，其餘 pass 5ms，並保留白→白 / 黑→黑第一 pass 強化。
+- 1.7.0 首頁改用可見的 **關機 / Power Off** 選單項目，並修正 Lyra 主題關機圖示與最近閱讀卡片觸控命中。
+- 1.7.0 強化 EPUB 進度還原 / 儲存防呆，避免舊版異常進度直接開到全書結尾。
 - 大字介面主題持續支援設定、檔案瀏覽、最近閱讀、章節選單、閱讀選單與閱讀狀態列。
 - Paper S3 操作改成更直覺的直接觸控：首頁項目、設定分頁與多數清單可直接點選，底部導覽改為「返回 / 選擇 / 前頁 / 後頁」。
 - 新增閱讀狀態列跟隨頁邊距模式，狀態列可固定在螢幕底部，或跟著閱讀頁邊距一起內縮。
@@ -122,7 +126,7 @@ Paper S3 版本支援：
 
 裝置會在閒置時於背景預先建立 GC16 快取。關機時不等待圖片解碼：優先使用本次已完成快取，其次使用上一張有效快取，最後使用內建休眠圖。
 
-完整規格、限制、快取格式與診斷 LOG 請參閱 [SLEEP_IMAGE_CACHE_README.md](SLEEP_IMAGE_CACHE_README.md)。
+完整規格、限制、快取格式與診斷 LOG 請參閱 [docs/development-notes/SLEEP_IMAGE_CACHE_README.md](docs/development-notes/SLEEP_IMAGE_CACHE_README.md)。
 
 ## 硬體資訊
 

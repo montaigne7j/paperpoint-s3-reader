@@ -4,7 +4,7 @@
 
 class MappedInputManager {
  public:
-  enum class Button { Back, Confirm, Left, Right, Up, Down, Power, PageBack, PageForward };
+  enum class Button { Back, Confirm, Left, Right, Up, Down, Power, PageBack, PageForward, SwipeLeft, SwipeRight };
 
   struct Labels {
     const char* btn1;
@@ -36,7 +36,9 @@ class MappedInputManager {
     // On the release frame, BTN_TWO_FINGER / BTN_SWIPE_* are SET in currentState
     // while the zone button transitions from previousState, so use isPressed guards.
     if (gpio.isPressed(HalGPIO::BTN_TWO_FINGER)) return false;
-    if (gpio.isPressed(HalGPIO::BTN_SWIPE_UP) || gpio.isPressed(HalGPIO::BTN_SWIPE_DOWN)) return false;
+    if (gpio.isPressed(HalGPIO::BTN_SWIPE_UP) || gpio.isPressed(HalGPIO::BTN_SWIPE_DOWN) ||
+        gpio.isPressed(HalGPIO::BTN_SWIPE_LEFT) || gpio.isPressed(HalGPIO::BTN_SWIPE_RIGHT))
+      return false;
     return gpio.wasReleased(HalGPIO::BTN_LEFT) || gpio.wasReleased(HalGPIO::BTN_CONFIRM) ||
            gpio.wasReleased(HalGPIO::BTN_RIGHT);
   }

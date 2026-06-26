@@ -1,8 +1,52 @@
 #include "TextBlock.h"
 
+#include <Arduino.h>
+#include <algorithm>
 #include <GfxRenderer.h>
 #include <Logging.h>
 #include <Serialization.h>
+
+#include "../PageRenderProfiler.h"
+
+namespace {
+
+uint32_t countUtf8Codepoints(const std::string& text) {
+  uint32_t count = 0;
+  for (size_t i = 0; i < text.size();) {
+    const uint8_t c = static_cast<uint8_t>(text[i]);
+    size_t step = 1;
+    if ((c & 0x80) == 0x00) {
+      step = 1;
+    } else if ((c & 0xE0) == 0xC0) {
+      step = 2;
+    } else if ((c & 0xF0) == 0xE0) {
+      step = 3;
+    } else if ((c & 0xF8) == 0xF0) {
+      step = 4;
+    }
+    if (i + step > text.size()) {
+      step = 1;
+    }
+    i += step;
+    ++count;
+  }
+  return count;
+}
+
+void summarizeWords(
+    const std::vector<std::string>& words,
+    uint32_t& outBytes,
+    uint32_t& outGlyphs
+) {
+  outBytes = 0;
+  outGlyphs = 0;
+  for (const auto& word : words) {
+    outBytes += static_cast<uint32_t>(word.size());
+    outGlyphs += countUtf8Codepoints(word);
+  }
+}
+
+}  // namespace
 
 void TextBlock::render(
     const GfxRenderer& renderer,
@@ -10,6 +54,10 @@ void TextBlock::render(
     const int x,
     const int y
 ) const {
+  const bool profiling = PageRenderProfiler::isEnabled();
+  const unsigned long blockStart = millis();
+  const bool vertical = layoutMode == TextLayoutMode::Vertical;
+
   if (words.size() != wordXpos.size() ||
       words.size() != wordStyles.size()) {
     LOG_ERR(
@@ -23,7 +71,18 @@ void TextBlock::render(
     return;
   }
 
-  if (layoutMode == TextLayoutMode::Vertical) {
+  uint32_t totalBytes = 0;
+  uint32_t totalGlyphs = 0;
+  if (profiling) {
+    summarizeWords(words, totalBytes, totalGlyphs);
+  }
+
+  unsigned long drawTotal = 0;
+  unsigned long underlineTotal = 0;
+  unsigned long slowestWordMs = 0;
+  size_t slowestWordIndex = 0;
+
+  if (vertical) {
     if (words.size() != wordYpos.size()) {
       LOG_ERR(
           "TXB",
@@ -36,12 +95,10 @@ void TextBlock::render(
     }
 
     for (size_t i = 0; i < words.size(); ++i) {
-      const int glyphX =
-          x + wordXpos[i];
+      const int glyphX = x + wordXpos[i];
+      const int glyphY = y + wordYpos[i];
 
-      const int glyphY =
-          y + wordYpos[i];
-
+      const unsigned long tWord = millis();
       renderer.drawVerticalText(
           fontId,
           glyphX,
@@ -49,6 +106,30 @@ void TextBlock::render(
           words[i].c_str(),
           true,
           wordStyles[i]
+      );
+      const unsigned long wordMs = millis() - tWord;
+      drawTotal += wordMs;
+      if (wordMs > slowestWordMs) {
+        slowestWordMs = wordMs;
+        slowestWordIndex = i;
+      }
+    }
+
+    if (profiling) {
+      const unsigned long total = millis() - blockStart;
+      const unsigned long avgDraw = words.empty() ? 0 : drawTotal / words.size();
+      LOG_DBG(
+          "TXB",
+          "summary layout=vertical entries=%u logical=%u bytes=%u glyphs=%u draw=%lums underline=0ms total=%lums avgDraw=%lums slowestIndex=%u slowest=%lums",
+          static_cast<unsigned>(words.size()),
+          static_cast<unsigned>(logicalWordCount),
+          static_cast<unsigned>(totalBytes),
+          static_cast<unsigned>(totalGlyphs),
+          drawTotal,
+          total,
+          avgDraw,
+          static_cast<unsigned>(slowestWordIndex),
+          slowestWordMs
       );
     }
 
@@ -58,12 +139,11 @@ void TextBlock::render(
 
   // 以下是原本的橫排 render。
   for (size_t i = 0; i < words.size(); ++i) {
-    const int wordX =
-        wordXpos[i] + x;
+    const int wordX = wordXpos[i] + x;
 
-    const EpdFontFamily::Style currentStyle =
-        wordStyles[i];
+    const EpdFontFamily::Style currentStyle = wordStyles[i];
 
+    const unsigned long tWord = millis();
     renderer.drawText(
         fontId,
         wordX,
@@ -72,9 +152,16 @@ void TextBlock::render(
         true,
         currentStyle
     );
+    const unsigned long wordMs = millis() - tWord;
+    drawTotal += wordMs;
+    if (wordMs > slowestWordMs) {
+      slowestWordMs = wordMs;
+      slowestWordIndex = i;
+    }
 
     if ((currentStyle &
          EpdFontFamily::UNDERLINE) != 0) {
+      const unsigned long tUnderline = millis();
       const std::string& word = words[i];
 
       const int fullWordWidth =
@@ -124,7 +211,27 @@ void TextBlock::render(
           underlineY,
           true
       );
+      underlineTotal += millis() - tUnderline;
     }
+  }
+
+  if (profiling) {
+    const unsigned long total = millis() - blockStart;
+    const unsigned long avgDraw = words.empty() ? 0 : drawTotal / words.size();
+    LOG_DBG(
+        "TXB",
+        "summary layout=horizontal entries=%u logical=%u bytes=%u glyphs=%u draw=%lums underline=%lums total=%lums avgDraw=%lums slowestIndex=%u slowest=%lums",
+        static_cast<unsigned>(words.size()),
+        static_cast<unsigned>(logicalWordCount),
+        static_cast<unsigned>(totalBytes),
+        static_cast<unsigned>(totalGlyphs),
+        drawTotal,
+        underlineTotal,
+        total,
+        avgDraw,
+        static_cast<unsigned>(slowestWordIndex),
+        slowestWordMs
+    );
   }
 }
 

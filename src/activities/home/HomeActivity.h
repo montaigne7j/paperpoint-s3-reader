@@ -26,6 +26,7 @@ class HomeActivity final : public Activity {
   void onSettingsOpen();
   void onFileTransferOpen();
   void onOpdsBrowserOpen();
+  void onPowerOff();
   void activateSelectedItem();
 
   int getMenuItemCount() const;
