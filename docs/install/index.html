@@ -117,11 +117,11 @@
         <h2>版本重點</h2>
         <h3>V1.8 本版重點</h3>
         <ul>
-          <li>1.8.0 整合 FreeType / OpenFontRender PSRAM-preferred allocator，降低 TTF 新字 rasterize 對 ESP32-S3 internal heap 的壓力。</li>
-          <li>保留背景 frame cache 安全規則：背景 cache 只使用已存在的 RAM / SD glyph cache；遇到 TTF miss 會 abort，不會把 fallback 字型畫面存成 cache。</li>
-          <li>加入 idle glyph prewarm：閱讀頁 idle 且記憶體充足時，少量預熱鄰頁缺字，提升下一頁 cache 成功率。</li>
-          <li>加入開機後翻頁 darker pass counter：前 10 次 reader 翻頁使用較保守黑色 pass，穩定後自動切回較深黑色設定。</li>
-          <li>更新內建雙語 EPUB 手冊、README、USER_GUIDE、release audit 與 GitHub 發布說明。</li>
+          <li>使用外部 TTF 字型時更穩定，降低閱讀久了因記憶體不足而缺字、卡住或重新啟動的機率。</li>
+          <li>翻頁預先準備下一頁時更小心：如果字型還沒準備好，會先放棄背景準備，不會把錯誤或替代字型畫面存起來。</li>
+          <li>閱讀畫面閒置時，系統會少量先準備鄰近頁可能用到的字，讓下一頁比較容易順利顯示。</li>
+          <li>剛開機前幾次翻頁會用比較溫和的刷新方式，螢幕穩定後再自動切回較深黑的顯示效果。</li>
+          <li>更新內建 EPUB 使用手冊與相關文件，讓操作說明和這版功能保持一致。</li>
         </ul>
         <h3>V1.7 本版重點</h3>
         <ul>
