@@ -28,6 +28,7 @@
 #include "esp_timer.h"
 
 #ifdef ARDUINO
+#include <Arduino.h>
 #include "Wire.h"
 #else
 #include "driver/i2c_master.h"
@@ -150,10 +151,10 @@ static inline void gpio_clear_fast(uint8_t pin) {
 
 // Independent hold time after page-turn pass 0.  Pass 0 is also where the
 // same-white lighter cleanup and same-black darker reinforcement run.  The
-// Paper S3 V1.7.0 profile intentionally keeps this short and uses the normal
+// Paper S3 V1.8.0 profile intentionally keeps this short and uses the normal
 // pass delay for the remaining passes.
 #ifndef EPD_PAGE_TURN_FIRST_PASS_DELAY_MS
-#define EPD_PAGE_TURN_FIRST_PASS_DELAY_MS 1
+#define EPD_PAGE_TURN_FIRST_PASS_DELAY_MS 2
 #endif
 
 #ifndef EPD_PAGE_TURN_BLACK_DRIVE
@@ -188,6 +189,26 @@ static inline void gpio_clear_fast(uint8_t pin) {
 #define EPD_PAGE_TURN_BLACK_TO_WHITE_LIGHTER_PASSES 5
 #endif
 
+// Boot-time temperature settling profile for reader page turns.
+// Paper S3 can appear over-driven immediately after boot because panel/PMIC
+// temperature has not stabilized yet.  The first N full page-turn refreshes
+// can therefore use a slightly lighter white->black / target-black darker
+// schedule, then automatically switch to the stable schedule.
+// V1.8.0 boot-settle profile: the first reader page turns after boot can
+// use fewer target-black darker passes than later stable turns.  This helps
+// avoid over-driving black pixels while panel temperature is still settling.
+#ifndef EPD_PAGE_TURN_BOOT_SETTLE_TURNS
+#define EPD_PAGE_TURN_BOOT_SETTLE_TURNS 15
+#endif
+
+#ifndef EPD_PAGE_TURN_BOOT_BLACK_DARKER_PASSES
+#define EPD_PAGE_TURN_BOOT_BLACK_DARKER_PASSES 4
+#endif
+
+#ifndef EPD_PAGE_TURN_STABLE_BLACK_DARKER_PASSES
+#define EPD_PAGE_TURN_STABLE_BLACK_DARKER_PASSES 6
+#endif
+
 // Current-frame 8-pass soft schedule:
 //   target 00 white : lighter * 5, special(3) * 1, neutral * 2
 //   target 01 gray1 : lighter * 5, darker * 1, neutral * 2
@@ -197,7 +218,8 @@ static IRAM_ATTR uint8_t epd_painter_page_turn_current_drive_for_pixel(uint8_t c
                                                                         uint8_t pass,
                                                                         uint8_t darker_drive,
                                                                         uint8_t lighter_drive,
-                                                                        uint8_t special_drive) {
+                                                                        uint8_t special_drive,
+                                                                        uint8_t black_darker_passes) {
   switch (current_pixel & 0x03) {
     case 0x00:  // white
       if (pass < 5) return lighter_drive;
@@ -214,10 +236,12 @@ static IRAM_ATTR uint8_t epd_painter_page_turn_current_drive_for_pixel(uint8_t c
       if (pass < 7) return darker_drive;
       return 0x00;
 
-    default:  // black
-      if (pass < 5) return darker_drive;
-      if (pass == 5) return special_drive;
+    default: {  // black
+      const uint8_t cappedBlackDarkerPasses = std::min<uint8_t>(black_darker_passes, 7);
+      if (pass < cappedBlackDarkerPasses) return darker_drive;
+      if (pass == cappedBlackDarkerPasses) return special_drive;
       return 0x00;
+    }
   }
 }
 
@@ -227,7 +251,8 @@ static IRAM_ATTR uint8_t epd_painter_page_turn_drive_for_pixel(uint8_t current_p
                                                                uint8_t pass,
                                                                uint8_t darker_drive,
                                                                uint8_t lighter_drive,
-                                                               uint8_t special_drive) {
+                                                               uint8_t special_drive,
+                                                               uint8_t black_darker_passes) {
   const uint8_t curr = current_pixel & 0x03;
   const uint8_t prev = previous_pixel & 0x03;
 
@@ -242,7 +267,7 @@ static IRAM_ATTR uint8_t epd_painter_page_turn_drive_for_pixel(uint8_t current_p
 
   if (prev == 0x00 && curr != 0x00) {
     // White becomes gray/black: do not suppress the new ink; use current schedule.
-    return epd_painter_page_turn_current_drive_for_pixel(curr, pass, darker_drive, lighter_drive, special_drive);
+    return epd_painter_page_turn_current_drive_for_pixel(curr, pass, darker_drive, lighter_drive, special_drive, black_darker_passes);
   }
 
   if (prev == 0x03 && curr == 0x00) {
@@ -260,7 +285,7 @@ static IRAM_ATTR uint8_t epd_painter_page_turn_drive_for_pixel(uint8_t current_p
   }
 
   // Gray-related transitions keep the current-frame soft schedule.
-  return epd_painter_page_turn_current_drive_for_pixel(curr, pass, darker_drive, lighter_drive, special_drive);
+  return epd_painter_page_turn_current_drive_for_pixel(curr, pass, darker_drive, lighter_drive, special_drive, black_darker_passes);
 }
 
 // Build one physical row of direct drive data from the current target frame and
@@ -275,7 +300,8 @@ static IRAM_ATTR void epd_painter_build_previous_aware_waveform_row(const uint8_
                                                                     uint8_t pass,
                                                                     uint8_t darker_drive,
                                                                     uint8_t lighter_drive,
-                                                                    uint8_t special_drive) {
+                                                                    uint8_t special_drive,
+                                                                    uint8_t black_darker_passes) {
   for (uint32_t i = 0; i < length_bytes; ++i) {
     const uint8_t cur = current_row[i];
     const uint8_t prev = previous_row[i];
@@ -290,10 +316,10 @@ static IRAM_ATTR void epd_painter_build_previous_aware_waveform_row(const uint8_
     const uint8_t p2 = (prev >> 2) & 0x03;
     const uint8_t p3 = prev & 0x03;
 
-    const uint8_t d0 = epd_painter_page_turn_drive_for_pixel(c0, p0, pass, darker_drive, lighter_drive, special_drive);
-    const uint8_t d1 = epd_painter_page_turn_drive_for_pixel(c1, p1, pass, darker_drive, lighter_drive, special_drive);
-    const uint8_t d2 = epd_painter_page_turn_drive_for_pixel(c2, p2, pass, darker_drive, lighter_drive, special_drive);
-    const uint8_t d3 = epd_painter_page_turn_drive_for_pixel(c3, p3, pass, darker_drive, lighter_drive, special_drive);
+    const uint8_t d0 = epd_painter_page_turn_drive_for_pixel(c0, p0, pass, darker_drive, lighter_drive, special_drive, black_darker_passes);
+    const uint8_t d1 = epd_painter_page_turn_drive_for_pixel(c1, p1, pass, darker_drive, lighter_drive, special_drive, black_darker_passes);
+    const uint8_t d2 = epd_painter_page_turn_drive_for_pixel(c2, p2, pass, darker_drive, lighter_drive, special_drive, black_darker_passes);
+    const uint8_t d3 = epd_painter_page_turn_drive_for_pixel(c3, p3, pass, darker_drive, lighter_drive, special_drive, black_darker_passes);
 
     output[i] = (d0 & 0xC0) | (d1 & 0x30) | (d2 & 0x0C) | (d3 & 0x03);
   }
@@ -681,6 +707,19 @@ void EPD_Painter::paintRowMajor(uint8_t* framebuffer, bool reverseBandOrder) {
   else
     epd_painter_compact_pixels(framebuffer, packed_paintbuffer, _config.width * _config.height);
 
+  const uint32_t pageTurnNumber = row_major_page_turn_counter.fetch_add(1) + 1;
+  const uint32_t settleTurns = EPD_PAGE_TURN_BOOT_SETTLE_TURNS;
+  const bool settled = (settleTurns == 0) || (pageTurnNumber > settleTurns);
+  const uint8_t blackDarkerPasses = settled ? EPD_PAGE_TURN_STABLE_BLACK_DARKER_PASSES : EPD_PAGE_TURN_BOOT_BLACK_DARKER_PASSES;
+  row_major_black_darker_passes.store(blackDarkerPasses);
+#ifdef ARDUINO
+  Serial.printf("[EPD] Page-turn waveform profile: turn=%lu settleTurns=%lu blackDarkerPasses=%u profile=%s\n",
+                static_cast<unsigned long>(pageTurnNumber),
+                static_cast<unsigned long>(settleTurns),
+                static_cast<unsigned>(blackDarkerPasses),
+                settled ? "stable" : "boot");
+#endif
+
   // One row/band-major stage only.  This intentionally
   // avoids the normal two paint stages so the scan test is fast enough to use.
   row_major_reverse_bands.store(reverseBandOrder);
@@ -889,6 +928,7 @@ void EPD_Painter::_paint_task_body() {
       static constexpr uint8_t kBlackDrive = EPD_PAGE_TURN_BLACK_DRIVE;
       static constexpr uint8_t kWhiteDrive = EPD_PAGE_TURN_WHITE_DRIVE;
       static constexpr uint8_t kSpecialDrive = EPD_PAGE_TURN_SPECIAL_DRIVE;
+      const uint8_t kBlackDarkerPasses = row_major_black_darker_passes.load();
 
       memset(dma_buffer1, 0x00, packed_row_bytes);
       memset(dma_buffer2, 0x00, packed_row_bytes);
@@ -914,7 +954,7 @@ void EPD_Painter::_paint_task_body() {
             if (row >= band_start && row <= band_end) {
               const uint8_t* fb_row = packed_fastbuffer + row * packed_row_bytes;
               const uint8_t* prev_row = packed_screenbuffer + row * packed_row_bytes;
-              epd_painter_build_previous_aware_waveform_row(fb_row, prev_row, dma_buffer, packed_row_bytes, pass, kBlackDrive, kWhiteDrive, kSpecialDrive);
+              epd_painter_build_previous_aware_waveform_row(fb_row, prev_row, dma_buffer, packed_row_bytes, pass, kBlackDrive, kWhiteDrive, kSpecialDrive, kBlackDarkerPasses);
             } else {
               memset(dma_buffer, 0x00, packed_row_bytes);
             }

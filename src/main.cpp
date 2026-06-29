@@ -31,6 +31,9 @@
 #include "util/ScreenshotUtil.h"
 
 #include <Bitmap.h>
+#if defined(ESP32)
+#include <esp_heap_caps.h>
+#endif
 
 namespace {
 
@@ -512,8 +515,26 @@ void loop() {
   renderer.setFadingFix(SETTINGS.fadingFix);
 
   if (Serial && millis() - lastMemPrint >= 10000) {
+#if defined(ESP32)
+    const uint32_t internalFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const uint32_t internalMaxAlloc = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const uint32_t internalMinFree = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const uint32_t psramFree = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    const uint32_t psramMaxAlloc = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    LOG_INF(
+        "MEM",
+        "Internal Free: %lu bytes, Total: %d bytes, Min Free: %lu bytes, MaxAlloc: %lu bytes; PSRAM Free: %lu bytes, MaxAlloc: %lu bytes",
+        static_cast<unsigned long>(internalFree),
+        ESP.getHeapSize(),
+        static_cast<unsigned long>(internalMinFree),
+        static_cast<unsigned long>(internalMaxAlloc),
+        static_cast<unsigned long>(psramFree),
+        static_cast<unsigned long>(psramMaxAlloc)
+    );
+#else
     LOG_INF("MEM", "Free: %d bytes, Total: %d bytes, Min Free: %d bytes, MaxAlloc: %d bytes", ESP.getFreeHeap(),
             ESP.getHeapSize(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
+#endif
     lastMemPrint = millis();
   }
 

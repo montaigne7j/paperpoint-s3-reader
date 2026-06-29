@@ -29,6 +29,11 @@ class TtfFontEngine {
   bool isLoaded() const { return loaded_; }
 
   bool loadGlyph(uint32_t codepoint, uint8_t* bitmap, size_t bitmapCapacity, ExternalGlyphMetrics* metrics);
+  // Load only from the persistent SD glyph cache.  This never calls
+  // OpenFontRender/FreeType rasterize and is safe for background frame-cache
+  // rendering.
+  bool loadCachedGlyph(uint32_t codepoint, uint8_t* bitmap, size_t bitmapCapacity, ExternalGlyphMetrics* metrics);
+  bool hasCachedGlyph(uint32_t codepoint) const;
   bool loadMetrics(uint32_t codepoint, ExternalGlyphMetrics* metrics);
 
   /** Flush pending persistent-cache writes. Normally called automatically. */

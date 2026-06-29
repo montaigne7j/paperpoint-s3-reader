@@ -78,15 +78,52 @@ class EpubReaderActivity final : public Activity {
     bool hasImages = false;
   } pageFrameCacheWarmJob;
 
+  enum class ReaderMemoryState : uint8_t { NORMAL = 0, WARNING = 1, CRITICAL = 2, EMERGENCY = 3 };
+  struct ReaderMemorySnapshot {
+    uint32_t internalFree = 0;
+    uint32_t internalMaxAlloc = 0;
+    uint32_t psramFree = 0;
+    uint32_t psramMaxAlloc = 0;
+  };
+  ReaderMemoryState lastReaderMemoryState = ReaderMemoryState::NORMAL;
+  bool readerMemoryStateInitialized = false;
+  unsigned long lastReaderMemoryLogAt = 0;
+  unsigned long lastReaderMemoryPauseLogAt = 0;
+  bool pendingPageTurnForceVisible = false;
+  unsigned long pendingPageTurnForceVisibleAt = 0;
+  int pageFrameCacheLowMemoryCooldownSpine = -1;
+  int pageFrameCacheLowMemoryCooldownPage = -1;
+  unsigned long pageFrameCacheLowMemoryCooldownUntil = 0;
+  unsigned long lastPageFrameCacheLowMemoryCooldownLogAt = 0;
+  unsigned long lastPageFrameCacheLowMemorySkipLogAt = 0;
+  unsigned long lastIdleGlyphPrewarmAt = 0;
+  unsigned long idleGlyphPrewarmPausedUntil = 0;
+
   bool ensurePageFrameCacheAllocated();
+  bool ensurePageFrameCacheEntryBuffer(PageFrameCacheEntry& entry);
   void clearPageFrameCache(bool freeBuffers = false);
+  void invalidatePageFrameCacheEntry(PageFrameCacheEntry& entry, bool freeBuffer, const char* reason);
   PageFrameCacheEntry* findPageFrameCacheEntry(int spineIndex, int pageNumber);
   PageFrameCacheEntry* acquirePageFrameCacheEntry(int spineIndex, int pageNumber);
+  ReaderMemorySnapshot getReaderMemorySnapshot() const;
+  ReaderMemoryState classifyReaderMemory(const ReaderMemorySnapshot& snapshot) const;
+  const char* readerMemoryStateName(ReaderMemoryState state) const;
+  ReaderMemoryState updateReaderMemoryState(const char* context, bool forceLog = false);
+  bool isFrameCacheTargetAllowedForMemoryState(int pageNumber, ReaderMemoryState state) const;
+  bool readerMemoryAllowsSilentIndexing(const char* phase);
+  bool readerMemoryAllowsVisibleFrameStore(const char* phase);
+  bool readerMemoryAllowsFrameCacheStart(const ReaderMemorySnapshot& snapshot, bool pendingTurnTarget, const char* phase);
+  bool isPageFrameCacheLowMemoryCooldownActive(int spineIndex, int pageNumber) const;
+  void markPageFrameCacheLowMemoryCooldown(int spineIndex, int pageNumber, const char* reason);
+  bool shouldSkipPageFrameCacheForCooldown(int spineIndex, int pageNumber);
+  void prunePageFrameCacheForMemoryState(ReaderMemoryState state, const char* reason);
   bool copyCurrentFrameToPageFrameCache(int spineIndex, int pageNumber, const std::vector<FootnoteEntry>& footnotes,
                                        bool hasImages);
   bool restorePageFrameCacheToRenderer(int spineIndex, int pageNumber, bool restoreFootnotes);
   bool renderPageToFrameCache(int pageNumber, int orientedMarginTop, int orientedMarginRight,
                               int orientedMarginBottom, int orientedMarginLeft);
+  bool collectPageTtfPrewarmCodepoints(int pageNumber, std::vector<uint32_t>& out, size_t maxCodepoints);
+  bool idleGlyphPrewarmIfReady();
   bool hasReaderInputPending() const;
   bool capturePageTurnInput(bool& isForwardTurn) const;
   bool queuePendingPageTurn(bool isForwardTurn, const char* source);

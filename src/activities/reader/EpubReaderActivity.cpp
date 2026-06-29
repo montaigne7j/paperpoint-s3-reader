@@ -2,6 +2,9 @@
 
 #include <Epub/Page.h>
 #include <Epub/PageRenderProfiler.h>
+#include <ExternalFont.h>
+#include <FontManager.h>
+#include <Utf8.h>
 #include <Epub/blocks/TextBlock.h>
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
@@ -12,6 +15,12 @@
 #include <esp_system.h>
 #if CROSSPOINT_PAPERS3
 #include <esp_heap_caps.h>
+#if __has_include(<esp_memory_utils.h>)
+#include <esp_memory_utils.h>
+#define CROSSPOINT_HAS_ESP_MEMORY_UTILS 1
+#else
+#define CROSSPOINT_HAS_ESP_MEMORY_UTILS 0
+#endif
 #endif
 
 #include "CrossPointSettings.h"
@@ -37,6 +46,7 @@
 #include <vector>
 #include <string>
 #include <utility>
+#include <cstdio>
 
 
 namespace {
@@ -45,10 +55,132 @@ constexpr unsigned long skipChapterMs = 700;
 #if CROSSPOINT_PAPERS3
 constexpr unsigned long pageFrameCacheIdleDelayMs = 120;
 constexpr unsigned long pageFrameCacheWorkCooldownMs = 80;
+constexpr unsigned long pageFrameCacheLowMemoryAbortCooldownMs = 8000;
+constexpr unsigned long pageFrameCacheLowMemorySkipLogIntervalMs = 2000;
+constexpr uint32_t pageFrameCacheStartInternalFreeThreshold = 30000;
+constexpr uint32_t pageFrameCacheStartInternalMaxAllocThreshold = 12000;
+constexpr uint32_t visibleTtfRasterizeLowMemoryFreeThreshold = 12000;
+constexpr uint32_t visibleTtfRasterizeLowMemoryMaxAllocThreshold = 4096;
+constexpr unsigned long idleGlyphPrewarmDelayMs = 500;
+constexpr unsigned long idleGlyphPrewarmCooldownMs = 120;
+constexpr uint8_t idleGlyphPrewarmMaxGlyphsPerPass = 1;
+constexpr uint32_t idleGlyphPrewarmInternalFreeThreshold = 100000;
+constexpr uint32_t idleGlyphPrewarmInternalMaxAllocThreshold = 50000;
+constexpr uint32_t idleGlyphPrewarmPsramFreeThreshold = 3UL * 1024UL * 1024UL;
+constexpr int32_t idleGlyphPrewarmStopFreeDrop = -6000;
+constexpr int32_t idleGlyphPrewarmStopMaxAllocDrop = -4096;
 constexpr uint8_t pageFrameCacheCooperativeChunks = 20;
 constexpr unsigned long pageFrameCacheChunkBudgetMs = 45;
+constexpr uint32_t readerMemNormalFreeThreshold = 24000;
+constexpr uint32_t readerMemNormalMaxAllocThreshold = 8192;
+constexpr uint32_t readerMemWarningFreeThreshold = 8000;
+constexpr uint32_t readerMemWarningMaxAllocThreshold = 1000;
+constexpr uint32_t readerMemEmergencyFreeThreshold = 3000;
+constexpr uint32_t readerMemEmergencyMaxAllocThreshold = 768;
+constexpr unsigned long readerMemoryLogIntervalMs = 30000;
+constexpr unsigned long readerMemoryPauseLogIntervalMs = 10000;
 constexpr uint8_t foregroundProgressiveStripeCount = 10;
 constexpr uint8_t foregroundProgressiveElementsPerRefresh = 2;
+
+struct ReaderHeapTrace {
+  uint32_t internalFree = 0;
+  uint32_t internalMaxAlloc = 0;
+  uint32_t psramFree = 0;
+  uint32_t psramMaxAlloc = 0;
+};
+
+class ScopedTtfRasterizePolicy {
+ public:
+  ScopedTtfRasterizePolicy(const bool allowed, const char* reason)
+      : previous_(ExternalFont::setRuntimeTtfRasterizeAllowed(allowed, reason)) {
+    ExternalFont::resetRuntimeTtfMissSuppressed();
+  }
+  ~ScopedTtfRasterizePolicy() {
+    ExternalFont::setRuntimeTtfRasterizeAllowed(previous_, previous_ ? nullptr : "restore");
+  }
+
+  ScopedTtfRasterizePolicy(const ScopedTtfRasterizePolicy&) = delete;
+  ScopedTtfRasterizePolicy& operator=(const ScopedTtfRasterizePolicy&) = delete;
+
+ private:
+  bool previous_ = true;
+};
+
+ReaderHeapTrace captureReaderHeapTrace() {
+  ReaderHeapTrace trace{};
+  trace.internalFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  trace.internalMaxAlloc = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  trace.psramFree = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  trace.psramMaxAlloc = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  return trace;
+}
+
+const char* readerBufferLocation(const void* ptr) {
+  if (!ptr) {
+    return "NULL";
+  }
+#if CROSSPOINT_HAS_ESP_MEMORY_UTILS
+  if (esp_ptr_external_ram(ptr)) {
+    return "PSRAM";
+  }
+  if (esp_ptr_internal(ptr)) {
+    return "INTERNAL";
+  }
+#endif
+  return "UNKNOWN";
+}
+
+void logReaderLargeBufferAlloc(const char* tag, const void* ptr, const size_t size) {
+  const ReaderHeapTrace trace = captureReaderHeapTrace();
+  LOG_INF(
+      "MEMD",
+      "Large buffer alloc: tag=%s ptr=%p size=%u loc=%s internalFree=%lu internalMaxAlloc=%lu psramFree=%lu psramMaxAlloc=%lu",
+      tag ? tag : "?",
+      ptr,
+      static_cast<unsigned>(size),
+      readerBufferLocation(ptr),
+      static_cast<unsigned long>(trace.internalFree),
+      static_cast<unsigned long>(trace.internalMaxAlloc),
+      static_cast<unsigned long>(trace.psramFree),
+      static_cast<unsigned long>(trace.psramMaxAlloc)
+  );
+}
+
+void logReaderHeapDelta(
+    const char* phase,
+    const ReaderHeapTrace& before,
+    const ReaderHeapTrace& after,
+    const unsigned long elapsedMs
+) {
+  LOG_INF(
+      "MEMD",
+      "Internal heap delta: phase=%s elapsed=%lums freeBefore=%lu freeAfter=%lu freeDelta=%ld maxBefore=%lu maxAfter=%lu maxDelta=%ld psramFreeBefore=%lu psramFreeAfter=%lu psramFreeDelta=%ld",
+      phase ? phase : "?",
+      elapsedMs,
+      static_cast<unsigned long>(before.internalFree),
+      static_cast<unsigned long>(after.internalFree),
+      static_cast<long>(after.internalFree) - static_cast<long>(before.internalFree),
+      static_cast<unsigned long>(before.internalMaxAlloc),
+      static_cast<unsigned long>(after.internalMaxAlloc),
+      static_cast<long>(after.internalMaxAlloc) - static_cast<long>(before.internalMaxAlloc),
+      static_cast<unsigned long>(before.psramFree),
+      static_cast<unsigned long>(after.psramFree),
+      static_cast<long>(after.psramFree) - static_cast<long>(before.psramFree)
+  );
+}
+
+void logReaderHeapCheckpoint(const char* phase) {
+  const ReaderHeapTrace trace = captureReaderHeapTrace();
+  LOG_INF(
+      "MEMD",
+      "Internal heap checkpoint: phase=%s internalFree=%lu internalMaxAlloc=%lu psramFree=%lu psramMaxAlloc=%lu",
+      phase ? phase : "?",
+      static_cast<unsigned long>(trace.internalFree),
+      static_cast<unsigned long>(trace.internalMaxAlloc),
+      static_cast<unsigned long>(trace.psramFree),
+      static_cast<unsigned long>(trace.psramMaxAlloc)
+  );
+}
 #endif
 // pages per minute, first item is 1 to prevent division by zero if accessed
 const std::vector<int> PAGE_TURN_LABELS = {1, 1, 3, 6, 12};
@@ -319,18 +451,38 @@ void EpubReaderActivity::onExit() {
 
 
 #if CROSSPOINT_PAPERS3
-bool EpubReaderActivity::ensurePageFrameCacheAllocated() {
+bool EpubReaderActivity::ensurePageFrameCacheEntryBuffer(PageFrameCacheEntry& entry) {
+  if (entry.buffer) {
+    logReaderLargeBufferAlloc("frame-cache-slot-reuse", entry.buffer, GfxRenderer::getBufferSize());
+    return true;
+  }
+
   const size_t bufferSize = GfxRenderer::getBufferSize();
+  const ReaderHeapTrace before = captureReaderHeapTrace();
+  const unsigned long start = millis();
+  entry.buffer = static_cast<uint8_t*>(heap_caps_malloc(bufferSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  const ReaderHeapTrace afterPsramAttempt = captureReaderHeapTrace();
+  logReaderHeapDelta("frame-cache-slot-alloc-psram-attempt", before, afterPsramAttempt, millis() - start);
+  logReaderLargeBufferAlloc("frame-cache-slot-psram-attempt", entry.buffer, bufferSize);
+
+  if (!entry.buffer) {
+    const ReaderHeapTrace fallbackBefore = captureReaderHeapTrace();
+    const unsigned long fallbackStart = millis();
+    entry.buffer = static_cast<uint8_t*>(std::malloc(bufferSize));
+    const ReaderHeapTrace fallbackAfter = captureReaderHeapTrace();
+    logReaderHeapDelta("frame-cache-slot-alloc-fallback-malloc", fallbackBefore, fallbackAfter, millis() - fallbackStart);
+    logReaderLargeBufferAlloc("frame-cache-slot-fallback-malloc", entry.buffer, bufferSize);
+  }
+  if (!entry.buffer) {
+    LOG_ERR("ERS", "Frame cache slot alloc failed (%u bytes)", static_cast<unsigned>(bufferSize));
+    return false;
+  }
+  return true;
+}
+
+bool EpubReaderActivity::ensurePageFrameCacheAllocated() {
   for (auto& entry : pageFrameCache) {
-    if (entry.buffer) {
-      continue;
-    }
-    entry.buffer = static_cast<uint8_t*>(heap_caps_malloc(bufferSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!entry.buffer) {
-      entry.buffer = static_cast<uint8_t*>(std::malloc(bufferSize));
-    }
-    if (!entry.buffer) {
-      LOG_ERR("ERS", "Frame cache alloc failed (%u bytes)", static_cast<unsigned>(bufferSize));
+    if (!ensurePageFrameCacheEntryBuffer(entry)) {
       clearPageFrameCache(true);
       return false;
     }
@@ -338,23 +490,283 @@ bool EpubReaderActivity::ensurePageFrameCacheAllocated() {
   return true;
 }
 
+void EpubReaderActivity::invalidatePageFrameCacheEntry(PageFrameCacheEntry& entry, const bool freeBuffer, const char* reason) {
+  const int oldSpine = entry.spineIndex;
+  const int oldPage = entry.pageNumber;
+  const bool wasValid = entry.valid;
+  entry.valid = false;
+  entry.spineIndex = -1;
+  entry.pageNumber = -1;
+  entry.width = 0;
+  entry.height = 0;
+  entry.hasImages = false;
+  entry.footnotes.clear();
+  if (freeBuffer && entry.buffer) {
+    logReaderLargeBufferAlloc("frame-cache-slot-free", entry.buffer, GfxRenderer::getBufferSize());
+    const ReaderHeapTrace beforeFree = captureReaderHeapTrace();
+    const unsigned long freeStart = millis();
+    std::free(entry.buffer);
+    const ReaderHeapTrace afterFree = captureReaderHeapTrace();
+    logReaderHeapDelta("frame-cache-slot-free", beforeFree, afterFree, millis() - freeStart);
+    entry.buffer = nullptr;
+  }
+  if (wasValid) {
+    LOG_DBG(
+        "ERS",
+        "Frame cache slot released: slot=%d spine=%d page=%d freeBuffer=%d reason=%s",
+        static_cast<int>(&entry - pageFrameCache.data()),
+        oldSpine,
+        oldPage,
+        freeBuffer ? 1 : 0,
+        reason ? reason : "?"
+    );
+  }
+}
+
 void EpubReaderActivity::clearPageFrameCache(const bool freeBuffers) {
   for (auto& entry : pageFrameCache) {
-    entry.valid = false;
-    entry.spineIndex = -1;
-    entry.pageNumber = -1;
-    entry.width = 0;
-    entry.height = 0;
-    entry.hasImages = false;
-    entry.footnotes.clear();
-    if (freeBuffers && entry.buffer) {
-      std::free(entry.buffer);
-      entry.buffer = nullptr;
-    }
+    invalidatePageFrameCacheEntry(entry, freeBuffers, freeBuffers ? "clear-free" : "clear");
   }
   pageFrameCacheNextWrite = 0;
   abortPageFrameCacheWarmJob();
   clearPendingPageTurn();
+}
+
+EpubReaderActivity::ReaderMemorySnapshot EpubReaderActivity::getReaderMemorySnapshot() const {
+  ReaderMemorySnapshot snapshot{};
+  snapshot.internalFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  snapshot.internalMaxAlloc = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  snapshot.psramFree = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  snapshot.psramMaxAlloc = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  return snapshot;
+}
+
+EpubReaderActivity::ReaderMemoryState EpubReaderActivity::classifyReaderMemory(
+    const ReaderMemorySnapshot& snapshot
+) const {
+  if (snapshot.internalFree < readerMemEmergencyFreeThreshold ||
+      snapshot.internalMaxAlloc < readerMemEmergencyMaxAllocThreshold) {
+    return ReaderMemoryState::EMERGENCY;
+  }
+  if (snapshot.internalFree < readerMemWarningFreeThreshold ||
+      snapshot.internalMaxAlloc < readerMemWarningMaxAllocThreshold) {
+    return ReaderMemoryState::CRITICAL;
+  }
+  if (snapshot.internalFree < readerMemNormalFreeThreshold ||
+      snapshot.internalMaxAlloc < readerMemNormalMaxAllocThreshold) {
+    return ReaderMemoryState::WARNING;
+  }
+  return ReaderMemoryState::NORMAL;
+}
+
+const char* EpubReaderActivity::readerMemoryStateName(const ReaderMemoryState state) const {
+  switch (state) {
+    case ReaderMemoryState::NORMAL:
+      return "NORMAL";
+    case ReaderMemoryState::WARNING:
+      return "WARNING";
+    case ReaderMemoryState::CRITICAL:
+      return "CRITICAL";
+    case ReaderMemoryState::EMERGENCY:
+      return "EMERGENCY";
+  }
+  return "UNKNOWN";
+}
+
+EpubReaderActivity::ReaderMemoryState EpubReaderActivity::updateReaderMemoryState(
+    const char* context,
+    const bool forceLog
+) {
+  const ReaderMemorySnapshot snapshot = getReaderMemorySnapshot();
+  const ReaderMemoryState state = classifyReaderMemory(snapshot);
+  const unsigned long now = millis();
+  const bool changed = !readerMemoryStateInitialized || state != lastReaderMemoryState;
+  const bool periodic = (now - lastReaderMemoryLogAt) >= readerMemoryLogIntervalMs;
+  if (forceLog || changed || periodic) {
+    LOG_INF(
+        "MEM",
+        "Reader memory state=%s context=%s internalFree=%lu internalMaxAlloc=%lu psramFree=%lu psramMaxAlloc=%lu",
+        readerMemoryStateName(state),
+        context ? context : "?",
+        static_cast<unsigned long>(snapshot.internalFree),
+        static_cast<unsigned long>(snapshot.internalMaxAlloc),
+        static_cast<unsigned long>(snapshot.psramFree),
+        static_cast<unsigned long>(snapshot.psramMaxAlloc)
+    );
+    lastReaderMemoryLogAt = now;
+  }
+  readerMemoryStateInitialized = true;
+  lastReaderMemoryState = state;
+  return state;
+}
+
+bool EpubReaderActivity::isFrameCacheTargetAllowedForMemoryState(
+    const int pageNumber,
+    const ReaderMemoryState state
+) const {
+  if (!section || pageNumber < 0 || pageNumber >= section->pageCount) {
+    return false;
+  }
+  if (state == ReaderMemoryState::NORMAL) {
+    return true;
+  }
+  if (state == ReaderMemoryState::CRITICAL || state == ReaderMemoryState::EMERGENCY) {
+    return false;
+  }
+
+  // WARNING: never run ordinary background frame-cache warming.  Only a
+  // same-section pending page-turn target may be considered, and the hard
+  // start gate in warmPageFrameCacheIfIdle() can still force visible render.
+  int pendingTarget = -1;
+  if (pendingPageTurnActive && sameSectionPageTurnTarget(pendingPageTurnForward, pendingTarget)) {
+    return pageNumber == pendingTarget;
+  }
+  return false;
+}
+
+bool EpubReaderActivity::readerMemoryAllowsSilentIndexing(const char* phase) {
+  const ReaderMemoryState state = updateReaderMemoryState(phase ? phase : "silent-index");
+  if (state == ReaderMemoryState::NORMAL) {
+    return true;
+  }
+  const unsigned long now = millis();
+  if ((now - lastReaderMemoryPauseLogAt) >= readerMemoryPauseLogIntervalMs) {
+    const ReaderMemorySnapshot snapshot = getReaderMemorySnapshot();
+    LOG_DBG(
+        "ERS",
+        "Background work paused: feature=%s state=%s internalFree=%lu internalMaxAlloc=%lu psramFree=%lu psramMaxAlloc=%lu",
+        phase ? phase : "silent-index",
+        readerMemoryStateName(state),
+        static_cast<unsigned long>(snapshot.internalFree),
+        static_cast<unsigned long>(snapshot.internalMaxAlloc),
+        static_cast<unsigned long>(snapshot.psramFree),
+        static_cast<unsigned long>(snapshot.psramMaxAlloc)
+    );
+    lastReaderMemoryPauseLogAt = now;
+  }
+  return false;
+}
+
+bool EpubReaderActivity::readerMemoryAllowsVisibleFrameStore(const char* phase) {
+  const ReaderMemoryState state = updateReaderMemoryState(phase ? phase : "visible-frame-store");
+  if (state == ReaderMemoryState::CRITICAL || state == ReaderMemoryState::EMERGENCY) {
+    const ReaderMemorySnapshot snapshot = getReaderMemorySnapshot();
+    LOG_DBG(
+        "ERS",
+        "Frame cache store skipped: feature=%s state=%s internalFree=%lu internalMaxAlloc=%lu psramFree=%lu psramMaxAlloc=%lu",
+        phase ? phase : "visible-frame-store",
+        readerMemoryStateName(state),
+        static_cast<unsigned long>(snapshot.internalFree),
+        static_cast<unsigned long>(snapshot.internalMaxAlloc),
+        static_cast<unsigned long>(snapshot.psramFree),
+        static_cast<unsigned long>(snapshot.psramMaxAlloc)
+    );
+    return false;
+  }
+  return true;
+}
+
+bool EpubReaderActivity::readerMemoryAllowsFrameCacheStart(
+    const ReaderMemorySnapshot& snapshot,
+    const bool pendingTurnTarget,
+    const char* phase
+) {
+  if (snapshot.internalFree >= pageFrameCacheStartInternalFreeThreshold &&
+      snapshot.internalMaxAlloc >= pageFrameCacheStartInternalMaxAllocThreshold) {
+    return true;
+  }
+
+  const unsigned long now = millis();
+  if ((now - lastPageFrameCacheLowMemorySkipLogAt) >= pageFrameCacheLowMemorySkipLogIntervalMs) {
+    LOG_DBG(
+        "ERS",
+        "Frame cache warm skipped: reason=start-gate feature=%s pending=%d internalFree=%lu internalMaxAlloc=%lu requiredFree=%lu requiredMaxAlloc=%lu",
+        phase ? phase : "frame-cache-start",
+        pendingTurnTarget ? 1 : 0,
+        static_cast<unsigned long>(snapshot.internalFree),
+        static_cast<unsigned long>(snapshot.internalMaxAlloc),
+        static_cast<unsigned long>(pageFrameCacheStartInternalFreeThreshold),
+        static_cast<unsigned long>(pageFrameCacheStartInternalMaxAllocThreshold)
+    );
+    lastPageFrameCacheLowMemorySkipLogAt = now;
+  }
+  return false;
+}
+
+bool EpubReaderActivity::isPageFrameCacheLowMemoryCooldownActive(
+    const int spineIndex,
+    const int pageNumber
+) const {
+  if (pageFrameCacheLowMemoryCooldownSpine != spineIndex ||
+      pageFrameCacheLowMemoryCooldownPage != pageNumber ||
+      pageFrameCacheLowMemoryCooldownUntil == 0) {
+    return false;
+  }
+  return static_cast<long>(pageFrameCacheLowMemoryCooldownUntil - millis()) > 0;
+}
+
+void EpubReaderActivity::markPageFrameCacheLowMemoryCooldown(
+    const int spineIndex,
+    const int pageNumber,
+    const char* reason
+) {
+  pageFrameCacheLowMemoryCooldownSpine = spineIndex;
+  pageFrameCacheLowMemoryCooldownPage = pageNumber;
+  pageFrameCacheLowMemoryCooldownUntil = millis() + pageFrameCacheLowMemoryAbortCooldownMs;
+  LOG_DBG(
+      "ERS",
+      "Frame cache low-memory cooldown armed: spine=%d page=%d duration=%lums reason=%s",
+      spineIndex,
+      pageNumber,
+      static_cast<unsigned long>(pageFrameCacheLowMemoryAbortCooldownMs),
+      reason ? reason : "low-memory"
+  );
+}
+
+bool EpubReaderActivity::shouldSkipPageFrameCacheForCooldown(
+    const int spineIndex,
+    const int pageNumber
+) {
+  if (!isPageFrameCacheLowMemoryCooldownActive(spineIndex, pageNumber)) {
+    return false;
+  }
+  const unsigned long now = millis();
+  if ((now - lastPageFrameCacheLowMemoryCooldownLogAt) >= pageFrameCacheLowMemorySkipLogIntervalMs) {
+    LOG_DBG(
+        "ERS",
+        "Frame cache warm skipped: reason=low-memory-cooldown spine=%d page=%d remaining=%ldms",
+        spineIndex,
+        pageNumber,
+        static_cast<long>(pageFrameCacheLowMemoryCooldownUntil - now)
+    );
+    lastPageFrameCacheLowMemoryCooldownLogAt = now;
+  }
+  return true;
+}
+
+void EpubReaderActivity::prunePageFrameCacheForMemoryState(
+    const ReaderMemoryState state,
+    const char* reason
+) {
+  if (state != ReaderMemoryState::CRITICAL && state != ReaderMemoryState::EMERGENCY) {
+    return;
+  }
+  const int cur = section ? section->currentPage : -1;
+  const int next = (section && section->currentPage < section->pageCount - 1) ? section->currentPage + 1 : -1;
+  const bool freeBuffers = state == ReaderMemoryState::EMERGENCY;
+  for (auto& entry : pageFrameCache) {
+    if (!entry.valid) {
+      if (freeBuffers && entry.buffer) {
+        invalidatePageFrameCacheEntry(entry, true, reason ? reason : "memory-emergency");
+      }
+      continue;
+    }
+    const bool keepCurrent = entry.spineIndex == currentSpineIndex && entry.pageNumber == cur;
+    const bool keepNext = next >= 0 && entry.spineIndex == currentSpineIndex && entry.pageNumber == next;
+    if (!keepCurrent && !keepNext) {
+      invalidatePageFrameCacheEntry(entry, freeBuffers, reason ? reason : "memory-prune");
+    }
+  }
 }
 
 EpubReaderActivity::PageFrameCacheEntry* EpubReaderActivity::findPageFrameCacheEntry(
@@ -376,36 +788,41 @@ EpubReaderActivity::PageFrameCacheEntry* EpubReaderActivity::acquirePageFrameCac
     const int spineIndex,
     const int pageNumber
 ) {
-  if (!ensurePageFrameCacheAllocated()) {
-    return nullptr;
-  }
-
   if (auto* existing = findPageFrameCacheEntry(spineIndex, pageNumber)) {
     return existing;
   }
 
+  PageFrameCacheEntry* selected = nullptr;
   for (auto& entry : pageFrameCache) {
-    if (!entry.valid && entry.buffer) {
-      return &entry;
+    if (!entry.valid) {
+      selected = &entry;
+      break;
     }
   }
 
-  // Ring-buffer replacement.  No page framebuffer is shifted or moved; only this
-  // slot's metadata is retargeted to the new page.
-  PageFrameCacheEntry* selected = nullptr;
-  for (int i = 0; i < PAGE_FRAME_CACHE_SLOT_COUNT; i++) {
-    auto& candidate = pageFrameCache[pageFrameCacheNextWrite];
-    pageFrameCacheNextWrite = (pageFrameCacheNextWrite + 1) % PAGE_FRAME_CACHE_SLOT_COUNT;
-    // Prefer not to evict the currently visible page if another slot can be used.
-    if (!(candidate.spineIndex == currentSpineIndex && section && candidate.pageNumber == section->currentPage)) {
-      selected = &candidate;
-      break;
+  if (!selected) {
+    // Ring-buffer replacement.  No page framebuffer is shifted or moved; only
+    // this slot's metadata is retargeted to the new page.  Prefer not to evict
+    // the currently visible page if another slot can be used.
+    for (int i = 0; i < PAGE_FRAME_CACHE_SLOT_COUNT; i++) {
+      auto& candidate = pageFrameCache[pageFrameCacheNextWrite];
+      pageFrameCacheNextWrite = (pageFrameCacheNextWrite + 1) % PAGE_FRAME_CACHE_SLOT_COUNT;
+      if (!(candidate.spineIndex == currentSpineIndex && section && candidate.pageNumber == section->currentPage)) {
+        selected = &candidate;
+        break;
+      }
     }
   }
   if (!selected) {
     selected = &pageFrameCache[pageFrameCacheNextWrite];
     pageFrameCacheNextWrite = (pageFrameCacheNextWrite + 1) % PAGE_FRAME_CACHE_SLOT_COUNT;
   }
+
+  if (!ensurePageFrameCacheEntryBuffer(*selected)) {
+    return nullptr;
+  }
+  selected->valid = false;
+  selected->footnotes.clear();
   return selected;
 }
 
@@ -415,19 +832,36 @@ bool EpubReaderActivity::copyCurrentFrameToPageFrameCache(
     const std::vector<FootnoteEntry>& footnotes,
     const bool hasImages
 ) {
+  if (!readerMemoryAllowsVisibleFrameStore("frame-cache-store")) {
+    return false;
+  }
+
+  const ReaderHeapTrace acquireBefore = captureReaderHeapTrace();
+  const unsigned long acquireStart = millis();
   auto* entry = acquirePageFrameCacheEntry(spineIndex, pageNumber);
+  const ReaderHeapTrace acquireAfter = captureReaderHeapTrace();
+  logReaderHeapDelta("cache-store-acquire-slot", acquireBefore, acquireAfter, millis() - acquireStart);
   if (!entry || !entry->buffer) {
     return false;
   }
 
+  logReaderLargeBufferAlloc("frame-cache-store-destination", entry->buffer, GfxRenderer::getBufferSize());
+  const ReaderHeapTrace copyBefore = captureReaderHeapTrace();
+  const unsigned long copyStart = millis();
   std::memcpy(entry->buffer, renderer.getFrameBuffer(), GfxRenderer::getBufferSize());
+  const ReaderHeapTrace copyAfter = captureReaderHeapTrace();
+  logReaderHeapDelta("cache-store-memcpy", copyBefore, copyAfter, millis() - copyStart);
   entry->valid = true;
   entry->spineIndex = spineIndex;
   entry->pageNumber = pageNumber;
   entry->width = renderer.getScreenWidth();
   entry->height = renderer.getScreenHeight();
   entry->hasImages = hasImages;
+  const ReaderHeapTrace footnotesBefore = captureReaderHeapTrace();
+  const unsigned long footnotesStart = millis();
   entry->footnotes = footnotes;
+  const ReaderHeapTrace footnotesAfter = captureReaderHeapTrace();
+  logReaderHeapDelta("cache-store-footnotes-copy", footnotesBefore, footnotesAfter, millis() - footnotesStart);
   LOG_DBG("ERS", "Frame cache stored: slot=%d spine=%d page=%d", static_cast<int>(entry - pageFrameCache.data()), spineIndex, pageNumber);
   return true;
 }
@@ -490,6 +924,8 @@ bool EpubReaderActivity::queuePendingPageTurn(const bool isForwardTurn, const ch
   pendingPageTurnActive = true;
   pendingPageTurnForward = isForwardTurn;
   pendingPageTurnAt = millis();
+  pendingPageTurnForceVisible = false;
+  pendingPageTurnForceVisibleAt = 0;
   LOG_DBG(
       "ERS",
       "Page turn queued: dir=%s source=%s curSpine=%d curPage=%d",
@@ -505,6 +941,8 @@ void EpubReaderActivity::clearPendingPageTurn() {
   pendingPageTurnActive = false;
   pendingPageTurnForward = true;
   pendingPageTurnAt = 0;
+  pendingPageTurnForceVisible = false;
+  pendingPageTurnForceVisibleAt = 0;
 }
 
 void EpubReaderActivity::waitForVisibleDisplayIdle(const char* source) {
@@ -573,6 +1011,22 @@ bool EpubReaderActivity::sameSectionPageTurnTarget(const bool isForwardTurn, int
 }
 
 bool EpubReaderActivity::pageFrameCacheReadyForTurn(const bool isForwardTurn) {
+  if (pendingPageTurnForceVisible) {
+    LOG_DBG(
+        "ERS",
+        "Page turn cache gate bypassed after low-memory warm abort: dir=%s queuedFor=%lums",
+        isForwardTurn ? "next" : "prev",
+        static_cast<unsigned long>(millis() - pendingPageTurnForceVisibleAt)
+    );
+    return true;
+  }
+
+  const ReaderMemoryState state = updateReaderMemoryState("page-turn-cache-gate");
+  if (state == ReaderMemoryState::CRITICAL || state == ReaderMemoryState::EMERGENCY) {
+    prunePageFrameCacheForMemoryState(state, "page-turn-cache-gate");
+    return true;
+  }
+
   if (pageFrameCacheWarmJob.active) {
     return false;
   }
@@ -588,6 +1042,11 @@ bool EpubReaderActivity::pageFrameCacheReadyForTurn(const bool isForwardTurn) {
 }
 
 bool EpubReaderActivity::adjacentPageFrameCachesReady() {
+  const ReaderMemoryState state = updateReaderMemoryState("adjacent-cache-gate");
+  if (state != ReaderMemoryState::NORMAL) {
+    return true;
+  }
+
   if (!section || section->pageCount <= 0 || pageFrameCacheWarmJob.active) {
     return false;
   }
@@ -618,9 +1077,13 @@ void EpubReaderActivity::abortPageFrameCacheWarmJob() {
       pageFrameCacheWarmJob.pageNumber,
       static_cast<unsigned>(pageFrameCacheWarmJob.nextElementIndex)
   );
+  const ReaderHeapTrace abortBefore = captureReaderHeapTrace();
+  const unsigned long abortStart = millis();
   pageFrameCacheWarmJob.page.reset();
   pageFrameCacheWarmJob.footnotes.clear();
   pageFrameCacheWarmJob = PageFrameCacheWarmJob{};
+  const ReaderHeapTrace abortAfter = captureReaderHeapTrace();
+  logReaderHeapDelta("frame-cache-job-abort", abortBefore, abortAfter, millis() - abortStart);
 }
 
 bool EpubReaderActivity::startPageFrameCacheWarmJob(
@@ -636,21 +1099,24 @@ bool EpubReaderActivity::startPageFrameCacheWarmJob(
   if (findPageFrameCacheEntry(currentSpineIndex, pageNumber)) {
     return true;
   }
-  if (!ensurePageFrameCacheAllocated()) {
-    return false;
-  }
-
+  logReaderHeapCheckpoint("frame-cache-warm-start");
   const int visiblePage = section->currentPage;
   auto savedFootnotes = currentPageFootnotes;
+  const ReaderHeapTrace pageLoadBefore = captureReaderHeapTrace();
+  const unsigned long pageLoadStart = millis();
   section->currentPage = pageNumber;
   auto page = section->loadPageFromSectionFile();
   section->currentPage = visiblePage;
   currentPageFootnotes = std::move(savedFootnotes);
+  const ReaderHeapTrace pageLoadAfter = captureReaderHeapTrace();
+  logReaderHeapDelta("frame-cache-page-object-load", pageLoadBefore, pageLoadAfter, millis() - pageLoadStart);
 
   if (!page) {
     return false;
   }
 
+  const ReaderHeapTrace jobSetupBefore = captureReaderHeapTrace();
+  const unsigned long jobSetupStart = millis();
   pageFrameCacheWarmJob = PageFrameCacheWarmJob{};
   pageFrameCacheWarmJob.active = true;
   pageFrameCacheWarmJob.spineIndex = currentSpineIndex;
@@ -665,11 +1131,13 @@ bool EpubReaderActivity::startPageFrameCacheWarmJob(
   pageFrameCacheWarmJob.footnotes = page->footnotes;
   pageFrameCacheWarmJob.hasImages = page->hasImages();
   pageFrameCacheWarmJob.page = std::move(page);
+  const ReaderHeapTrace jobSetupAfter = captureReaderHeapTrace();
+  logReaderHeapDelta("frame-cache-job-object-setup", jobSetupBefore, jobSetupAfter, millis() - jobSetupStart);
 
   renderer.clearScreen();
   prepareReaderContentBackground(renderer, orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
   beginReaderContentRender(renderer);
-  if (SETTINGS.textAntiAliasing) {
+  if (ReaderUtils::shouldUseTextAntiAliasingForReader()) {
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_DIRECT);
   }
 
@@ -687,6 +1155,38 @@ bool EpubReaderActivity::continuePageFrameCacheWarmJobChunk() {
   if (!pageFrameCacheWarmJob.active || !pageFrameCacheWarmJob.page) {
     return false;
   }
+
+  logReaderHeapCheckpoint("frame-cache-job-before-state-check");
+  const ReaderMemoryState state = updateReaderMemoryState("frame-cache-job");
+  if (!isFrameCacheTargetAllowedForMemoryState(pageFrameCacheWarmJob.pageNumber, state)) {
+    LOG_DBG(
+        "ERS",
+        "Frame cache job paused by memory state: page=%d state=%s",
+        pageFrameCacheWarmJob.pageNumber,
+        readerMemoryStateName(state)
+    );
+    int pendingTargetPage = -1;
+    if (pendingPageTurnActive && sameSectionPageTurnTarget(pendingPageTurnForward, pendingTargetPage) &&
+        pendingTargetPage == pageFrameCacheWarmJob.pageNumber) {
+      pendingPageTurnForceVisible = true;
+      pendingPageTurnForceVisibleAt = millis();
+      LOG_DBG(
+          "ERS",
+          "Pending page turn will use visible render after low-memory cache abort: target=%d state=%s",
+          pendingTargetPage,
+          readerMemoryStateName(state)
+      );
+    }
+    markPageFrameCacheLowMemoryCooldown(
+        pageFrameCacheWarmJob.spineIndex,
+        pageFrameCacheWarmJob.pageNumber,
+        readerMemoryStateName(state)
+    );
+    prunePageFrameCacheForMemoryState(state, "frame-cache-job");
+    abortPageFrameCacheWarmJob();
+    return false;
+  }
+
   if (hasReaderInputPending()) {
     // Background page analysis/cache owns the reader until it finishes.
     // Keep exactly one page-turn command pending; all later page-turn inputs are
@@ -696,7 +1196,7 @@ bool EpubReaderActivity::continuePageFrameCacheWarmJobChunk() {
       queuePendingPageTurn(pendingForward, "cache-job");
     } else {
       lastReaderInputAt = millis();
-      LOG_DBG("ERS", "Reader non-page-turn input ignored while frame cache job is active");
+      LOG_DBG("ERS", "Reader input event ignored while frame cache job is active");
     }
     mappedInput.clearState();
   }
@@ -734,12 +1234,56 @@ bool EpubReaderActivity::continuePageFrameCacheWarmJobChunk() {
   size_t renderedElements = 0;
 
   while (pageFrameCacheWarmJob.nextElementIndex < totalElements) {
-    page->elements[pageFrameCacheWarmJob.nextElementIndex]->render(
-        renderer,
-        SETTINGS.getReaderFontId(),
-        pageFrameCacheWarmJob.orientedMarginLeft,
-        pageFrameCacheWarmJob.orientedMarginTop
-    );
+    const size_t elementIndex = pageFrameCacheWarmJob.nextElementIndex;
+    const PageElementTag elementTag = page->elements[elementIndex]->getTag();
+    const ReaderHeapTrace glyphBefore = captureReaderHeapTrace();
+    const unsigned long glyphStart = millis();
+    {
+      ScopedTtfRasterizePolicy ttfPolicy(false, "frame-cache-background");
+      page->elements[elementIndex]->render(
+          renderer,
+          SETTINGS.getReaderFontId(),
+          pageFrameCacheWarmJob.orientedMarginLeft,
+          pageFrameCacheWarmJob.orientedMarginTop
+      );
+    }
+    const bool ttfMissSuppressed = ExternalFont::consumeRuntimeTtfMissSuppressed();
+    const ReaderHeapTrace glyphAfter = captureReaderHeapTrace();
+    char phaseName[80];
+    std::snprintf(phaseName, sizeof(phaseName), "frame-cache-glyph-render[%u tag=%u]", static_cast<unsigned>(elementIndex), static_cast<unsigned>(elementTag));
+    logReaderHeapDelta(phaseName, glyphBefore, glyphAfter, millis() - glyphStart);
+    if (ttfMissSuppressed) {
+      int pendingTargetPage = -1;
+      if (pendingPageTurnActive && sameSectionPageTurnTarget(pendingPageTurnForward, pendingTargetPage) &&
+          pendingTargetPage == pageFrameCacheWarmJob.pageNumber) {
+        pendingPageTurnForceVisible = true;
+        pendingPageTurnForceVisibleAt = millis();
+        LOG_DBG(
+            "ERS",
+            "Pending page turn will use visible render after background TTF miss suppression: target=%d",
+            pendingTargetPage
+        );
+      }
+      markPageFrameCacheLowMemoryCooldown(
+          pageFrameCacheWarmJob.spineIndex,
+          pageFrameCacheWarmJob.pageNumber,
+          "ttf-miss-suppressed"
+      );
+      LOG_DBG(
+          "ERS",
+          "Frame cache job aborted: reason=ttf-miss-suppressed spine=%d page=%d element=%u dirty=1 store=0",
+          pageFrameCacheWarmJob.spineIndex,
+          pageFrameCacheWarmJob.pageNumber,
+          static_cast<unsigned>(elementIndex)
+      );
+      renderer.setRenderMode(GfxRenderer::BW);
+      endReaderContentRender(renderer);
+      abortPageFrameCacheWarmJob();
+      if (section) {
+        restorePageFrameCacheToRenderer(currentSpineIndex, section->currentPage, false);
+      }
+      return false;
+    }
     pageFrameCacheWarmJob.nextElementIndex++;
     renderedElements++;
 
@@ -773,12 +1317,16 @@ bool EpubReaderActivity::continuePageFrameCacheWarmJobChunk() {
   auto savedFootnotes = currentPageFootnotes;
   section->currentPage = pageFrameCacheWarmJob.pageNumber;
   renderStatusBar();
+  const ReaderHeapTrace cacheStoreBefore = captureReaderHeapTrace();
+  const unsigned long cacheStoreStart = millis();
   const bool stored = copyCurrentFrameToPageFrameCache(
       pageFrameCacheWarmJob.spineIndex,
       pageFrameCacheWarmJob.pageNumber,
       pageFrameCacheWarmJob.footnotes,
       pageFrameCacheWarmJob.hasImages
   );
+  const ReaderHeapTrace cacheStoreAfter = captureReaderHeapTrace();
+  logReaderHeapDelta("frame-cache-cache-store-total", cacheStoreBefore, cacheStoreAfter, millis() - cacheStoreStart);
   section->currentPage = visiblePage;
   currentPageFootnotes = std::move(savedFootnotes);
 
@@ -818,14 +1366,14 @@ bool EpubReaderActivity::renderPageToFrameCache(
   if (findPageFrameCacheEntry(currentSpineIndex, pageNumber)) {
     return true;
   }
-  if (!ensurePageFrameCacheAllocated()) {
-    return false;
-  }
-
   const int visiblePage = section->currentPage;
   auto savedFootnotes = currentPageFootnotes;
+  const ReaderHeapTrace pageLoadBefore = captureReaderHeapTrace();
+  const unsigned long pageLoadStart = millis();
   section->currentPage = pageNumber;
   auto page = section->loadPageFromSectionFile();
+  const ReaderHeapTrace pageLoadAfter = captureReaderHeapTrace();
+  logReaderHeapDelta("frame-cache-direct-page-object-load", pageLoadBefore, pageLoadAfter, millis() - pageLoadStart);
   if (!page) {
     section->currentPage = visiblePage;
     currentPageFootnotes = std::move(savedFootnotes);
@@ -838,16 +1386,35 @@ bool EpubReaderActivity::renderPageToFrameCache(
   prepareReaderContentBackground(renderer, orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
   beginReaderContentRender(renderer);
 
-  if (SETTINGS.textAntiAliasing) {
+  if (ReaderUtils::shouldUseTextAntiAliasingForReader()) {
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_DIRECT);
   }
 
-  page->render(
-      renderer,
-      SETTINGS.getReaderFontId(),
-      orientedMarginLeft,
-      orientedMarginTop
-  );
+  {
+    ScopedTtfRasterizePolicy ttfPolicy(false, "frame-cache-direct");
+    const ReaderHeapTrace glyphBefore = captureReaderHeapTrace();
+    const unsigned long glyphStart = millis();
+    page->render(
+        renderer,
+        SETTINGS.getReaderFontId(),
+        orientedMarginLeft,
+        orientedMarginTop
+    );
+    const ReaderHeapTrace glyphAfter = captureReaderHeapTrace();
+    logReaderHeapDelta("frame-cache-direct-glyph-render", glyphBefore, glyphAfter, millis() - glyphStart);
+    if (ExternalFont::consumeRuntimeTtfMissSuppressed()) {
+      markPageFrameCacheLowMemoryCooldown(currentSpineIndex, pageNumber, "ttf-miss-suppressed");
+      renderer.setRenderMode(GfxRenderer::BW);
+      endReaderContentRender(renderer);
+      section->currentPage = visiblePage;
+      currentPageFootnotes = std::move(savedFootnotes);
+      LOG_DBG("ERS", "Frame cache direct render aborted: reason=ttf-miss-suppressed page=%d dirty=1 store=0", pageNumber);
+      if (section) {
+        restorePageFrameCacheToRenderer(currentSpineIndex, section->currentPage, false);
+      }
+      return false;
+    }
+  }
 
   renderer.setRenderMode(GfxRenderer::BW);
   endReaderContentRender(renderer);
@@ -861,6 +1428,197 @@ bool EpubReaderActivity::renderPageToFrameCache(
   return stored;
 }
 
+bool EpubReaderActivity::collectPageTtfPrewarmCodepoints(
+    const int pageNumber,
+    std::vector<uint32_t>& out,
+    const size_t maxCodepoints
+) {
+  out.clear();
+  if (!section || pageNumber < 0 || pageNumber >= section->pageCount || maxCodepoints == 0) {
+    return false;
+  }
+
+  const int visiblePage = section->currentPage;
+  auto savedFootnotes = currentPageFootnotes;
+  const ReaderHeapTrace pageLoadBefore = captureReaderHeapTrace();
+  const unsigned long pageLoadStart = millis();
+  section->currentPage = pageNumber;
+  auto page = section->loadPageFromSectionFile();
+  section->currentPage = visiblePage;
+  currentPageFootnotes = std::move(savedFootnotes);
+  const ReaderHeapTrace pageLoadAfter = captureReaderHeapTrace();
+  logReaderHeapDelta("idle-glyph-prewarm-page-object-load", pageLoadBefore, pageLoadAfter, millis() - pageLoadStart);
+  if (!page) {
+    return false;
+  }
+
+  auto appendCodepoint = [&](const uint32_t cp) {
+    if (cp == 0 || cp == REPLACEMENT_GLYPH || cp == 0x00AD || utf8IsCombiningMark(cp)) {
+      return;
+    }
+    // Whitespace and ASCII control characters do not need TTF prewarming.
+    if (cp <= 0x20 || cp == 0x00A0 || cp == 0x2002 || cp == 0x2003 || cp == 0x3000) {
+      return;
+    }
+    if (std::find(out.begin(), out.end(), cp) != out.end()) {
+      return;
+    }
+    out.push_back(cp);
+  };
+
+  for (const auto& element : page->elements) {
+    if (!element || element->getTag() != TAG_PageLine) {
+      continue;
+    }
+    const auto& line = static_cast<const PageLine&>(*element);
+    const auto& block = line.getBlock();
+    if (!block) {
+      continue;
+    }
+    for (const std::string& word : block->getWords()) {
+      const unsigned char* cursor = reinterpret_cast<const unsigned char*>(word.c_str());
+      while (*cursor != 0) {
+        const uint32_t cp = utf8NextCodepoint(&cursor);
+        appendCodepoint(cp);
+        if (out.size() >= maxCodepoints) {
+          return true;
+        }
+      }
+    }
+  }
+  return !out.empty();
+}
+
+bool EpubReaderActivity::idleGlyphPrewarmIfReady() {
+  if (!section || section->pageCount <= 0 || pendingPageTurnActive || pageFrameCacheWarmJob.active) {
+    return false;
+  }
+  if (hasReaderInputPending()) {
+    return false;
+  }
+
+  ExternalFont* font = FontManager::getInstance().getActiveFont();
+  if (font == nullptr || !font->isLoaded() || !font->isTtfFormat()) {
+    return false;
+  }
+
+  const unsigned long now = millis();
+  if ((now - lastReaderInputAt) < idleGlyphPrewarmDelayMs) {
+    return false;
+  }
+  if (lastIdleGlyphPrewarmAt != 0 && (now - lastIdleGlyphPrewarmAt) < idleGlyphPrewarmCooldownMs) {
+    return false;
+  }
+  if (idleGlyphPrewarmPausedUntil != 0 && now < idleGlyphPrewarmPausedUntil) {
+    return false;
+  }
+
+  ReaderMemorySnapshot snapshot = getReaderMemorySnapshot();
+  if (snapshot.internalFree < idleGlyphPrewarmInternalFreeThreshold ||
+      snapshot.internalMaxAlloc < idleGlyphPrewarmInternalMaxAllocThreshold ||
+      snapshot.psramFree < idleGlyphPrewarmPsramFreeThreshold) {
+    return false;
+  }
+
+  const int cur = section->currentPage;
+  const std::array<int, 2> candidates = {cur + 1, cur - 1};
+  std::vector<uint32_t> codepoints;
+  codepoints.reserve(96);
+
+  for (const int pageNumber : candidates) {
+    if (pageNumber < 0 || pageNumber >= section->pageCount) {
+      continue;
+    }
+    if (findPageFrameCacheEntry(currentSpineIndex, pageNumber)) {
+      continue;
+    }
+
+    // Loading the page object touches Section state, so keep the same render lock
+    // discipline as frame-cache warming.  Each pass is intentionally small.
+    RenderLock lock(*this);
+    if (!collectPageTtfPrewarmCodepoints(pageNumber, codepoints, 128)) {
+      continue;
+    }
+
+    uint8_t warmed = 0;
+    uint8_t checked = 0;
+    for (const uint32_t cp : codepoints) {
+      if (font->isGlyphAvailableWithoutRasterize(cp)) {
+        continue;
+      }
+
+      snapshot = getReaderMemorySnapshot();
+      if (snapshot.internalFree < idleGlyphPrewarmInternalFreeThreshold ||
+          snapshot.internalMaxAlloc < idleGlyphPrewarmInternalMaxAllocThreshold ||
+          snapshot.psramFree < idleGlyphPrewarmPsramFreeThreshold) {
+        break;
+      }
+
+      const ReaderHeapTrace glyphBefore = captureReaderHeapTrace();
+      const unsigned long glyphStart = millis();
+      const uint8_t* glyph = nullptr;
+      {
+        ScopedTtfRasterizePolicy ttfPolicy(true, "idle-glyph-prewarm");
+        glyph = font->getGlyph(cp);
+      }
+      const bool unexpectedSuppressed = ExternalFont::consumeRuntimeTtfMissSuppressed();
+      const ReaderHeapTrace glyphAfter = captureReaderHeapTrace();
+      char phase[96];
+      std::snprintf(phase, sizeof(phase), "idle-glyph-prewarm U+%04lx", static_cast<unsigned long>(cp));
+      logReaderHeapDelta(phase, glyphBefore, glyphAfter, millis() - glyphStart);
+      ++checked;
+      if (glyph != nullptr) {
+        ++warmed;
+      }
+      if (unexpectedSuppressed) {
+        LOG_DBG("ERS", "Idle glyph prewarm saw unexpected TTF suppression: U+%04lx", static_cast<unsigned long>(cp));
+      }
+
+      const int32_t freeDelta = static_cast<int32_t>(glyphAfter.internalFree) - static_cast<int32_t>(glyphBefore.internalFree);
+      const int32_t maxDelta = static_cast<int32_t>(glyphAfter.internalMaxAlloc) - static_cast<int32_t>(glyphBefore.internalMaxAlloc);
+      if (freeDelta < idleGlyphPrewarmStopFreeDrop || maxDelta < idleGlyphPrewarmStopMaxAllocDrop) {
+        idleGlyphPrewarmPausedUntil = millis() + 2000UL;
+        LOG_DBG(
+            "ERS",
+            "Idle glyph prewarm paused: page=%d U+%04lx freeDelta=%ld maxDelta=%ld",
+            pageNumber,
+            static_cast<unsigned long>(cp),
+            static_cast<long>(freeDelta),
+            static_cast<long>(maxDelta)
+        );
+        break;
+      }
+
+      if (warmed >= idleGlyphPrewarmMaxGlyphsPerPass || checked >= idleGlyphPrewarmMaxGlyphsPerPass) {
+        break;
+      }
+    }
+
+    if (warmed > 0 || checked > 0) {
+      font->flushPersistentCache();
+      lastIdleGlyphPrewarmAt = millis();
+      if (warmed > 0 && pageFrameCacheLowMemoryCooldownSpine == currentSpineIndex &&
+          pageFrameCacheLowMemoryCooldownPage == pageNumber) {
+        pageFrameCacheLowMemoryCooldownUntil = 0;
+        lastPageFrameCacheLowMemorySkipLogAt = 0;
+        LOG_DBG("ERS", "Frame cache cooldown cleared after idle glyph prewarm: spine=%d page=%d", currentSpineIndex, pageNumber);
+      }
+      LOG_DBG(
+          "ERS",
+          "Idle glyph prewarm: page=%d warmed=%u checked=%u candidates=%u",
+          pageNumber,
+          static_cast<unsigned>(warmed),
+          static_cast<unsigned>(checked),
+          static_cast<unsigned>(codepoints.size())
+      );
+      return true;
+    }
+  }
+
+  return false;
+}
+
+
 void EpubReaderActivity::warmPageFrameCacheIfIdle() {
   if (!epub || !section || section->pageCount <= 0) {
     abortPageFrameCacheWarmJob();
@@ -871,9 +1629,29 @@ void EpubReaderActivity::warmPageFrameCacheIfIdle() {
     return;
   }
 
+  if (pendingPageTurnForceVisible) {
+    return;
+  }
+
+  const ReaderMemoryState state = updateReaderMemoryState("frame-cache-warm");
+  prunePageFrameCacheForMemoryState(state, "frame-cache-warm");
+
   if (pageFrameCacheWarmJob.active) {
+    if (!isFrameCacheTargetAllowedForMemoryState(pageFrameCacheWarmJob.pageNumber, state)) {
+      markPageFrameCacheLowMemoryCooldown(
+          pageFrameCacheWarmJob.spineIndex,
+          pageFrameCacheWarmJob.pageNumber,
+          readerMemoryStateName(state)
+      );
+      abortPageFrameCacheWarmJob();
+      return;
+    }
     RenderLock lock(*this);
     continuePageFrameCacheWarmJobChunk();
+    return;
+  }
+
+  if (state == ReaderMemoryState::CRITICAL || state == ReaderMemoryState::EMERGENCY) {
     return;
   }
 
@@ -886,6 +1664,14 @@ void EpubReaderActivity::warmPageFrameCacheIfIdle() {
 
   if (!pendingTurn && lastPageFrameCacheWorkAt != 0 &&
       (now - lastPageFrameCacheWorkAt) < pageFrameCacheWorkCooldownMs) {
+    return;
+  }
+
+  // r14: before attempting a background frame cache, spend a tiny idle slice
+  // prewarming missing TTF glyphs for adjacent pages.  This keeps r13a's rule
+  // (background cache must abort on true TTF miss) while gradually making the
+  // next/previous page eligible for a full cache render.
+  if (!pendingTurn && idleGlyphPrewarmIfReady()) {
     return;
   }
 
@@ -913,9 +1699,17 @@ void EpubReaderActivity::warmPageFrameCacheIfIdle() {
   int pendingTarget = -1;
   const bool hasSameSectionPendingTarget = pendingTurn && sameSectionPageTurnTarget(pendingPageTurnForward, pendingTarget);
   const int oppositeTarget = hasSameSectionPendingTarget ? (pendingPageTurnForward ? cur - 1 : cur + 1) : -1;
-  const std::array<int, 3> candidates = hasSameSectionPendingTarget
+  std::array<int, 3> candidates = hasSameSectionPendingTarget
       ? std::array<int, 3>{pendingTarget, cur, oppositeTarget}
       : std::array<int, 3>{cur, cur + 1, cur - 1};
+  if (state == ReaderMemoryState::WARNING) {
+    // Warning state is not safe for ordinary background warming.  Only a
+    // same-section pending page-turn target may be attempted, and the hard
+    // start gate below can still force a visible render fallback.
+    candidates = hasSameSectionPendingTarget
+        ? std::array<int, 3>{pendingTarget, -1, -1}
+        : std::array<int, 3>{-1, -1, -1};
+  }
   if (pendingTurn) {
     LOG_DBG(
         "ERS",
@@ -933,9 +1727,42 @@ void EpubReaderActivity::warmPageFrameCacheIfIdle() {
     if (findPageFrameCacheEntry(currentSpineIndex, pageNumber)) {
       continue;
     }
+    if (!isFrameCacheTargetAllowedForMemoryState(pageNumber, state)) {
+      continue;
+    }
+    if (shouldSkipPageFrameCacheForCooldown(currentSpineIndex, pageNumber)) {
+      if (pendingTurn && hasSameSectionPendingTarget && pageNumber == pendingTarget) {
+        pendingPageTurnForceVisible = true;
+        pendingPageTurnForceVisibleAt = millis();
+      }
+      continue;
+    }
+
+    const bool pendingTargetCandidate = pendingTurn && hasSameSectionPendingTarget && pageNumber == pendingTarget;
+    const ReaderMemorySnapshot startSnapshot = getReaderMemorySnapshot();
+    if (!readerMemoryAllowsFrameCacheStart(startSnapshot, pendingTargetCandidate, "frame-cache-warm-start-gate")) {
+      if (pendingTargetCandidate) {
+        pendingPageTurnForceVisible = true;
+        pendingPageTurnForceVisibleAt = millis();
+        LOG_DBG(
+            "ERS",
+            "Pending page turn will use visible render after frame-cache start gate: target=%d internalFree=%lu internalMaxAlloc=%lu",
+            pageNumber,
+            static_cast<unsigned long>(startSnapshot.internalFree),
+            static_cast<unsigned long>(startSnapshot.internalMaxAlloc)
+        );
+      }
+      continue;
+    }
 
     RenderLock lock(*this);
-    if (startPageFrameCacheWarmJob(pageNumber, top, right, bottom, left)) {
+    logReaderHeapCheckpoint("frame-cache-warm-before-start-job");
+    const ReaderHeapTrace warmStartBefore = captureReaderHeapTrace();
+    const unsigned long warmStartMs = millis();
+    const bool started = startPageFrameCacheWarmJob(pageNumber, top, right, bottom, left);
+    const ReaderHeapTrace warmStartAfter = captureReaderHeapTrace();
+    logReaderHeapDelta("frame-cache-warm-start-job-total", warmStartBefore, warmStartAfter, millis() - warmStartMs);
+    if (started) {
       continuePageFrameCacheWarmJobChunk();
     }
     return;
@@ -999,7 +1826,7 @@ void EpubReaderActivity::loop() {
         queuePendingPageTurn(pendingForward, "render-busy");
       } else {
         lastReaderInputAt = millis();
-        LOG_DBG("ERS", "Reader non-page-turn input ignored while render/cache busy");
+        LOG_DBG("ERS", "Reader input event ignored while render/cache busy");
       }
       mappedInput.clearState();
     }
@@ -1016,7 +1843,7 @@ void EpubReaderActivity::loop() {
         queuePendingPageTurn(ignoredForward, "pending-active");
       } else {
         lastReaderInputAt = millis();
-        LOG_DBG("ERS", "Reader non-page-turn input ignored while page turn pending");
+        LOG_DBG("ERS", "Reader input event ignored while page turn pending");
       }
       mappedInput.clearState();
     }
@@ -1119,8 +1946,10 @@ void EpubReaderActivity::loop() {
         (millis() - nextChapterPreindexAt) >= 3500UL &&
         !RenderLock::peek()) {
       pendingNextChapterPreindex = false;
-      RenderLock lock(*this);
-      silentIndexNextChapterIfNeeded(pendingPreindexViewportWidth, pendingPreindexViewportHeight);
+      if (readerMemoryAllowsSilentIndexing("silent-index")) {
+        RenderLock lock(*this);
+        silentIndexNextChapterIfNeeded(pendingPreindexViewportWidth, pendingPreindexViewportHeight);
+      }
     }
 #if CROSSPOINT_PAPERS3
     warmPageFrameCacheIfIdle();
@@ -1179,18 +2008,24 @@ void EpubReaderActivity::loop() {
   // pending command.  Later page-turn inputs are ignored until this command is
   // executed, so multiple swipes cannot stack up and skip pages.
   const bool requestedForwardTurn = !prevTriggered;
-  if (!adjacentPageFrameCachesReady() || !pageFrameCacheReadyForTurn(requestedForwardTurn)) {
+  const ReaderMemoryState turnMemoryState = updateReaderMemoryState("page-turn-input");
+  const bool requireAdjacentCaches = turnMemoryState == ReaderMemoryState::NORMAL;
+  const bool turnCacheReady = pageFrameCacheReadyForTurn(requestedForwardTurn);
+  const bool adjacentCachesReady = requireAdjacentCaches ? adjacentPageFrameCachesReady() : true;
+  if (!adjacentCachesReady || !turnCacheReady) {
     int targetPage = -1;
     const bool sameSectionTarget = sameSectionPageTurnTarget(requestedForwardTurn, targetPage);
     queuePendingPageTurn(requestedForwardTurn, "cache-not-ready");
     LOG_DBG(
         "ERS",
-        "Page turn pending until frame cache ready: dir=%s cur=%d target=%d sameSection=%d warmActive=%d",
+        "Page turn pending until frame cache ready: dir=%s cur=%d target=%d sameSection=%d warmActive=%d memState=%s requireAdjacent=%d",
         requestedForwardTurn ? "next" : "prev",
         section ? section->currentPage : -1,
         sameSectionTarget ? targetPage : -1,
         sameSectionTarget ? 1 : 0,
-        pageFrameCacheWarmJob.active ? 1 : 0
+        pageFrameCacheWarmJob.active ? 1 : 0,
+        readerMemoryStateName(turnMemoryState),
+        requireAdjacentCaches ? 1 : 0
     );
     mappedInput.clearState();
     warmPageFrameCacheIfIdle();
@@ -1714,7 +2549,15 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   } else
 #endif
   {
+#if CROSSPOINT_PAPERS3
+    const ReaderHeapTrace visiblePageLoadBefore = captureReaderHeapTrace();
+    const unsigned long visiblePageLoadStart = millis();
+#endif
     auto p = section->loadPageFromSectionFile();
+#if CROSSPOINT_PAPERS3
+    const ReaderHeapTrace visiblePageLoadAfter = captureReaderHeapTrace();
+    logReaderHeapDelta("visible-page-object-load", visiblePageLoadBefore, visiblePageLoadAfter, millis() - visiblePageLoadStart);
+#endif
     if (!p) {
       LOG_ERR("ERS", "Failed to load page from SD - clearing section cache");
       section->clearCache();
@@ -1769,6 +2612,12 @@ void EpubReaderActivity::scheduleSilentIndexNextChapter(const uint16_t viewportW
     return;
   }
 
+#if CROSSPOINT_PAPERS3
+  if (!readerMemoryAllowsSilentIndexing("silent-index-schedule")) {
+    return;
+  }
+#endif
+
   pendingNextChapterPreindex = true;
   nextChapterPreindexAt = millis();
   pendingPreindexViewportWidth = viewportWidth;
@@ -1790,6 +2639,12 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   if (nextSpineIndex < 0 || nextSpineIndex >= epub->getSpineItemsCount()) {
     return;
   }
+
+#if CROSSPOINT_PAPERS3
+  if (!readerMemoryAllowsSilentIndexing("silent-index")) {
+    return;
+  }
+#endif
 
   Section nextSection(epub, nextSpineIndex, renderer);
   if (nextSection.loadSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
@@ -1901,7 +2756,7 @@ bool EpubReaderActivity::renderContentsProgressive(
   renderer.clearScreen();
   prepareReaderContentBackground(renderer, orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
   beginReaderContentRender(renderer);
-  if (SETTINGS.textAntiAliasing) {
+  if (ReaderUtils::shouldUseTextAntiAliasingForReader()) {
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_DIRECT);
   }
 
@@ -2156,13 +3011,33 @@ void EpubReaderActivity::renderContents(
     const int orientedMarginLeft
 ) {
 #if CROSSPOINT_PAPERS3
-  // V1.7.0 simplification: visible cache-miss pages are rendered into the
-  // framebuffer once and displayed once.  The previous foreground grouped
-  // progressive path is intentionally bypassed; next/previous responsiveness is
-  // now provided by deterministic adjacent-page frame cache readiness instead.
+  // V1.8.0 reader path: visible cache-miss pages are rendered into the
+  // framebuffer once and displayed once.  Next/previous responsiveness comes
+  // from adjacent-page frame cache readiness, while TTF safety is handled by
+  // background glyph-miss aborts, conservative idle glyph prewarm, and the
+  // FreeType PSRAM allocator used by OpenFontRender.
 #endif
   const auto t0 = millis();
+#if CROSSPOINT_PAPERS3
+  logReaderHeapCheckpoint("visible-render-start");
+#endif
   const bool currentPageHasImages = page ? page->hasImages() : false;
+#if CROSSPOINT_PAPERS3
+  const ReaderMemorySnapshot visibleTtfSnapshot = getReaderMemorySnapshot();
+  const bool allowVisibleTtfRasterize =
+      visibleTtfSnapshot.internalFree >= visibleTtfRasterizeLowMemoryFreeThreshold &&
+      visibleTtfSnapshot.internalMaxAlloc >= visibleTtfRasterizeLowMemoryMaxAllocThreshold;
+  if (!allowVisibleTtfRasterize) {
+    LOG_DBG(
+        "ERS",
+        "Visible TTF rasterize guarded: internalFree=%lu internalMaxAlloc=%lu requiredFree=%lu requiredMaxAlloc=%lu",
+        static_cast<unsigned long>(visibleTtfSnapshot.internalFree),
+        static_cast<unsigned long>(visibleTtfSnapshot.internalMaxAlloc),
+        static_cast<unsigned long>(visibleTtfRasterizeLowMemoryFreeThreshold),
+        static_cast<unsigned long>(visibleTtfRasterizeLowMemoryMaxAllocThreshold)
+    );
+  }
+#endif
 
   // V1.5 固定直排測試開關。
   constexpr bool ENABLE_VERTICAL_RENDER_TEST = false;
@@ -2293,7 +3168,7 @@ void EpubReaderActivity::renderContents(
   beginReaderContentRender(renderer);
   const auto tBeginContentEnd = millis();
 
-  if (SETTINGS.textAntiAliasing) {
+  if (ReaderUtils::shouldUseTextAntiAliasingForReader()) {
     renderer.setRenderMode(
         GfxRenderer::GRAYSCALE_DIRECT
     );
@@ -2301,13 +3176,36 @@ void EpubReaderActivity::renderContents(
   const auto tModeSetEnd = millis();
 
   {
+#if CROSSPOINT_PAPERS3
+    const ReaderHeapTrace glyphBefore = captureReaderHeapTrace();
+    const unsigned long glyphStart = millis();
+#endif
     PageRenderProfiler::Scoped pageRenderProfile(true);
+#if CROSSPOINT_PAPERS3
+    {
+      ScopedTtfRasterizePolicy ttfPolicy(allowVisibleTtfRasterize, allowVisibleTtfRasterize ? "visible" : "visible-low-memory");
+      page->render(
+          renderer,
+          SETTINGS.getReaderFontId(),
+          orientedMarginLeft,
+          orientedMarginTop
+      );
+    }
+    if (!allowVisibleTtfRasterize && ExternalFont::consumeRuntimeTtfMissSuppressed()) {
+      LOG_DBG("ERS", "Visible render used fallback for one or more TTF glyph misses due to low memory");
+    }
+#else
     page->render(
         renderer,
         SETTINGS.getReaderFontId(),
         orientedMarginLeft,
         orientedMarginTop
     );
+#endif
+#if CROSSPOINT_PAPERS3
+    const ReaderHeapTrace glyphAfter = captureReaderHeapTrace();
+    logReaderHeapDelta("visible-glyph-render", glyphBefore, glyphAfter, millis() - glyphStart);
+#endif
   }
   const auto tPageRenderEnd = millis();
 
@@ -2353,7 +3251,7 @@ void EpubReaderActivity::renderContents(
    */
   const bool imagePageWithAA =
       currentPageHasImages &&
-      SETTINGS.textAntiAliasing;
+      ReaderUtils::shouldUseTextAntiAliasingForReader();
 
   if (lastVisiblePageHadImages && !currentPageHasImages) {
     renderer.requestFullRefresh();
@@ -2396,12 +3294,27 @@ void EpubReaderActivity::renderContents(
 
       {
         PageRenderProfiler::Scoped pageRenderProfile(true);
+#if CROSSPOINT_PAPERS3
+        {
+          ScopedTtfRasterizePolicy ttfPolicy(allowVisibleTtfRasterize, allowVisibleTtfRasterize ? "visible-image-second-pass" : "visible-low-memory-image-second-pass");
+          page->render(
+              renderer,
+              SETTINGS.getReaderFontId(),
+              orientedMarginLeft,
+              orientedMarginTop
+          );
+        }
+        if (!allowVisibleTtfRasterize && ExternalFont::consumeRuntimeTtfMissSuppressed()) {
+          LOG_DBG("ERS", "Visible image second-pass used fallback for one or more TTF glyph misses due to low memory");
+        }
+#else
         page->render(
             renderer,
             SETTINGS.getReaderFontId(),
             orientedMarginLeft,
             orientedMarginTop
         );
+#endif
       }
 
       renderer.setRenderMode(
@@ -2439,9 +3352,14 @@ void EpubReaderActivity::renderContents(
 #if CROSSPOINT_PAPERS3
   waitForVisibleDisplayIdle("cache-miss");
   const auto tCacheStoreStart = millis();
+  const ReaderHeapTrace visibleCacheStoreBefore = captureReaderHeapTrace();
   if (section) {
+    const ReaderMemoryState storeState = updateReaderMemoryState("visible-frame-store");
+    prunePageFrameCacheForMemoryState(storeState, "visible-frame-store");
     copyCurrentFrameToPageFrameCache(currentSpineIndex, section->currentPage, currentPageFootnotes, currentPageHasImages);
   }
+  const ReaderHeapTrace visibleCacheStoreAfter = captureReaderHeapTrace();
+  logReaderHeapDelta("visible-cache-store-total", visibleCacheStoreBefore, visibleCacheStoreAfter, millis() - tCacheStoreStart);
   lastVisiblePageHadImages = currentPageHasImages;
   const auto tCacheStoreEnd = millis();
   LOG_DBG("ERS", "render phase: cacheStore=%lums", tCacheStoreEnd - tCacheStoreStart);

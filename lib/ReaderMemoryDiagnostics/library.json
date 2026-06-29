@@ -1,0 +1,8 @@
+{
+  "name": "ReaderMemoryDiagnostics",
+  "version": "1.0.0",
+  "description": "Reader memory diagnostics declarations shared across project libraries",
+  "build": {
+    "srcFilter": "+<*.h>"
+  }
+}

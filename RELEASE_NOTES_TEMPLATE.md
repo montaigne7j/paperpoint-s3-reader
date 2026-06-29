@@ -1,3 +1,22 @@
+# PaperPoint S3 Reader V1.8.0 release summary
+
+## Highlights
+
+- FreeType / OpenFontRender PSRAM-preferred allocator for TTF rasterization.
+- Background frame cache no longer stores fallback-rendered pages after TTF glyph misses.
+- Idle glyph prewarm for adjacent pages with stricter memory gates.
+- Boot-time page-turn darker-pass counter: first 10 turns use gentler black driving, later turns use stable black driving.
+- Updated built-in bilingual EPUB manual and documentation.
+
+## Recommended test log checks
+
+```text
+Starting CrossPoint version 1.8.0
+FT allocator summary: context=after-new-library
+Page-turn waveform profile: turn=1 ... profile=boot
+Page-turn waveform profile: turn=11 ... profile=stable
+```
+
 # PaperPoint S3 Reader vX.Y.Z
 
 ## 下載建議

@@ -15,22 +15,18 @@
 
 ## 目前重點
 
-- 目前版本：**1.7.0**。
-- 中文優先的 M5Paper S3 電子紙閱讀器韌體。
-- 內建 **PaperPoint Sans TC Medium** 繁中文字型 fallback；閱讀中文字可放大到更適合 Paper S3 的尺寸。
-- 1.7.0 將閱讀翻頁定版為「鄰頁 framebuffer cache ready 後才接受翻頁」策略：避免連續 swipe 疊加造成跳頁，並讓上一頁 / 下一頁在 cache 命中時速度更一致。
-- 1.7.0 採用 Paper S3 穩定版 band-scan page-turn waveform：540-row band、8 pass、第一 pass 1ms，其餘 pass 5ms，並保留白→白 / 黑→黑第一 pass 強化。
-- 1.7.0 首頁改用可見的 **關機 / Power Off** 選單項目，並修正 Lyra 主題關機圖示與最近閱讀卡片觸控命中。
-- 1.7.0 強化 EPUB 進度還原 / 儲存防呆，避免舊版異常進度直接開到全書結尾。
-- 大字介面主題持續支援設定、檔案瀏覽、最近閱讀、章節選單、閱讀選單與閱讀狀態列。
-- Paper S3 操作改成更直覺的直接觸控：首頁項目、設定分頁與多數清單可直接點選，底部導覽改為「返回 / 選擇 / 前頁 / 後頁」。
-- 新增閱讀狀態列跟隨頁邊距模式，狀態列可固定在螢幕底部，或跟著閱讀頁邊距一起內縮。
+- 目前版本：**1.8.0**。
+- 中文優先的 M5Paper S3 電子紙閱讀器韌體，目標是穩定閱讀 EPUB / TXT / 圖片與自訂休眠封面。
+- 內建 **PaperPoint Sans TC Medium** 繁中文字型 fallback；外部 TTF / OTF / BIN 字型可放在 `/fonts/` 並於閱讀設定選擇。
+- 1.8.0 整合 **FreeType / OpenFontRender PSRAM-preferred allocator**：TTF rasterize 內部較大的 FreeType 配置優先走 PSRAM，降低 internal heap 被新 glyph 打碎的風險。
+- 1.8.0 保留背景 frame cache 安全規則：背景 cache 只使用 RAM / SD glyph cache 命中的 TTF glyph；若需要新 glyph rasterize，會 abort 該頁 background cache，不會把 fallback 字型畫面存成 cache。
+- 1.8.0 新增 idle glyph prewarm：閱讀畫面 idle 且記憶體充足時，少量預熱鄰頁缺字，提升下一頁 frame cache 成功率。
+- 1.8.0 新增開機後 reader 翻頁 darker pass counter：預設前 10 次翻頁的黑色 pass 較保守，面板穩定後自動切換到較深黑色設定，減少剛開機過刷風險。
+- 1.7.0 將閱讀翻頁定版為「鄰頁 framebuffer cache ready 後才接受翻頁」策略，避免連續 swipe 疊加造成跳頁，並讓上一頁 / 下一頁在 cache 命中時速度更一致。
+- Paper S3 操作改成更直覺的直接觸控：首頁項目、設定分頁與多數清單可直接點選，底部導覽為「返回 / 選擇 / 前頁 / 後頁」。
 - 內建雙語 EPUB 使用手冊，瀏覽 `/book` 時會自動安裝到 `/book/CrossPoint_User_Manual.epub`。
-- 針對 M5Paper S3 的顯示、觸控、SD 卡與電源流程調整。
-- 支援 EPUB 2/3 閱讀、最近書籍、閱讀進度、封面與睡眠畫面。
+- 支援 EPUB 2/3、TXT、最近書籍、閱讀進度、封面與睡眠畫面。
 - 支援 Wi-Fi 上傳書籍、OTA 更新與 KOReader Sync；Wi-Fi 傳輸功能目前仍屬未驗證功能。
-- 支援可調整閱讀字體、版面、顯示與睡眠設定。
-- 支援電子紙灰階顯示，適合封面與睡眠圖片。
 - 提供 GitHub Actions 自動編譯與瀏覽器線上燒錄頁。
 
 ## 線上燒錄
@@ -148,6 +144,8 @@ Paper S3 版本支援：
 - 檔案瀏覽器與最近閱讀清單。
 - 閱讀進度記錄。
 - 可調整字體、版面、顯示與睡眠設定。
+- TTF 字型 FreeType PSRAM allocator、glyph cache miss 防護與 idle glyph prewarm。
+- 開機後翻頁 darker pass counter，讓初期與穩定後的黑色刷新 pass 可分開調整。
 - 大字介面主題。
 - 直接觸控選取首頁、設定分頁、清單與多封面首頁項目。
 - 閱讀狀態列跟隨頁邊距模式。

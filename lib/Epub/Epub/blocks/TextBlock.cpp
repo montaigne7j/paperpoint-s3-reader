@@ -2,9 +2,11 @@
 
 #include <Arduino.h>
 #include <algorithm>
+#include <cstdio>
 #include <GfxRenderer.h>
 #include <Logging.h>
 #include <Serialization.h>
+#include <ReaderMemoryDiagnostics.h>
 
 #include "../PageRenderProfiler.h"
 
@@ -55,6 +57,7 @@ void TextBlock::render(
     const int y
 ) const {
   const bool profiling = PageRenderProfiler::isEnabled();
+  const ReaderMemoryDiagTrace blockMemBefore = ReaderMemoryDiagnostics::capture();
   const unsigned long blockStart = millis();
   const bool vertical = layoutMode == TextLayoutMode::Vertical;
 
@@ -98,6 +101,7 @@ void TextBlock::render(
       const int glyphX = x + wordXpos[i];
       const int glyphY = y + wordYpos[i];
 
+      const ReaderMemoryDiagTrace wordMemBefore = ReaderMemoryDiagnostics::capture();
       const unsigned long tWord = millis();
       renderer.drawVerticalText(
           fontId,
@@ -108,6 +112,12 @@ void TextBlock::render(
           wordStyles[i]
       );
       const unsigned long wordMs = millis() - tWord;
+      const ReaderMemoryDiagTrace wordMemAfter = ReaderMemoryDiagnostics::capture();
+      {
+        char memPhase[96];
+        std::snprintf(memPhase, sizeof(memPhase), "textblock-drawVerticalText[%u]", static_cast<unsigned>(i));
+        ReaderMemoryDiagnostics::logDeltaIfChanged(memPhase, wordMemBefore, wordMemAfter, wordMs, 512, 4096, 120);
+      }
       drawTotal += wordMs;
       if (wordMs > slowestWordMs) {
         slowestWordMs = wordMs;
@@ -131,6 +141,18 @@ void TextBlock::render(
           static_cast<unsigned>(slowestWordIndex),
           slowestWordMs
       );
+    }
+
+    {
+      const ReaderMemoryDiagTrace blockMemAfter = ReaderMemoryDiagnostics::capture();
+      ReaderMemoryDiagnostics::logDeltaIfChanged(
+          "textblock-render-total[vertical]",
+          blockMemBefore,
+          blockMemAfter,
+          millis() - blockStart,
+          512,
+          4096,
+          120);
     }
 
     // 直排底線之後再處理。
@@ -213,6 +235,18 @@ void TextBlock::render(
       );
       underlineTotal += millis() - tUnderline;
     }
+  }
+
+  {
+    const ReaderMemoryDiagTrace blockMemAfter = ReaderMemoryDiagnostics::capture();
+    ReaderMemoryDiagnostics::logDeltaIfChanged(
+        "textblock-render-total[horizontal]",
+        blockMemBefore,
+        blockMemAfter,
+        millis() - blockStart,
+        512,
+        4096,
+        120);
   }
 
   if (profiling) {

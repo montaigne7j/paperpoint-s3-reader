@@ -190,6 +190,8 @@ class EPD_Painter {
   std::atomic<bool> row_major_reverse_bands{false};
   std::atomic<int> row_major_active_row_start{-1};
   std::atomic<int> row_major_active_row_end{-1};
+  std::atomic<uint32_t> row_major_page_turn_counter{0};
+  std::atomic<uint8_t> row_major_black_darker_passes{4};
 
   // ---- Internal helpers ----
   void powerOn();

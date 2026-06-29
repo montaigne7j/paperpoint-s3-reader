@@ -4,15 +4,26 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <TtfFontEngine.h>
+#include <ReaderMemoryDiagnostics.h>
 #include <esp_heap_caps.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <vector>
 
 #include "FontFilenameParser.h"
 
 namespace {
+
+// Global runtime glyph policy.  These flags are intentionally process-wide:
+// there is only one active reader font at a time, and the renderer calls into
+// ExternalFont without passing a render-context object through every glyph API.
+bool gRuntimeTtfRasterizeAllowed = true;
+bool gRuntimeTtfMissSuppressed = false;
+const char* gRuntimeTtfRasterizeReason = nullptr;
+unsigned long gLastRuntimeTtfSuppressLogAt = 0;
+constexpr unsigned long kRuntimeTtfSuppressLogIntervalMs = 2000;
 
 // EPDFont magic: 'EPDF' written little-endian.
 constexpr uint8_t EPDFONT_MAGIC[4] = {'E', 'P', 'D', 'F'};
@@ -162,6 +173,32 @@ LegacyFallbacks getGlyphFallbacks(const uint32_t codepoint) {
 }  // namespace
 
 ExternalFont::~ExternalFont() { unload(); }
+
+bool ExternalFont::setRuntimeTtfRasterizeAllowed(const bool allowed, const char* reason) {
+  const bool previous = gRuntimeTtfRasterizeAllowed;
+  gRuntimeTtfRasterizeAllowed = allowed;
+  gRuntimeTtfRasterizeReason = reason;
+  // Do not clear gRuntimeTtfMissSuppressed here.  The reader sets a fresh
+  // policy scope before each render operation and consumes the flag after the
+  // render returns.  Clearing the flag while restoring the previous policy
+  // would hide a background-cache TTF miss and allow a fallback-rendered frame
+  // to be stored as a valid frame-cache hit.
+  return previous;
+}
+
+bool ExternalFont::isRuntimeTtfRasterizeAllowed() {
+  return gRuntimeTtfRasterizeAllowed;
+}
+
+void ExternalFont::resetRuntimeTtfMissSuppressed() {
+  gRuntimeTtfMissSuppressed = false;
+}
+
+bool ExternalFont::consumeRuntimeTtfMissSuppressed() {
+  const bool value = gRuntimeTtfMissSuppressed;
+  gRuntimeTtfMissSuppressed = false;
+  return value;
+}
 
 void ExternalFont::unload() {
   if (_fontFile) {
@@ -492,8 +529,14 @@ bool ExternalFont::ensureGlyphCache() {
 
   releaseGlyphCache();
 
+  const ReaderMemoryDiagTrace cacheBefore = ReaderMemoryDiagnostics::capture();
+  const unsigned long cacheStart = millis();
   _cache = static_cast<CacheEntry*>(heap_caps_calloc(CACHE_SIZE, sizeof(CacheEntry), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   _hashTable = static_cast<int16_t*>(heap_caps_malloc(CACHE_SIZE * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  const ReaderMemoryDiagTrace cacheAfter = ReaderMemoryDiagnostics::capture();
+  ReaderMemoryDiagnostics::logDelta("glyph-cache-allocate", cacheBefore, cacheAfter, millis() - cacheStart);
+  ReaderMemoryDiagnostics::logLargeBuffer("glyph-cache-entries", _cache, CACHE_SIZE * sizeof(CacheEntry));
+  ReaderMemoryDiagnostics::logLargeBuffer("glyph-cache-hashtable", _hashTable, CACHE_SIZE * sizeof(int16_t));
   if (!_cache || !_hashTable) {
     LOG_ERR("EFT", "Failed to allocate glyph cache (%d bytes)",
             static_cast<int>(CACHE_SIZE * (sizeof(CacheEntry) + sizeof(int16_t))));
@@ -546,6 +589,20 @@ int ExternalFont::getLruSlot() {
   return lruIndex;
 }
 
+bool ExternalFont::isGlyphAvailableWithoutRasterize(const uint32_t codepoint) const {
+  if (!_isLoaded) return false;
+  if (_cache) {
+    const int idx = findInCache(codepoint);
+    if (idx >= 0 && !_cache[idx].notFound) {
+      return true;
+    }
+  }
+  if (_isTtfFormat) {
+    return _ttfEngine != nullptr && _ttfEngine->hasCachedGlyph(codepoint);
+  }
+  return false;
+}
+
 bool ExternalFont::readLegacyGlyphFromSD(uint32_t codepoint, uint8_t* buffer) const {
   if (!_fontFile) {
     return false;
@@ -580,6 +637,8 @@ bool ExternalFont::readLegacyGlyphFromSD(uint32_t codepoint, uint8_t* buffer) co
 }
 
 const uint8_t* ExternalFont::getGlyph(uint32_t codepoint) {
+  const ReaderMemoryDiagTrace glyphLookupBefore = ReaderMemoryDiagnostics::capture();
+  const unsigned long glyphLookupStart = millis();
   if (!_isLoaded) {
     return nullptr;
   }
@@ -597,39 +656,108 @@ const uint8_t* ExternalFont::getGlyph(uint32_t codepoint) {
     if (_cache[cacheIndex].notFound) {
       return nullptr;
     }
+    {
+      char phase[96];
+      std::snprintf(phase, sizeof(phase), "glyph-lookup-hit U+%04lx", static_cast<unsigned long>(codepoint));
+      ReaderMemoryDiagnostics::logDeltaIfChanged(phase, glyphLookupBefore, ReaderMemoryDiagnostics::capture(), millis() - glyphLookupStart, 512, 4096, 120);
+    }
     return _cache[cacheIndex].bitmap;
   }
 
-  // Cache miss: pick an LRU slot and remove its old hash table entry.
-  int slot = getLruSlot();
-  if (_cache[slot].codepoint != 0xFFFFFFFF) {
-    int oldHash = hashCodepoint(_cache[slot].codepoint);
-    for (int i = 0; i < CACHE_SIZE; i++) {
-      int idx = (oldHash + i) % CACHE_SIZE;
-      if (_hashTable[idx] == slot) {
-        _hashTable[idx] = -1;
+  auto prepareLruSlot = [&]() -> int {
+    const int chosenSlot = getLruSlot();
+    if (_cache[chosenSlot].codepoint != 0xFFFFFFFF) {
+      const int oldHash = hashCodepoint(_cache[chosenSlot].codepoint);
+      for (int i = 0; i < CACHE_SIZE; i++) {
+        const int idx = (oldHash + i) % CACHE_SIZE;
+        if (_hashTable[idx] == chosenSlot) {
+          _hashTable[idx] = -1;
+          break;
+        }
+      }
+    }
+    return chosenSlot;
+  };
+
+  auto publishSlot = [&](const int chosenSlot, const uint32_t cp, const bool ok,
+                         const ExternalGlyphMetrics& metrics) {
+    _cache[chosenSlot].codepoint = cp;
+    _cache[chosenSlot].lastUsed = ++_accessCounter;
+    _cache[chosenSlot].notFound = !ok;
+    _cache[chosenSlot].metrics = metrics;
+
+    const int hash = hashCodepoint(cp);
+    for (int i = 0; i < CACHE_SIZE; ++i) {
+      const int idx = (hash + i) % CACHE_SIZE;
+      if (_hashTable[idx] == -1) {
+        _hashTable[idx] = chosenSlot;
         break;
       }
     }
+  };
+
+  if (_isTtfFormat && !gRuntimeTtfRasterizeAllowed) {
+    // Background frame-cache rendering may load a glyph that is already in the
+    // persistent SD cache, but it must not call OpenFontRender/FreeType to
+    // rasterize a new glyph.  r13 suppressed before checking the persistent
+    // cache, which caused too many background-cache aborts and slow page turns.
+    if (_ttfEngine != nullptr && _ttfEngine->hasCachedGlyph(codepoint)) {
+      const int cachedSlot = prepareLruSlot();
+      ExternalGlyphMetrics metrics{};
+      std::memset(_cache[cachedSlot].bitmap, 0, MAX_GLYPH_BYTES);
+      const ReaderMemoryDiagTrace missBefore = ReaderMemoryDiagnostics::capture();
+      const unsigned long missStart = millis();
+      const bool ok = _ttfEngine->loadCachedGlyph(codepoint, _cache[cachedSlot].bitmap, MAX_GLYPH_BYTES, &metrics);
+      const ReaderMemoryDiagTrace missAfter = ReaderMemoryDiagnostics::capture();
+      {
+        char phase[96];
+        std::snprintf(phase, sizeof(phase), "glyph-cache-disk-hit-background U+%04lx", static_cast<unsigned long>(codepoint));
+        ReaderMemoryDiagnostics::logDeltaIfChanged(phase, missBefore, missAfter, millis() - missStart, 128, 4096, 20);
+      }
+      publishSlot(cachedSlot, codepoint, ok, metrics);
+      return ok ? _cache[cachedSlot].bitmap : nullptr;
+    }
+
+    gRuntimeTtfMissSuppressed = true;
+    const unsigned long now = millis();
+    if ((now - gLastRuntimeTtfSuppressLogAt) >= kRuntimeTtfSuppressLogIntervalMs) {
+      LOG_DBG(
+          "TTF",
+          "TTF glyph miss rasterize suppressed: U+%04lx reason=%s",
+          static_cast<unsigned long>(codepoint),
+          gRuntimeTtfRasterizeReason ? gRuntimeTtfRasterizeReason : "runtime-guard"
+      );
+      gLastRuntimeTtfSuppressLogAt = now;
+    }
+    {
+      char phase[96];
+      std::snprintf(phase, sizeof(phase), "glyph-cache-miss-ttf-suppressed U+%04lx", static_cast<unsigned long>(codepoint));
+      ReaderMemoryDiagnostics::logDeltaIfChanged(phase, glyphLookupBefore, ReaderMemoryDiagnostics::capture(), millis() - glyphLookupStart, 128, 4096, 20);
+    }
+    return nullptr;
   }
+
+  // Cache miss: pick an LRU slot and remove its old hash table entry.
+  int slot = prepareLruSlot();
 
   if (_isTtfFormat) {
     ExternalGlyphMetrics metrics{};
     std::memset(_cache[slot].bitmap, 0, MAX_GLYPH_BYTES);
+    const ReaderMemoryDiagTrace missBefore = ReaderMemoryDiagnostics::capture();
+    const unsigned long missStart = millis();
     const bool ok = _ttfEngine != nullptr &&
                     _ttfEngine->loadGlyph(codepoint, _cache[slot].bitmap, MAX_GLYPH_BYTES, &metrics);
-    _cache[slot].codepoint = codepoint;
-    _cache[slot].lastUsed = ++_accessCounter;
-    _cache[slot].notFound = !ok;
-    _cache[slot].metrics = metrics;
-
-    int hash = hashCodepoint(codepoint);
-    for (int i = 0; i < CACHE_SIZE; ++i) {
-      const int idx = (hash + i) % CACHE_SIZE;
-      if (_hashTable[idx] == -1) {
-        _hashTable[idx] = slot;
-        break;
-      }
+    const ReaderMemoryDiagTrace missAfter = ReaderMemoryDiagnostics::capture();
+    {
+      char phase[96];
+      std::snprintf(phase, sizeof(phase), "glyph-cache-miss-load-ttf U+%04lx", static_cast<unsigned long>(codepoint));
+      ReaderMemoryDiagnostics::logDeltaIfChanged(phase, missBefore, missAfter, millis() - missStart, 256, 4096, 40);
+    }
+    publishSlot(slot, codepoint, ok, metrics);
+    {
+      char phase[96];
+      std::snprintf(phase, sizeof(phase), "glyph-bitmap-store-cache-ttf U+%04lx", static_cast<unsigned long>(codepoint));
+      ReaderMemoryDiagnostics::logDeltaIfChanged(phase, glyphLookupBefore, ReaderMemoryDiagnostics::capture(), millis() - glyphLookupStart, 256, 4096, 40);
     }
     return ok ? _cache[slot].bitmap : nullptr;
   }
@@ -825,6 +953,11 @@ const uint8_t* ExternalFont::getGlyph(uint32_t codepoint) {
     }
   }
 
+  {
+    char phase[96];
+    std::snprintf(phase, sizeof(phase), "glyph-cache-miss-load-bitmap U+%04lx", static_cast<unsigned long>(codepoint));
+    ReaderMemoryDiagnostics::logDeltaIfChanged(phase, glyphLookupBefore, ReaderMemoryDiagnostics::capture(), millis() - glyphLookupStart, 256, 4096, 40);
+  }
   if (_cache[slot].notFound) {
     return nullptr;
   }
@@ -1028,9 +1161,13 @@ void ExternalFont::preloadGlyphs(const uint32_t* codepoints, size_t count) {
   // Sorting also deduplicates repeated characters in a page. For TTF this
   // prevents redundant FreeType/cache lookups; for bitmap fonts it keeps SD
   // reads roughly sequential.
+  const ReaderMemoryDiagTrace sortBefore = ReaderMemoryDiagnostics::capture();
+  const unsigned long sortStart = millis();
   std::vector<uint32_t> sorted(codepoints, codepoints + maxLoad);
   std::sort(sorted.begin(), sorted.end());
   sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+  const ReaderMemoryDiagTrace sortAfter = ReaderMemoryDiagnostics::capture();
+  ReaderMemoryDiagnostics::logDeltaIfChanged("temporary-vector-preloadGlyphs-sorted", sortBefore, sortAfter, millis() - sortStart, 256, 4096, 20);
 
   if (_isTtfFormat) {
     const unsigned long startTime = millis();

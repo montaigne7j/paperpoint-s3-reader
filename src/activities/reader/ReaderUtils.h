@@ -10,6 +10,15 @@ namespace ReaderUtils {
 
 constexpr unsigned long GO_HOME_MS = 1000;
 
+// Reader text anti-aliasing is intentionally disabled for inverted reader
+// content (black page background / white text).  The normal grayscale AA
+// edge pixels become dark-gray halos after inversion, which reduces contrast
+// and makes white text look fuzzy on e-ink.  Keep AA enabled for normal
+// white-page reading and for non-reader UI paths.
+inline bool shouldUseTextAntiAliasingForReader() {
+  return SETTINGS.textAntiAliasing && !SETTINGS.readerContentInvert;
+}
+
 inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
   switch (orientation) {
     case CrossPointSettings::ORIENTATION::PORTRAIT:
@@ -184,6 +193,9 @@ inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntil
 // 0-3 natively. Caller is responsible for displaying the buffer afterwards.
 template <typename RenderFn>
 void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn) {
+  if (!shouldUseTextAntiAliasingForReader()) {
+    return;
+  }
   renderer.setRenderMode(GfxRenderer::GRAYSCALE_DIRECT);
   renderFn();
   renderer.setRenderMode(GfxRenderer::BW);

@@ -10,9 +10,11 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstdio>
 
 #include "ExternalFontHelpers.h"
 #include "FontCacheManager.h"
+#include <ReaderMemoryDiagnostics.h>
 
 #include <cstring>
 
@@ -1012,6 +1014,8 @@ void GfxRenderer::renderExternalGlyph(
   if (!bitmap || !font || !x) {
     return;
   }
+  const ReaderMemoryDiagTrace drawBefore = ReaderMemoryDiagnostics::capture();
+  const unsigned long drawStart = millis();
 
   const uint8_t width =
       metrics.width > 0 ? metrics.width : font->getCharWidth();
@@ -1084,6 +1088,14 @@ void GfxRenderer::renderExternalGlyph(
   }
 
   *x += layout.advanceX;
+  ReaderMemoryDiagnostics::logDeltaIfChanged(
+      "drawGlyphToCanvas-external",
+      drawBefore,
+      ReaderMemoryDiagnostics::capture(),
+      millis() - drawStart,
+      128,
+      4096,
+      20);
 }
 
 bool GfxRenderer::renderExternalReaderGlyphCentered(
@@ -1114,8 +1126,15 @@ bool GfxRenderer::renderExternalReaderGlyphCentered(
     return false;
   }
 
+  const ReaderMemoryDiagTrace lookupBefore = ReaderMemoryDiagnostics::capture();
+  const unsigned long lookupStart = millis();
   const uint8_t* bitmap =
       font->getGlyph(codepoint);
+  {
+    char phase[96];
+    std::snprintf(phase, sizeof(phase), "glyph-lookup-centered U+%04lx", static_cast<unsigned long>(codepoint));
+    ReaderMemoryDiagnostics::logDeltaIfChanged(phase, lookupBefore, ReaderMemoryDiagnostics::capture(), millis() - lookupStart, 128, 4096, 20);
+  }
 
   if (bitmap == nullptr) {
     return false;
@@ -1217,6 +1236,8 @@ bool GfxRenderer::renderExternalReaderGlyphCentered(
       cellY +
       (cellHeight - visibleHeight) / 2;
 
+  const ReaderMemoryDiagTrace drawCenteredBefore = ReaderMemoryDiagnostics::capture();
+  const unsigned long drawCenteredStart = millis();
   for (int sourceY = minY;
        sourceY <= maxY;
        ++sourceY) {
@@ -1248,6 +1269,14 @@ bool GfxRenderer::renderExternalReaderGlyphCentered(
     }
   }
 
+  ReaderMemoryDiagnostics::logDeltaIfChanged(
+      "drawGlyphToCanvas-centered",
+      drawCenteredBefore,
+      ReaderMemoryDiagnostics::capture(),
+      millis() - drawCenteredStart,
+      128,
+      4096,
+      20);
   return true;
 }
 
@@ -1278,8 +1307,15 @@ bool GfxRenderer::renderExternalReaderGlyphRotated90CW(
     return false;
   }
 
+  const ReaderMemoryDiagTrace lookupBefore = ReaderMemoryDiagnostics::capture();
+  const unsigned long lookupStart = millis();
   const uint8_t* bitmap =
       font->getGlyph(codepoint);
+  {
+    char phase[96];
+    std::snprintf(phase, sizeof(phase), "glyph-lookup-rotated U+%04lx", static_cast<unsigned long>(codepoint));
+    ReaderMemoryDiagnostics::logDeltaIfChanged(phase, lookupBefore, ReaderMemoryDiagnostics::capture(), millis() - lookupStart, 128, 4096, 20);
+  }
 
   if (bitmap == nullptr) {
     return false;
@@ -1368,7 +1404,14 @@ bool GfxRenderer::renderExternalReaderGlyph(
     return false;
   }
 
+  const ReaderMemoryDiagTrace lookupBefore = ReaderMemoryDiagnostics::capture();
+  const unsigned long lookupStart = millis();
   const uint8_t* bitmap = externalFont->getGlyph(cp);
+  {
+    char phase[96];
+    std::snprintf(phase, sizeof(phase), "glyph-lookup-horizontal U+%04lx", static_cast<unsigned long>(cp));
+    ReaderMemoryDiagnostics::logDeltaIfChanged(phase, lookupBefore, ReaderMemoryDiagnostics::capture(), millis() - lookupStart, 128, 4096, 20);
+  }
   if (bitmap == nullptr) return false;
 
   ExternalGlyphMetrics metrics = getDefaultMetrics(*externalFont, cp);
@@ -2118,6 +2161,8 @@ void GfxRenderer::drawVerticalText(
     return;
   }
 
+  const ReaderMemoryDiagTrace verticalBefore = ReaderMemoryDiagnostics::capture();
+  const unsigned long verticalStart = millis();
   int columnX = rightX;
   int cursorY = topY;
 
@@ -2201,6 +2246,14 @@ void GfxRenderer::drawVerticalText(
 
     cursorY += glyphAdvance;
   }
+  ReaderMemoryDiagnostics::logDeltaIfChanged(
+      "drawVerticalText-total",
+      verticalBefore,
+      ReaderMemoryDiagnostics::capture(),
+      millis() - verticalStart,
+      128,
+      4096,
+      120);
 }
 
 void GfxRenderer::drawLine(int x1, int y1, int x2, int y2, const bool state) const {

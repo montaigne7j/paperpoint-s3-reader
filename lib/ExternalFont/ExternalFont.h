@@ -88,8 +88,24 @@ class ExternalFont {
    */
   void preloadGlyphs(const uint32_t* codepoints, size_t count);
 
+  // True if getGlyph(codepoint) can return a glyph without invoking
+  // OpenFontRender/FreeType rasterization.  For TTF this includes the RAM LRU
+  // and the persistent SD glyph cache.
+  bool isGlyphAvailableWithoutRasterize(uint32_t codepoint) const;
+
   /** Flush pending writes made by the runtime TTF persistent cache. */
   void flushPersistentCache();
+
+  // Runtime guard used by the reader renderer.  Background frame-cache
+  // rendering may draw glyphs that are already cached, but it must not
+  // trigger a new TTF rasterization because OpenFontRender/FreeType can
+  // consume and fragment internal heap.  Visible rendering normally allows
+  // rasterization, except when the reader explicitly enters a low-memory
+  // fail-safe mode.
+  static bool setRuntimeTtfRasterizeAllowed(bool allowed, const char* reason = nullptr);
+  static bool isRuntimeTtfRasterizeAllowed();
+  static void resetRuntimeTtfMissSuppressed();
+  static bool consumeRuntimeTtfMissSuppressed();
 
   // Font properties
   uint8_t getCharWidth() const { return _charWidth; }

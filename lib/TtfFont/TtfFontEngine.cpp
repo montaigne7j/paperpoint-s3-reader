@@ -1,8 +1,10 @@
 #include "TtfFontEngine.h"
 
 #include <ExternalFont.h>
+#include <FreeTypePsramAllocator.h>
 #include <Logging.h>
 #include <OpenFontRender.h>
+#include <ReaderMemoryDiagnostics.h>
 #include <esp_heap_caps.h>
 
 #include <algorithm>
@@ -442,6 +444,8 @@ bool TtfFontEngine::readDiskGlyph(const DiskIndexEntry& entry, uint8_t* bitmap,
 
 bool TtfFontEngine::appendDiskGlyph(const uint32_t codepoint, const uint8_t* bitmap,
                                     const ExternalGlyphMetrics& metrics, const uint16_t dataLength) {
+  const ReaderMemoryDiagTrace storeBefore = ReaderMemoryDiagnostics::capture();
+  const unsigned long storeStart = millis();
   if (!cacheAppendFile_.isOpen() || bitmap == nullptr || dataLength > bytesPerGlyph_) return false;
 
   DiskIndexEntry existing{};
@@ -477,11 +481,18 @@ bool TtfFontEngine::appendDiskGlyph(const uint32_t codepoint, const uint8_t* bit
 
   ++pendingCacheWrites_;
   if (pendingCacheWrites_ >= CACHE_FLUSH_INTERVAL) flushPersistentCache();
+  {
+    char phase[96];
+    std::snprintf(phase, sizeof(phase), "glyph-bitmap-store-disk U+%04lx", static_cast<unsigned long>(codepoint));
+    ReaderMemoryDiagnostics::logDeltaIfChanged(phase, storeBefore, ReaderMemoryDiagnostics::capture(), millis() - storeStart, 128, 4096, 20);
+  }
   return true;
 }
 
 bool TtfFontEngine::rasterize(const uint32_t codepoint, uint8_t* bitmap, const size_t bitmapCapacity,
                               ExternalGlyphMetrics* metrics) {
+  const ReaderMemoryDiagTrace rasterTotalBefore = ReaderMemoryDiagnostics::capture();
+  const unsigned long rasterTotalStart = millis();
   if (renderer_ == nullptr || scratch_ == nullptr || metrics == nullptr || bitmap == nullptr ||
       bitmapCapacity < bytesPerGlyph_) {
     return false;
@@ -492,7 +503,20 @@ bool TtfFontEngine::rasterize(const uint32_t codepoint, uint8_t* bitmap, const s
 
   std::memset(scratch_, 0, bytesPerGlyph_);
   renderer_->setFontSize(pixelSize_);
+  const ReaderMemoryDiagTrace drawBefore = ReaderMemoryDiagnostics::capture();
+  const unsigned long drawStart = millis();
   const uint16_t advance = renderer_->drawString(utf8, 0, 0, 0xFFFF, 0x0000, Layout::Horizontal);
+  const ReaderMemoryDiagTrace drawAfter = ReaderMemoryDiagnostics::capture();
+  {
+    char phase[96];
+    std::snprintf(phase, sizeof(phase), "glyph-rasterize-drawString U+%04lx", static_cast<unsigned long>(codepoint));
+    ReaderMemoryDiagnostics::logDeltaIfChanged(phase, drawBefore, drawAfter, millis() - drawStart, 128, 4096, 20);
+    if (drawAfter.internalFree != drawBefore.internalFree ||
+        drawAfter.internalMaxAlloc != drawBefore.internalMaxAlloc ||
+        drawAfter.psramFree != drawBefore.psramFree) {
+      CrossPointFtPsramAllocator::logSummary(phase);
+    }
+  }
 
   bool hasInk = false;
   for (uint16_t i = 0; i < bytesPerGlyph_; ++i) {
@@ -515,19 +539,51 @@ bool TtfFontEngine::rasterize(const uint32_t codepoint, uint8_t* bitmap, const s
   metrics->flags = 0x01;
   metrics->left = 0;
   metrics->top = cellHeight_;
+  {
+    char phase[96];
+    std::snprintf(phase, sizeof(phase), "glyph-rasterize-total U+%04lx", static_cast<unsigned long>(codepoint));
+    ReaderMemoryDiagnostics::logDeltaIfChanged(phase, rasterTotalBefore, ReaderMemoryDiagnostics::capture(), millis() - rasterTotalStart, 128, 4096, 20);
+  }
   return true;
+}
+
+bool TtfFontEngine::hasCachedGlyph(const uint32_t codepoint) const {
+  if (!loaded_) return false;
+  return findDiskEntry(codepoint, nullptr);
+}
+
+bool TtfFontEngine::loadCachedGlyph(const uint32_t codepoint, uint8_t* bitmap, const size_t bitmapCapacity,
+                                    ExternalGlyphMetrics* metrics) {
+  const ReaderMemoryDiagTrace loadBefore = ReaderMemoryDiagnostics::capture();
+  const unsigned long loadStart = millis();
+  if (!loaded_) return false;
+  DiskIndexEntry entry{};
+  if (!findDiskEntry(codepoint, &entry)) return false;
+  const bool ok = readDiskGlyph(entry, bitmap, bitmapCapacity, metrics);
+  char phase[96];
+  std::snprintf(phase, sizeof(phase), "glyph-lookup-disk-hit U+%04lx", static_cast<unsigned long>(codepoint));
+  ReaderMemoryDiagnostics::logDeltaIfChanged(phase, loadBefore, ReaderMemoryDiagnostics::capture(), millis() - loadStart, 128, 4096, 20);
+  return ok;
 }
 
 bool TtfFontEngine::loadGlyph(const uint32_t codepoint, uint8_t* bitmap, const size_t bitmapCapacity,
                               ExternalGlyphMetrics* metrics) {
+  const ReaderMemoryDiagTrace loadBefore = ReaderMemoryDiagnostics::capture();
+  const unsigned long loadStart = millis();
   if (!loaded_ || renderer_ == nullptr) return false;
-  DiskIndexEntry entry{};
-  if (findDiskEntry(codepoint, &entry)) return readDiskGlyph(entry, bitmap, bitmapCapacity, metrics);
+  if (loadCachedGlyph(codepoint, bitmap, bitmapCapacity, metrics)) {
+    return true;
+  }
 
   ExternalGlyphMetrics renderedMetrics{};
   if (!rasterize(codepoint, bitmap, bitmapCapacity, &renderedMetrics)) return false;
   if (metrics != nullptr) *metrics = renderedMetrics;
   appendDiskGlyph(codepoint, bitmap, renderedMetrics, bytesPerGlyph_);
+  {
+    char phase[96];
+    std::snprintf(phase, sizeof(phase), "glyph-lookup-rasterized U+%04lx", static_cast<unsigned long>(codepoint));
+    ReaderMemoryDiagnostics::logDeltaIfChanged(phase, loadBefore, ReaderMemoryDiagnostics::capture(), millis() - loadStart, 128, 4096, 20);
+  }
   return true;
 }
 

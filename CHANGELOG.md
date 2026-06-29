@@ -1,5 +1,80 @@
 # Changelog
 
+## 1.8.0 — 2026-06-29 — Paper S3 TTF memory stabilization and boot waveform settling
+
+- Promoted the PaperPoint S3 Reader release line to `1.8.0` for GitHub publication.
+- Added a FreeType / OpenFontRender PSRAM-preferred allocator: FreeType allocations >= 512 bytes prefer `MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT`, while smaller allocations prefer internal RAM with fallback.
+- Added FT allocator diagnostics (`FTALLOC`) for allocation location, summary counters, PSRAM/internal requested bytes, failures, and FreeType library lifecycle hooks.
+- Kept the r14a background frame-cache safety rule: background rendering may use RAM/disk TTF glyph hits, but true TTF rasterization misses abort the cache job and do not store fallback-rendered frames.
+- Added idle glyph prewarm for adjacent pages and tightened the release default to `internalFree >= 100000`, `internalMaxAlloc >= 50000`, and at most one glyph per prewarm pass.
+- Added a boot-time reader page-turn counter for Paper S3 band-scan waveform settling.  The first 10 reader page turns use 4 target-black darker passes; later turns use 5 passes.
+- Updated README, USER_GUIDE, built-in EPUB manual, web installer copy, release audit notes, and code comments for the V1.8.0 GitHub release.
+
+
+## 1.7.0 page-turn boot waveform settling experimental r16
+
+- Added a boot-time reader page-turn counter for the Paper S3 band-scan waveform.
+- The first 10 full reader page-turn refreshes use a gentler target-black / white-to-black darker schedule: 4 darker passes.
+- Starting from page turn 11 after boot, the waveform automatically switches to the stable target-black schedule: 5 darker passes.
+- Added a per-page-turn serial diagnostic line: `Page-turn waveform profile: turn=... settleTurns=... blackDarkerPasses=... profile=boot/stable`.
+- Kept the existing r15 FreeType PSRAM allocator, r14a background TTF-miss abort, idle glyph prewarm, visible low-memory guard, and frame-cache start gate behavior.
+
+## Experimental r14a - Compile fix
+
+- Fixed PlatformIO compile failure in `ExternalFont.h` caused by a duplicated inline `ExternalFont::isTtfFormat()` declaration introduced while adding the r14 glyph availability helpers.
+- No behavior change from r14 idle glyph prewarm / r13a frame-cache dirty-abort behavior.
+
+## Experimental r14 - Idle TTF glyph prewarm
+
+- Kept r13a's background frame-cache safety rule: background cache may use RAM/disk TTF glyph hits but must abort on a true TTF rasterization miss and must not store a fallback-rendered frame.
+- Fixed background TTF lookup to allow persistent SD glyph-cache hits without treating them as misses, improving frame-cache hit rate after glyphs have been rasterized once.
+- Added idle glyph prewarm for adjacent reader pages: when the reader is idle and memory is healthy, it scans next/previous page text and rasterizes up to three missing TTF glyphs per pass.
+- Idle prewarm only runs when internalFree >= 80 KB, internalMaxAlloc >= 40 KB, PSRAM free >= 3 MB, and no page turn/render work is pending.
+- A single glyph prewarm pass stops and pauses if internal heap drops more than 6 KB or largest block drops more than 4 KB.
+- When idle prewarm successfully warms glyphs for a page that was cooling down after `ttf-miss-suppressed`, the cooldown is cleared so frame-cache warming can retry sooner.
+
+
+## 1.7.0 memory-guard diagnostics experimental r13
+
+- Added a runtime TTF rasterization guard for the reader font path.
+- Background page-frame cache rendering now draws only glyphs already present in the active glyph cache or persistent disk cache; if a TTF cache miss would require OpenFontRender/FreeType rasterization, the background cache job aborts and arms a cooldown for that spine/page.
+- Visible rendering now disables new TTF rasterization when internal heap is critically low (`internalFree < 12000` or `internalMaxAlloc < 4096`), allowing renderer fallback/placeholder behavior instead of forcing another risky glyph rasterization.
+- Preserved the r12 frame-cache start gate and low-memory cooldown to prevent retry storms.
+- Documented that large TTF buffers already use PSRAM, while deeper OpenFontRender/FreeType allocator redirection remains a follow-up item.
+
+
+## 1.7.0 memory-guard diagnostics experimental r12a
+
+- Fixed PlatformIO library build failure where `ReaderMemoryDiagnostics.h` was not visible to `lib/ExternalFont`, `lib/TtfFont`, `lib/GfxRenderer`, and `lib/Epub`.
+- Added an explicit project include path and a header-only local helper library shim for `ReaderMemoryDiagnostics`.
+- No behavior change from r12 memory guard / glyph diagnostics logic.
+
+
+## 1.7.0 memory-guard diagnostics experimental r12
+
+- Prevents reader background frame-cache retry storms in low internal heap conditions. Ordinary, non-pending frame-cache warming now runs only in `NORMAL` memory state.
+- Adds a hard start gate for background frame-cache jobs: `internalFree >= 30000` and `internalMaxAlloc >= 12000`.
+- Adds an 8-second low-memory cooldown for the same `spine/page` after `CRITICAL`/`EMERGENCY` frame-cache aborts.
+- Pending page turns that cannot safely start a cache job now fall back to visible render instead of waiting for a cache frame.
+- Adds deeper `MEMD` diagnostics for TextBlock rendering, vertical text draw, external glyph lookup, glyph cache miss/load, TTF rasterization, bitmap cache/disk store, and temporary preload vector allocation.
+
+
+## 1.7.0 adaptive-memory-cache experimental r10
+
+- Fixed a pending page-turn stall found in r9: if a queued target-page warm job enters `CRITICAL` memory state and aborts before producing a cache frame, the queued turn now bypasses the cache gate and proceeds through the normal visible render path.
+- Prevented the warm loop from repeatedly restarting the same low-memory pending target every few milliseconds after such an abort.
+- Added explicit logs for the fallback: `Pending page turn will use visible render after low-memory cache abort` and `Page turn cache gate bypassed after low-memory warm abort`.
+
+## 1.7.0 adaptive-memory-cache experimental
+
+- Added reader memory-state classification for Paper S3: `NORMAL`, `WARNING`, `CRITICAL`, and `EMERGENCY`.
+- Silent next-chapter indexing now runs only in `NORMAL` memory state.
+- Background page-frame cache warming now adapts by memory state: `NORMAL` keeps normal adjacent caching, `WARNING` warms only the next page or queued pending target, and `CRITICAL`/`EMERGENCY` stops background warming.
+- In `CRITICAL`/`EMERGENCY`, frame-cache slots unrelated to the current page or next page are released; `EMERGENCY` also frees their backing buffers.
+- Visible cache-miss renders skip storing a new framebuffer cache entry in `CRITICAL`/`EMERGENCY`.
+- Added periodic PSRAM/internal heap diagnostics and reader memory-state logs.
+- Renamed misleading reader input logs from “non-page-turn” wording to neutral “input event ignored” wording.
+
 ## 1.7.0 — 2026-06-27 — Stable Paper S3 page turn cache and waveform profile
 
 - 定版 Paper S3 reader page-turn flow：visible page 顯示完成後等待 EPD idle，再短延遲啟動背景鄰頁 framebuffer cache。
@@ -423,3 +498,32 @@
 - Added Controls > Swipe Page Turn setting (`swipePageTurnEnabled`, default on).
 - Added Display > Invert Reader Content setting (`readerContentInvert`, default off).
 - Reader inversion fills only the content area black and renders text/images inverted; status bar remains normal.
+
+## Diagnostic experimental - internal heap trace
+- Added Paper S3 reader diagnostic logs for large buffer allocation location (`PSRAM` / `INTERNAL` / `UNKNOWN`).
+- Added `MEMD` internal heap delta logs around frame-cache warm start, page object load, glyph/page render, cache store, and frame-cache job abort.
+
+## Experimental r13a - Frame-cache TTF miss dirty/abort fix
+
+- Fixed background frame-cache TTF miss suppression so the suppression flag survives policy restoration and is visible to the reader cache job.
+- Background frame-cache jobs now treat any suppressed TTF glyph miss as a dirty render: abort the job, skip cache-store, add target cooldown, and force pending page turns to visible render when needed.
+- Direct frame-cache render also skips cache-store when a TTF miss is suppressed.
+- This prevents fallback/system-font partial renders from being stored as valid frame-cache hits while preserving the r13 guard against background TTF rasterization.
+
+## Experimental r15 - FreeType PSRAM allocator redirection
+
+- Added a patched OpenFontRender build step that replaces `FT_Init_FreeType()` with a custom `FT_New_Library()` allocator path.
+- Added `CrossPointFtPsramAllocator` with `ft_psram_alloc`, `ft_psram_realloc`, and `ft_psram_free` equivalents:
+  - allocations >= 512 bytes prefer `MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT`.
+  - allocations < 512 bytes prefer internal 8-bit heap, with generic fallback.
+- Added FT allocator diagnostics:
+  - large `FT alloc` / `FT realloc` / `FT free` detail logs.
+  - `FT allocator summary` counters with PSRAM/internal allocation counts and requested bytes.
+- Kept r14a strategy intact:
+  - background TTF miss aborts and does not store frame cache.
+  - idle glyph prewarm remains guarded.
+  - visible low-memory TTF guard and frame-cache start gate remain enabled.
+- Tightened idle glyph prewarm while allocator redirection is being validated:
+  - `internalFree >= 100000`.
+  - `internalMaxAlloc >= 50000`.
+  - max 1 glyph per prewarm pass.
