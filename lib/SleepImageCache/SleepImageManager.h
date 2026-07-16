@@ -17,6 +17,10 @@ class SleepImageManager {
   // next custom sleep screen. The expensive conversion is deferred to loop().
   void begin();
 
+  // Re-scan after the user changes Random/selected custom sleep image.
+  // The previous fallback cache is discarded so an old selection is not reused.
+  void refreshSelection();
+
   // Start background preparation after the foreground has been idle for a
   // short period. Safe to call every main-loop iteration.
   void loop(uint32_t idleMs, bool foregroundBusy);

@@ -12,12 +12,17 @@
 #include "CrossPointSettings.h"
 #include "KOReaderSettingsActivity.h"
 #include "LanguageSelectActivity.h"
+#include "ImuCalibrationActivity.h"
+#include "util/PocketLock.h"
 #include "MappedInputManager.h"
 #include "activities/util/DirectTouchSelection.h"
 #include "OtaUpdateActivity.h"
 #include "ReaderFontSelectActivity.h"
+#include "ReaderBackgroundSelectActivity.h"
+#include "SleepImageSelectActivity.h"
 #include "ReaderFontSizeActivity.h"
 #include "ReaderValueAdjustActivity.h"
+#include "activities/reader/ReaderUtils.h"
 #include "SettingsList.h"
 #include "StatusBarSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -72,11 +77,21 @@ void SettingsActivity::onEnter() {
     // Web-only categories (KOReader Sync, OPDS Browser) are skipped for device UI
   }
 
-  // Append device-only ACTION items
+  // Append device-only ACTION items. Keep the custom sleep image selector
+  // directly below Sleep Screen so Custom -> image selection is a clear
+  // two-level workflow.
+  const size_t sleepSelectorPos = std::min<size_t>(1, displaySettings.size());
+  displaySettings.insert(displaySettings.begin() + sleepSelectorPos,
+                         SettingInfo::Action(StrId::STR_CUSTOM_SLEEP_IMAGE, SettingAction::SleepImageFile));
+  displaySettings.push_back(SettingInfo::Action(StrId::STR_READER_BACKGROUND_PNG, SettingAction::ReaderBackgroundFile));
   readerSettings.insert(readerSettings.begin(),
                         SettingInfo::Action(StrId::STR_READER_FONT_FILE, SettingAction::ReaderFontFile));
   controlsSettings.insert(controlsSettings.begin(),
                           SettingInfo::Action(StrId::STR_REMAP_FRONT_BUTTONS, SettingAction::RemapFrontButtons));
+#if CROSSPOINT_PAPERS3
+  controlsSettings.insert(controlsSettings.begin() + std::min<size_t>(1, controlsSettings.size()),
+                          SettingInfo::Action(StrId::STR_IMU_CALIBRATION, SettingAction::ImuCalibration));
+#endif
   systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_KOREADER_SYNC, SettingAction::KOReaderSync));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_OPDS_BROWSER, SettingAction::OPDSBrowser));
@@ -140,12 +155,24 @@ void SettingsActivity::loop() {
         std::max(0, selectedSettingIndex - 1), metrics.listRowHeight);
     if (targetSetting >= 0) {
       const int targetSelection = targetSetting + 1;
-      if (targetSelection == selectedSettingIndex) {
+      const bool wasAlreadySelected = targetSelection == selectedSettingIndex;
+      selectedSettingIndex = targetSelection;
+
+      // Calibration is a guided action rather than an in-place value. Open it
+      // immediately on the first tap so it cannot appear selected yet fail to
+      // enter because a second tap was missed by the e-paper touch cycle.
+      const auto& tappedSetting = (*currentSettings)[targetSetting];
+      if (tappedSetting.type == SettingType::ACTION &&
+          tappedSetting.action == SettingAction::ImuCalibration) {
+        toggleCurrentSetting();
+        return;
+      }
+
+      if (wasAlreadySelected) {
         toggleCurrentSetting();
       } else {
-        selectedSettingIndex = targetSelection;
+        requestUpdate();
       }
-      requestUpdate();
       return;
     }
   }
@@ -215,7 +242,15 @@ void SettingsActivity::toggleCurrentSetting() {
   const auto& setting = (*currentSettings)[selectedSetting];
 
   if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
-    // Toggle the boolean value using the member pointer
+    // Direction sensing lock is valid only after calibration and in fixed modes.
+#if CROSSPOINT_PAPERS3
+    if (setting.valuePtr == &CrossPointSettings::readerInversionLock) {
+      if (!PocketLock::isCalibrated() || SETTINGS.readerOrientationMode == CrossPointSettings::READER_ORIENTATION_AUTO) {
+        SETTINGS.readerInversionLock = 0;
+        return;
+      }
+    }
+#endif
     const bool currentValue = SETTINGS.*(setting.valuePtr);
     SETTINGS.*(setting.valuePtr) = !currentValue;
   } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
@@ -229,6 +264,30 @@ void SettingsActivity::toggleCurrentSetting() {
       const uint8_t currentValue = SETTINGS.*(setting.valuePtr);
       SETTINGS.*(setting.valuePtr) = (currentValue + 1) % static_cast<uint8_t>(setting.enumValues.size());
     }
+
+#if CROSSPOINT_PAPERS3
+    if (setting.valuePtr == &CrossPointSettings::readerOrientationMode) {
+      if (SETTINGS.readerOrientationMode == CrossPointSettings::READER_ORIENTATION_AUTO) {
+        SETTINGS.readerInversionLock = 0;
+      } else {
+        SETTINGS.orientation = SETTINGS.readerOrientationMode == CrossPointSettings::READER_ORIENTATION_FIXED_180
+                                   ? CrossPointSettings::INVERTED : CrossPointSettings::PORTRAIT;
+
+        // Apply fixed 0/180 selection immediately.  The old implementation
+        // only queued a normal deferred update, so the visible Settings/menu
+        // screen could remain in the previous direction until Back was used.
+        ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+        mappedInput.setTouchOrientation(SETTINGS.orientation);
+        mappedInput.clearState();
+        renderer.requestFullRefresh();
+      }
+
+      // Update the enum text immediately in auto mode too, and synchronously
+      // redraw after a fixed-direction rotation before accepting more input.
+      SETTINGS.saveToFile();
+      requestUpdateAndWait();
+    }
+#endif
 
     if (setting.valuePtr == &CrossPointSettings::readingLayout) {
       LOG_INF("SET", "Reading layout changed to %s",
@@ -254,7 +313,7 @@ void SettingsActivity::toggleCurrentSetting() {
               CrossPointSettings::READER_LINE_SPACING_MIN, CrossPointSettings::READER_LINE_SPACING_MAX, 5, "%",
               "直排：調整欄距",
               [](uint8_t value) {
-                SETTINGS.lineSpacing = value;
+                SETTINGS.lineSpacing = static_cast<uint8_t>(value);
                 SETTINGS.saveToFile();
               }),
           [](const ActivityResult&) {});
@@ -264,11 +323,11 @@ void SettingsActivity::toggleCurrentSetting() {
     if (setting.valuePtr == &CrossPointSettings::characterSpacing) {
       startActivityForResult(
           std::make_unique<ReaderValueAdjustActivity>(
-              renderer, mappedInput, StrId::STR_CHARACTER_SPACING, SETTINGS.characterSpacing,
+              renderer, mappedInput, StrId::STR_CHARACTER_SPACING, SETTINGS.getReaderCharacterSpacing(),
               CrossPointSettings::READER_CHARACTER_SPACING_MIN, CrossPointSettings::READER_CHARACTER_SPACING_MAX, 1, " px",
-              "0 px 為最緊密字距",
-              [](uint8_t value) {
-                SETTINGS.characterSpacing = value;
+              "可為負值；外部 BIN 字型若字距過寬可往負值調整",
+              [](int16_t value) {
+                SETTINGS.characterSpacing = static_cast<uint8_t>(static_cast<int8_t>(value));
                 SETTINGS.saveToFile();
               }),
           [](const ActivityResult&) {});
@@ -298,7 +357,7 @@ void SettingsActivity::toggleCurrentSetting() {
         startActivityForResult(std::make_unique<CalibreSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::Network:
-        startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput, false), resultHandler);
+        startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput, false, false), resultHandler);
         break;
       case SettingAction::ClearCache:
         startActivityForResult(std::make_unique<ClearCacheActivity>(renderer, mappedInput), resultHandler);
@@ -311,6 +370,15 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::ReaderFontFile:
         startActivityForResult(std::make_unique<ReaderFontSelectActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::ReaderBackgroundFile:
+        startActivityForResult(std::make_unique<ReaderBackgroundSelectActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::SleepImageFile:
+        startActivityForResult(std::make_unique<SleepImageSelectActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::ImuCalibration:
+        startActivityForResult(std::make_unique<ImuCalibrationActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::None:
         // Do nothing
@@ -365,11 +433,37 @@ void SettingsActivity::render(RenderLock&&) {
           }
 #endif
           valueText = I18N.get(setting.enumValues[value]);
+        } else if (setting.type == SettingType::ACTION && setting.action == SettingAction::SleepImageFile) {
+          const char* selectedSleep = SETTINGS.sleepCustomImagePath;
+          if (selectedSleep != nullptr && selectedSleep[0] != '\0') {
+            std::string path(selectedSleep);
+            const size_t slash = path.find_last_of('/');
+            valueText = slash == std::string::npos ? path : path.substr(slash + 1);
+          } else {
+            valueText = tr(STR_RANDOM);
+          }
+        } else if (setting.type == SettingType::ACTION && setting.action == SettingAction::ImuCalibration) {
+          valueText = PocketLock::isCalibrated() ? tr(STR_IMU_CALIBRATED) : tr(STR_IMU_NOT_CALIBRATED);
+        } else if (setting.type == SettingType::ACTION && setting.action == SettingAction::ReaderBackgroundFile) {
+          const char* selectedBg = SETTINGS.readerBackgroundPngPath;
+          if (selectedBg != nullptr && selectedBg[0] != '\0') {
+            std::string path(selectedBg);
+            const size_t slash = path.find_last_of('/');
+            valueText = slash == std::string::npos ? path : path.substr(slash + 1);
+          } else {
+            valueText = tr(STR_NONE_OPT);
+          }
         } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
-          valueText = std::to_string(SETTINGS.*(setting.valuePtr));
+          if (setting.valuePtr == &CrossPointSettings::characterSpacing) {
+            valueText = std::to_string(SETTINGS.getReaderCharacterSpacing());
+          } else {
+            valueText = std::to_string(SETTINGS.*(setting.valuePtr));
+          }
           if (setting.valuePtr == &CrossPointSettings::fontSize) {
             valueText += " px";
           } else if (setting.valuePtr == &CrossPointSettings::lineSpacing) {
+            valueText += "%";
+          } else if (setting.valuePtr == &CrossPointSettings::readerBackgroundFadePercent) {
             valueText += "%";
           } else if (setting.valuePtr == &CrossPointSettings::characterSpacing) {
             valueText += " px";

@@ -272,7 +272,7 @@ void ParsedText::addWord(
 // Consumes data to minimize memory usage
 void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
                                        const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
-                                       const uint8_t characterSpacing,
+                                       const int16_t characterSpacing,
                                        const bool includeLastLine) {
   if (words.empty()) {
     return;
@@ -491,15 +491,33 @@ std::vector<size_t> ParsedText::computeLineBreaks(
 }
 
 void ParsedText::applyParagraphIndent() {
-  if (extraParagraphSpacing || words.empty()) {
+  if (words.empty() || paragraphIndentApplied) return;
+  paragraphIndentApplied = true;
+
+  const bool leftLike = blockStyle.alignment == CssTextAlign::Justify ||
+                        blockStyle.alignment == CssTextAlign::Left ||
+                        blockStyle.alignment == CssTextAlign::None;
+  if (!leftLike) return;
+
+  if (paragraphFirstLineIndent) {
+    // Preserve structural hanging indents used by list markers. For normal
+    // paragraphs the user setting overrides positive/zero book text-indent so
+    // the result is exactly two CJK character cells in both horizontal and
+    // vertical layout.
+    if (blockStyle.textIndentDefined && blockStyle.textIndent < 0) return;
+    words.front().insert(0, "\xe3\x80\x80\xe3\x80\x80");  // U+3000 x 2
+    blockStyle.textIndent = 0;
+    blockStyle.textIndentDefined = true;
     return;
   }
 
+  if (extraParagraphSpacing) return;
+
   if (blockStyle.textIndentDefined) {
-    // CSS text-indent is explicitly set (even if 0) - don't use fallback EmSpace
-    // The actual indent positioning is handled in extractLine()
-  } else if (blockStyle.alignment == CssTextAlign::Justify || blockStyle.alignment == CssTextAlign::Left) {
-    // No CSS text-indent defined - use EmSpace fallback for visual indent
+    // CSS text-indent is explicitly set (even if 0) - don't use fallback EmSpace.
+    // The actual indent positioning is handled in extractLine().
+  } else {
+    // Legacy fallback: one em-space when paragraph spacing is disabled.
     words.front().insert(0, "\xe2\x80\x83");
   }
 }
@@ -766,7 +784,7 @@ void ParsedText::extractLine(
     const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
     const GfxRenderer& renderer,
     const int fontId,
-    const uint8_t characterSpacing
+    const int16_t characterSpacing
 ) {
   const size_t lineBreak = lineBreakIndices[breakIndex];
   const size_t lastBreakAt = breakIndex > 0 ? lineBreakIndices[breakIndex - 1] : 0;
@@ -921,7 +939,7 @@ void ParsedText::layoutAndExtractColumns(
     const int fontId,
     const uint16_t viewportHeight,
     const float lineSpacing,
-    const uint8_t characterSpacing,
+    const int16_t characterSpacing,
     const std::function<void(
         std::shared_ptr<TextBlock>
     )>& processColumn

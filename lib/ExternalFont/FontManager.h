@@ -14,6 +14,7 @@ enum class FontFileType : uint8_t { BitmapBin = 0, EpdFont = 1, TrueType = 2 };
  */
 struct FontInfo {
   char filename[128];  // Full filename
+  char directory[16];  // Source directory: /font has priority over /fonts
   char name[48];      // Font name
   uint8_t size;       // Font size (pt)
   uint8_t width;      // Character width
@@ -170,6 +171,7 @@ class FontManager {
     // Initialize font array
     for (int i = 0; i < MAX_FONTS; i++) {
       _fonts[i].filename[0] = '\0';
+      _fonts[i].directory[0] = '\0';
       _fonts[i].name[0] = '\0';
       _fonts[i].size = 0;
       _fonts[i].width = 0;
@@ -180,6 +182,7 @@ class FontManager {
 
   static constexpr int MAX_FONTS = 64;
   static constexpr const char* FONTS_DIR = "/fonts";
+  static constexpr const char* FONT_DIR = "/font";
   static constexpr const char* SETTINGS_FILE = "/.crosspoint/font_settings.bin";
   static constexpr uint8_t SETTINGS_VERSION = 2;  // Bumped for UI font support
 

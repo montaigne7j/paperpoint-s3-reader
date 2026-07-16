@@ -287,9 +287,10 @@ float CrossPointSettings::getReaderLineCompression() const {
   return static_cast<float>(percent) / 100.0f;
 }
 
-uint8_t CrossPointSettings::getReaderCharacterSpacing() const {
-  return std::min<uint8_t>(READER_CHARACTER_SPACING_MAX,
-                           std::max<uint8_t>(READER_CHARACTER_SPACING_MIN, characterSpacing));
+int16_t CrossPointSettings::getReaderCharacterSpacing() const {
+  const int16_t signedSpacing = static_cast<int8_t>(characterSpacing);
+  return std::min<int16_t>(READER_CHARACTER_SPACING_MAX,
+                           std::max<int16_t>(READER_CHARACTER_SPACING_MIN, signedSpacing));
 }
 
 unsigned long CrossPointSettings::getSleepTimeoutMs() const {

@@ -1,5 +1,7 @@
 #include "ZipFile.h"
 
+#include <Arduino.h>
+
 #include <HalStorage.h>
 #include <InflateReader.h>
 #include <Logging.h>
@@ -17,6 +19,18 @@ struct ZipInflateCtx {
 namespace {
 constexpr uint16_t ZIP_METHOD_STORED = 0;
 constexpr uint16_t ZIP_METHOD_DEFLATED = 8;
+
+void cooperativeZipYield() {
+  // CBZ pages produced by the Paper S3 converter are usually ZIP_STORED JPEGs.
+  // Yielding every few milliseconds made even direct copy noticeably slow.
+  // Keep the UI/watchdog cooperative, but do it at a lower frequency.
+  static uint32_t lastYieldMs = 0;
+  const uint32_t now = millis();
+  if (now - lastYieldMs >= 25) {
+    lastYieldMs = now;
+    vTaskDelay(1);
+  }
+}
 
 // RAII zip: opens the zip if not already open, closes on destruction only if
 // it performed the open.  Removes the wasOpen/close boilerplate from every method.
@@ -45,6 +59,7 @@ int zipReadCallback(uzlib_uncomp* uncomp) {
   if (ctx->fileRemaining == 0) return -1;
 
   const size_t toRead = ctx->fileRemaining < ctx->readBufSize ? ctx->fileRemaining : ctx->readBufSize;
+  cooperativeZipYield();
   const size_t bytesRead = ctx->file->read(ctx->readBuf, toRead);
   ctx->fileRemaining -= bytesRead;
 
@@ -103,6 +118,49 @@ bool ZipFile::loadAllFileStatSlims() {
   // Set cursor to start of central directory for sequential access
   lastCentralDirPos = zipDetails.centralDirOffset;
   lastCentralDirPosValid = true;
+
+  return true;
+}
+
+bool ZipFile::listEntryNames(std::vector<std::string>& names) {
+  names.clear();
+
+  const ScopedOpenClose zip{*this};
+  if (!zip) return false;
+
+  if (!loadZipDetails()) return false;
+
+  file.seek(zipDetails.centralDirOffset);
+
+  uint32_t sig;
+  char itemName[256];
+
+  while (file.available()) {
+    file.read(&sig, 4);
+    if (sig != 0x02014b50) break;  // End of list
+
+    // version made by, version needed, flags
+    file.seekCur(6);
+    // method, mod time/date, crc, compressed size, uncompressed size
+    file.seekCur(2 + 2 + 2 + 4 + 4 + 4);
+
+    uint16_t nameLen, extraLen, commentLen;
+    file.read(&nameLen, 2);
+    file.read(&extraLen, 2);
+    file.read(&commentLen, 2);
+    // disk number start, internal attrs, external attrs, local header offset
+    file.seekCur(2 + 2 + 4 + 4);
+
+    if (nameLen < sizeof(itemName)) {
+      file.read(itemName, nameLen);
+      itemName[nameLen] = '\0';
+      names.emplace_back(itemName);
+    } else {
+      file.seekCur(nameLen);
+    }
+
+    file.seekCur(extraLen + commentLen);
+  }
 
   return true;
 }
@@ -472,12 +530,14 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
         return false;
       }
 
+      cooperativeZipYield();
       if (out.write(buffer, dataRead) != dataRead) {
         LOG_ERR("ZIP", "Failed to write all output bytes to stream");
         free(buffer);
         return false;
       }
       remaining -= dataRead;
+      cooperativeZipYield();
     }
 
     free(buffer);
@@ -527,6 +587,7 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
       }
 
       if (produced > 0) {
+        cooperativeZipYield();
         if (out.write(outputBuffer, produced) != produced) {
           LOG_ERR("ZIP", "Failed to write all output bytes to stream");
           break;
@@ -548,6 +609,7 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
         LOG_ERR("ZIP", "Decompression failed");
         break;
       }
+      cooperativeZipYield();
       // InflateStatus::Ok: output buffer full, continue
     }
 

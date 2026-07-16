@@ -264,7 +264,9 @@ void BaseTheme::drawProgressBar(const GfxRenderer& renderer, Rect rect, const si
 void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                                 const char* btn4) const {
   const GfxRenderer::Orientation orig_orientation = renderer.getOrientation();
+#if !CROSSPOINT_PAPERS3
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+#endif
 
   const int pageHeight = renderer.getScreenHeight();
 #if CROSSPOINT_PAPERS3
@@ -891,17 +893,28 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
                                     : screenHeight - orientedMarginBottom - paddingBottom - 2;
   const int textY = statusTextBottomY - renderer.getLineHeight(SMALL_FONT_ID);
   int progressTextWidth = 0;
+  const bool tentativePage = currentPage < 0;
+  const int displayPage = tentativePage ? -currentPage : currentPage;
 
   if (SETTINGS.statusBarBookProgressPercentage || SETTINGS.statusBarChapterPageCount) {
-    // Right aligned text for progress counter
-    char progressStr[32];
+    // Right aligned text for progress counter.  Negative currentPage is an
+    // internal reader hint for tentative page-skip status, displayed as 4.../23.
+    char progressStr[40];
 
     if (SETTINGS.statusBarBookProgressPercentage && SETTINGS.statusBarChapterPageCount) {
-      snprintf(progressStr, sizeof(progressStr), "%d/%d  %.0f%%", currentPage, pageCount, bookProgress);
+      if (tentativePage) {
+        snprintf(progressStr, sizeof(progressStr), "%d.../%d  %.0f%%", displayPage, pageCount, bookProgress);
+      } else {
+        snprintf(progressStr, sizeof(progressStr), "%d/%d  %.0f%%", displayPage, pageCount, bookProgress);
+      }
     } else if (SETTINGS.statusBarBookProgressPercentage) {
       snprintf(progressStr, sizeof(progressStr), "%.0f%%", bookProgress);
     } else {
-      snprintf(progressStr, sizeof(progressStr), "%d/%d", currentPage, pageCount);
+      if (tentativePage) {
+        snprintf(progressStr, sizeof(progressStr), "%d.../%d", displayPage, pageCount);
+      } else {
+        snprintf(progressStr, sizeof(progressStr), "%d/%d", displayPage, pageCount);
+      }
     }
 
     progressTextWidth = renderer.getTextWidth(SMALL_FONT_ID, progressStr);
@@ -919,7 +932,7 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
       progress = static_cast<size_t>(bookProgress);
     } else {
       // Chapter progress
-      progress = (pageCount > 0) ? (static_cast<float>(currentPage) / pageCount) * 100 : 0;
+      progress = (pageCount > 0) ? (static_cast<float>(displayPage) / pageCount) * 100 : 0;
     }
     const int barWidth = progressBarMaxWidth * progress / 100;
     renderer.fillRect(orientedMarginLeft, progressBarY, barWidth, progressBarHeight, true);

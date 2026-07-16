@@ -25,6 +25,8 @@ class ParsedText {
   std::vector<bool> wordNoSpace;
   BlockStyle blockStyle;
   bool extraParagraphSpacing;
+  bool paragraphFirstLineIndent;
+  bool paragraphIndentApplied = false;
   bool hyphenationEnabled;
 
   void applyParagraphIndent();
@@ -56,14 +58,17 @@ class ParsedText {
       const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
       const GfxRenderer& renderer,
       int fontId,
-      uint8_t characterSpacing
+      int16_t characterSpacing
   );
   std::vector<uint16_t> calculateWordWidths(const GfxRenderer& renderer, int fontId);
 
  public:
-  explicit ParsedText(const bool extraParagraphSpacing, const bool hyphenationEnabled = false,
-                      const BlockStyle& blockStyle = BlockStyle())
-      : blockStyle(blockStyle), extraParagraphSpacing(extraParagraphSpacing), hyphenationEnabled(hyphenationEnabled) {}
+  explicit ParsedText(const bool extraParagraphSpacing, const bool paragraphFirstLineIndent = false,
+                      const bool hyphenationEnabled = false, const BlockStyle& blockStyle = BlockStyle())
+      : blockStyle(blockStyle),
+        extraParagraphSpacing(extraParagraphSpacing),
+        paragraphFirstLineIndent(paragraphFirstLineIndent),
+        hyphenationEnabled(hyphenationEnabled) {}
   ~ParsedText() = default;
 
   void addWord(
@@ -79,7 +84,7 @@ class ParsedText {
   bool isEmpty() const { return words.empty(); }
   void layoutAndExtractLines(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,
                              const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
-                             uint8_t characterSpacing = 0,
+                             int16_t characterSpacing = 0,
                              bool includeLastLine = true);
 
     // 將 ParsedText 內容拆成直排欄。
@@ -95,7 +100,7 @@ class ParsedText {
         int fontId,
         uint16_t viewportHeight,
         float lineSpacing,
-        uint8_t characterSpacing,
+        int16_t characterSpacing,
         const std::function<void(
             std::shared_ptr<TextBlock>
         )>& processColumn

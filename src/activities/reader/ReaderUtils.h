@@ -4,11 +4,76 @@
 #include <GfxRenderer.h>
 #include <Logging.h>
 
+#include <algorithm>
+
 #include "MappedInputManager.h"
+#include "components/UITheme.h"
+#include "fontIds.h"
 
 namespace ReaderUtils {
 
 constexpr unsigned long GO_HOME_MS = 1000;
+
+constexpr int STATUS_BAR_TEXT_SAFE_GAP = 12;
+
+inline int statusBarVisibleHeightForReader(
+    const GfxRenderer& renderer,
+    const bool automaticPageTurnActive = false
+) {
+  const int themeReservedHeight = UITheme::getInstance().getStatusBarHeight();
+
+  // Large Text has its own status-bar renderer and already reserves a tall
+  // vertical band (64 px on Paper S3). Keep that behavior unchanged.
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::LARGE_TEXT) {
+    return themeReservedHeight;
+  }
+
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const bool showProgressBar =
+      SETTINGS.statusBarProgressBar !=
+      CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
+  const bool showSideStatusText =
+      SETTINGS.statusBarChapterPageCount ||
+      SETTINGS.statusBarBookProgressPercentage ||
+      SETTINGS.statusBarBattery ||
+      SETTINGS.statusBarClock;
+  const bool showTitleText =
+      automaticPageTurnActive ||
+      SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE;
+
+  int textHeight = 0;
+  if (showSideStatusText) {
+    textHeight = std::max(textHeight, renderer.getLineHeight(SMALL_FONT_ID));
+  }
+  if (showTitleText) {
+    textHeight = std::max(textHeight, renderer.getLineHeight(UI_10_FONT_ID));
+  }
+
+  const int progressHeight = showProgressBar
+                                 ? ((SETTINGS.statusBarProgressBarThickness + 1) * 2) +
+                                       metrics.progressBarMarginTop
+                                 : 0;
+  const int textBottomPadding = textHeight > 0 ? 2 : 0;
+  const int actualDrawnHeight = progressHeight + textHeight + textBottomPadding;
+
+  return std::max(themeReservedHeight, actualDrawnHeight);
+}
+
+inline int readerContentBottomReserve(
+    const GfxRenderer& renderer,
+    const bool automaticPageTurnActive = false
+) {
+  const int statusHeight =
+      statusBarVisibleHeightForReader(renderer, automaticPageTurnActive);
+  const int statusReserve = statusHeight > 0 ? statusHeight + STATUS_BAR_TEXT_SAFE_GAP : 0;
+
+  if (SETTINGS.statusBarFollowsPageMargin) {
+    return SETTINGS.screenMargin + statusReserve;
+  }
+
+  return std::max<int>(SETTINGS.screenMargin, statusReserve);
+}
+
 
 // Reader text anti-aliasing is intentionally disabled for inverted reader
 // content (black page background / white text).  The normal grayscale AA

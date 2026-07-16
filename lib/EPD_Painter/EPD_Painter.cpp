@@ -198,11 +198,11 @@ static inline void gpio_clear_fast(uint8_t pin) {
 // use fewer target-black darker passes than later stable turns.  This helps
 // avoid over-driving black pixels while panel temperature is still settling.
 #ifndef EPD_PAGE_TURN_BOOT_SETTLE_TURNS
-#define EPD_PAGE_TURN_BOOT_SETTLE_TURNS 15
+#define EPD_PAGE_TURN_BOOT_SETTLE_TURNS 10
 #endif
 
 #ifndef EPD_PAGE_TURN_BOOT_BLACK_DARKER_PASSES
-#define EPD_PAGE_TURN_BOOT_BLACK_DARKER_PASSES 4
+#define EPD_PAGE_TURN_BOOT_BLACK_DARKER_PASSES 3
 #endif
 
 #ifndef EPD_PAGE_TURN_STABLE_BLACK_DARKER_PASSES

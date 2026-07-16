@@ -90,10 +90,11 @@ int HalGPIO::touchZoneToButton(int16_t touchX, int16_t touchY) const {
 
   if (logicalX < 0 || logicalX >= logicalW || logicalY < 0 || logicalY >= logicalH) return -1;
 
-  // Visible on-screen power button in the top-left corner of non-reader screens.
-  // Check this before suppressing content-area taps in footer mode. Reader screens
-  // keep footerHeight == 0, so normal page-tap zones are not affected.
-  if (footerHeight > 0 && logicalX < POWER_HOTSPOT_SIZE && logicalY < POWER_HOTSPOT_SIZE) {
+  // Logical top-left shutdown hotspot. Reader screens intentionally keep this
+  // target invisible; check it before footer/content tap handling so the 64x64
+  // shutdown target still wins over page-turn zones. The touch point has already
+  // been transformed, so PortraitInverted follows the rotated UI.
+  if (logicalX < POWER_HOTSPOT_SIZE && logicalY < POWER_HOTSPOT_SIZE) {
     return BTN_POWER;
   }
 
@@ -181,13 +182,13 @@ void HalGPIO::update() {
         if (SETTINGS.swipePageTurnEnabled) {
           if (horizontalSwipeDirection < 0) {
             currentState |= (1 << BTN_SWIPE_LEFT);
-            LOG_DBG("TOUCH", "swipe left dx=%d dy=%d", dx, dy);
+            LOG_INF("TOUCH", "swipe left dx=%d dy=%d", dx, dy);
           } else {
             currentState |= (1 << BTN_SWIPE_RIGHT);
-            LOG_DBG("TOUCH", "swipe right dx=%d dy=%d", dx, dy);
+            LOG_INF("TOUCH", "swipe right dx=%d dy=%d", dx, dy);
           }
         } else {
-          LOG_DBG("TOUCH", "horizontal swipe ignored by setting dir=%d dx=%d dy=%d", horizontalSwipeDirection, dx, dy);
+          LOG_INF("TOUCH", "horizontal swipe ignored by setting dir=%d dx=%d dy=%d", horizontalSwipeDirection, dx, dy);
         }
       }
     }
@@ -236,15 +237,15 @@ void HalGPIO::update() {
           lastContentTapX = startLogicalX;
           lastContentTapY = startLogicalY;
           contentTapReleased = true;
-          LOG_DBG("TOUCH", "content tap at (%d,%d) (footer mode)", startLogicalX, startLogicalY);
+          LOG_INF("TOUCH", "content tap at (%d,%d) (footer mode)", startLogicalX, startLogicalY);
         }
       }
-      LOG_DBG("TOUCH", "tap at (%d,%d) btn=%d (footer mode)", touchStartX, touchStartY, btn);
+      LOG_INF("TOUCH", "tap at (%d,%d) btn=%d (footer mode)", touchStartX, touchStartY, btn);
     } else if (sawMultiTouch) {
       // 2-finger tap → BACK (reader only)
       currentState |= (1 << BTN_BACK);
       currentState |= (1 << BTN_TWO_FINGER);
-      LOG_DBG("TOUCH", "2-finger tap -> BACK");
+      LOG_INF("TOUCH", "2-finger tap -> BACK");
     } else {
       // Single finger: first classify swipe, then tap.  Horizontal swipe may
       // already have fired during movement; in that case do not emit a tap on
@@ -262,30 +263,30 @@ void HalGPIO::update() {
       const int16_t absDy = deltaY >= 0 ? deltaY : -deltaY;
 
       if (horizontalSwipeFired) {
-        LOG_DBG("TOUCH", "horizontal swipe release dir=%d", horizontalSwipeDirection);
+        LOG_INF("TOUCH", "horizontal swipe release dir=%d", horizontalSwipeDirection);
       } else if (absDx >= HORIZONTAL_SWIPE_THRESHOLD && absDx >= absDy + HORIZONTAL_SWIPE_DOMINANCE_MARGIN) {
         horizontalSwipeDirection = deltaX < 0 ? -1 : 1;
         if (SETTINGS.swipePageTurnEnabled) {
           if (horizontalSwipeDirection < 0) {
             currentState |= (1 << BTN_SWIPE_LEFT);
-            LOG_DBG("TOUCH", "swipe left release dx=%d dy=%d", deltaX, deltaY);
+            LOG_INF("TOUCH", "swipe left release dx=%d dy=%d", deltaX, deltaY);
           } else {
             currentState |= (1 << BTN_SWIPE_RIGHT);
-            LOG_DBG("TOUCH", "swipe right release dx=%d dy=%d", deltaX, deltaY);
+            LOG_INF("TOUCH", "swipe right release dx=%d dy=%d", deltaX, deltaY);
           }
         } else {
-          LOG_DBG("TOUCH", "horizontal swipe release ignored by setting dir=%d dx=%d dy=%d", horizontalSwipeDirection, deltaX, deltaY);
+          LOG_INF("TOUCH", "horizontal swipe release ignored by setting dir=%d dx=%d dy=%d", horizontalSwipeDirection, deltaX, deltaY);
         }
       } else if (deltaY < -SWIPE_THRESHOLD && absDy >= absDx + HORIZONTAL_SWIPE_DOMINANCE_MARGIN) {
         // Swiped up (finger moved upward)
         currentState |= (1 << BTN_SWIPE_UP);
         currentState |= (1 << BTN_UP);
-        LOG_DBG("TOUCH", "swipe up dy=%d", deltaY);
+        LOG_INF("TOUCH", "swipe up dy=%d", deltaY);
       } else if (deltaY > SWIPE_THRESHOLD && absDy >= absDx + HORIZONTAL_SWIPE_DOMINANCE_MARGIN) {
         // Swiped down (finger moved downward)
         currentState |= (1 << BTN_SWIPE_DOWN);
         currentState |= (1 << BTN_DOWN);
-        LOG_DBG("TOUCH", "swipe down dy=%d", deltaY);
+        LOG_INF("TOUCH", "swipe down dy=%d", deltaY);
       } else {
         // Tap — map to zone based on touch-down position only after the whole
         // touch sequence has failed the swipe tests.
@@ -293,7 +294,7 @@ void HalGPIO::update() {
         if (btn >= 0 && btn < HALGPIO_NUM_BUTTONS) {
           currentState |= (1 << btn);
         }
-        LOG_DBG("TOUCH", "tap at (%d,%d) btn=%d", touchStartX, touchStartY, btn);
+        LOG_INF("TOUCH", "tap at (%d,%d) btn=%d", touchStartX, touchStartY, btn);
       }
     }
 
@@ -355,10 +356,13 @@ unsigned long HalGPIO::getHeldTime() const {
 }
 
 bool HalGPIO::isUsbConnected() const {
-  // With ARDUINO_USB_CDC_ON_BOOT=1, Serial is USB CDC.
-  // operator bool() returns true when a USB host has connected (DTR asserted).
-  // Serial.begin() must be called before this for reliable results.
-  return Serial;
+#if CROSSPOINT_PAPERS3
+  // Paper S3 USB_DET is GPIO5. It reports VBUS presence independently of
+  // whether a PC opened the USB CDC serial port.
+  return analogReadMilliVolts(5) > 200;
+#else
+  return static_cast<bool>(Serial);
+#endif
 }
 
 HalGPIO::WakeupReason HalGPIO::getWakeupReason() const {

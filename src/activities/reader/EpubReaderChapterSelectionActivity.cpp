@@ -217,6 +217,19 @@ int EpubReaderChapterSelectionActivity::getSelectedTocIndex() const {
   return visibleTocIndices[selectorIndex];
 }
 
+bool EpubReaderChapterSelectionActivity::selectedHasVisibleParent() const {
+  const int selectedTocIndex = getSelectedTocIndex();
+  if (selectedTocIndex < 0 || selectedTocIndex >= static_cast<int>(tocNodes.size())) return false;
+  const uint8_t selectedLevel = tocNodes[selectedTocIndex].level;
+  if (selectedLevel <= 1) return false;
+  for (int visibleIndex = selectorIndex - 1; visibleIndex >= 0; --visibleIndex) {
+    const int candidateTocIndex = visibleTocIndices[visibleIndex];
+    if (candidateTocIndex < 0 || candidateTocIndex >= static_cast<int>(tocNodes.size())) continue;
+    if (tocNodes[candidateTocIndex].level < selectedLevel) return true;
+  }
+  return false;
+}
+
 bool EpubReaderChapterSelectionActivity::moveSelectionToParent() {
   const int selectedTocIndex = getSelectedTocIndex();
   if (selectedTocIndex < 0 || selectedTocIndex >= static_cast<int>(tocNodes.size())) return false;
@@ -331,28 +344,17 @@ void EpubReaderChapterSelectionActivity::loop() {
 
 #if CROSSPOINT_PAPERS3
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    activateSelectedItem();
+    // Footer button 2 is now Parent/上層, not Select.  If there is no visible
+    // parent it is hidden and the button intentionally does nothing.
+    if (moveSelectionToParent()) {
+      return;
+    }
     return;
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    const unsigned long heldTime = mappedInput.getHeldTime();
-
-    // A long Back always returns directly to the reading page, regardless of
-    // the currently selected depth in the TOC tree.
-    if (heldTime >= BACK_LONG_PRESS_MS) {
-      LOG_DBG("TOCUI", "Long Back (%lu ms): return to reader", heldTime);
-      finishToReader();
-      return;
-    }
-
-    // A short Back acts as tree navigation first. From a nested item it moves
-    // the cursor to its parent; only Back from a top-level item exits.
-    if (moveSelectionToParent()) {
-      return;
-    }
-
-    LOG_DBG("TOCUI", "Back from top level: return to reader");
+    // Footer button 1 is explicitly Exit and always returns to the reader.
+    LOG_DBG("TOCUI", "Exit button: return to reader");
     finishToReader();
     return;
   }
@@ -396,11 +398,13 @@ void EpubReaderChapterSelectionActivity::loop() {
   }
 
   buttonNavigator.onNextRelease([this, totalItems, pageItems] {
+    if (!ButtonNavigator::hasNextPage(selectorIndex, totalItems, pageItems)) return;
     selectorIndex = ButtonNavigator::nextPageIndex(selectorIndex, totalItems, pageItems);
     requestUpdate();
   });
 
   buttonNavigator.onPreviousRelease([this, totalItems, pageItems] {
+    if (!ButtonNavigator::hasPreviousPage(selectorIndex, totalItems, pageItems)) return;
     selectorIndex = ButtonNavigator::previousPageIndex(selectorIndex, totalItems, pageItems);
     requestUpdate();
   });
@@ -487,13 +491,16 @@ void EpubReaderChapterSelectionActivity::render(RenderLock&&) {
       renderer.drawTextScaled(UI_10_FONT_ID, textX, displayY + textYOff, chapterName.c_str(), LARGE_TEXT_SCALE, true);
     }
 
+    const char* parentLabel = selectedHasVisibleParent()
+                                  ? (I18N.getLanguage() == Language::ZH_TW ? "上層" : "Parent")
+                                  : "";
     const char* prevPageLabel = ButtonNavigator::hasPreviousPage(selectorIndex, totalItems, pageItems)
                                     ? tr(STR_DIR_UP)
                                     : "";
     const char* nextPageLabel = ButtonNavigator::hasNextPage(selectorIndex, totalItems, pageItems)
                                     ? tr(STR_DIR_DOWN)
                                     : "";
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), prevPageLabel, nextPageLabel);
+    const auto labels = mappedInput.mapLabels(tr(STR_EXIT), parentLabel, prevPageLabel, nextPageLabel);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
     renderer.displayBuffer();
@@ -551,13 +558,16 @@ void EpubReaderChapterSelectionActivity::render(RenderLock&&) {
     renderer.drawText(UI_10_FONT_ID, textX, displayY + textYOff, chapterName.c_str(), !isSelected);
   }
 
+  const char* parentLabel = selectedHasVisibleParent()
+                                ? (I18N.getLanguage() == Language::ZH_TW ? "上層" : "Parent")
+                                : "";
   const char* prevPageLabel = ButtonNavigator::hasPreviousPage(selectorIndex, totalItems, pageItems)
                                   ? tr(STR_DIR_UP)
                                   : "";
   const char* nextPageLabel = ButtonNavigator::hasNextPage(selectorIndex, totalItems, pageItems)
                                   ? tr(STR_DIR_DOWN)
                                   : "";
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), prevPageLabel, nextPageLabel);
+  const auto labels = mappedInput.mapLabels(tr(STR_EXIT), parentLabel, prevPageLabel, nextPageLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

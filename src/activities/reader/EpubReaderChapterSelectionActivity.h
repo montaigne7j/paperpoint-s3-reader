@@ -56,6 +56,7 @@ class EpubReaderChapterSelectionActivity final : public Activity {
 
   // Short Back moves the selection to the nearest visible parent. It returns
   // false when the current item is already at the top level.
+  bool selectedHasVisibleParent() const;
   bool moveSelectionToParent();
   void finishToReader();
 

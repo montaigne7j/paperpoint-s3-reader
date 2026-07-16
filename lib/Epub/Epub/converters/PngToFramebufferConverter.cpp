@@ -1,5 +1,7 @@
 #include "PngToFramebufferConverter.h"
 
+#include <Arduino.h>
+
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -19,6 +21,8 @@ namespace {
 // Context struct passed through PNGdec callbacks to avoid global mutable state.
 // The draw callback receives this via pDraw->pUser (set by png.decode()).
 // The file I/O callbacks receive the FsFile* via pFile->fHandle (set by pngOpen()).
+void cooperativePngYield();
+
 struct PngContext {
   GfxRenderer* renderer;
   const RenderConfig* config;
@@ -76,12 +80,14 @@ void pngCloseWithHandle(void* handle) {
 int32_t pngReadWithHandle(PNGFILE* pFile, uint8_t* pBuf, int32_t len) {
   FsFile* f = reinterpret_cast<FsFile*>(pFile->fHandle);
   if (!f) return 0;
+  cooperativePngYield();
   return f->read(pBuf, len);
 }
 
 int32_t pngSeekWithHandle(PNGFILE* pFile, int32_t pos) {
   FsFile* f = reinterpret_cast<FsFile*>(pFile->fHandle);
   if (!f) return -1;
+  cooperativePngYield();
   return f->seek(pos);
 }
 
@@ -95,6 +101,12 @@ constexpr size_t PNG_INTERNAL_HEAP_HEADROOM = 8 * 1024;
 uint32_t readBigEndian32(const uint8_t* bytes) {
   return (static_cast<uint32_t>(bytes[0]) << 24) | (static_cast<uint32_t>(bytes[1]) << 16) |
          (static_cast<uint32_t>(bytes[2]) << 8) | static_cast<uint32_t>(bytes[3]);
+}
+
+uint8_t fadeGrayToWhite(const uint8_t gray, const uint8_t percent) {
+  if (percent == 0) return gray;
+  const uint8_t fade = percent > 100 ? 100 : percent;
+  return static_cast<uint8_t>(gray + (((255 - gray) * fade + 50) / 100));
 }
 
 bool validatePngHeaderDimensions(const int width, const int height) {
@@ -256,9 +268,20 @@ void convertLineToGray(uint8_t* pPixels, uint8_t* grayLine, int width, int pixel
   }
 }
 
+void cooperativePngYield() {
+  static uint32_t lastYieldMs = 0;
+  const uint32_t now = millis();
+  if (now - lastYieldMs >= 3) {
+    lastYieldMs = now;
+    vTaskDelay(1);
+  }
+}
+
 int pngDrawCallback(PNGDRAW* pDraw) {
   PngContext* ctx = reinterpret_cast<PngContext*>(pDraw->pUser);
   if (!ctx || !ctx->config || !ctx->renderer || !ctx->grayLineBuffer) return 0;
+
+  cooperativePngYield();
 
   int srcY = pDraw->y;
   int srcWidth = ctx->srcWidth;
@@ -285,6 +308,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
   int outXBase = ctx->config->x;
   int screenWidth = ctx->screenWidth;
   bool useDithering = ctx->config->useDithering;
+  const uint8_t fadeToWhitePercent = ctx->config->fadeToWhitePercent;
   bool caching = ctx->caching;
 
   int srcX = 0;
@@ -293,7 +317,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
   for (int dstX = 0; dstX < dstWidth; dstX++) {
     int outX = outXBase + dstX;
     if (outX < screenWidth) {
-      uint8_t gray = ctx->grayLineBuffer[srcX];
+      uint8_t gray = fadeGrayToWhite(ctx->grayLineBuffer[srcX], fadeToWhitePercent);
 
       uint8_t ditheredGray;
       if (useDithering) {

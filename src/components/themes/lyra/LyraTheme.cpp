@@ -2,6 +2,7 @@
 
 #include <GfxRenderer.h>
 #include <HalPowerManager.h>
+#include <HalGPIO.h>
 #include <HalStorage.h>
 #include <I18n.h>
 
@@ -247,7 +248,7 @@ void drawLyraBatteryIcon(const GfxRenderer& renderer, int x, int y, int battWidt
                          uint16_t percentage) {
   BaseTheme::drawBatteryOutline(renderer, x, y, battWidth, rectHeight);
 
-  const bool charging = static_cast<bool>(Serial);  // USB CDC connected
+  const bool charging = gpio.isUsbConnected();  // Real Paper S3 VBUS detection
 
   if (charging) {
     // Draw solid fill when charging so lightning bolt is visible
@@ -452,7 +453,9 @@ void LyraTheme::redrawListSelection(const GfxRenderer& renderer, Rect rect, int 
 void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                                 const char* btn4) const {
   const GfxRenderer::Orientation orig_orientation = renderer.getOrientation();
+#if !CROSSPOINT_PAPERS3
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+#endif
 
   const int pageHeight = renderer.getScreenHeight();
 #if CROSSPOINT_PAPERS3
@@ -680,7 +683,13 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
       UIIcon icon = rowIcon(i);
       const uint8_t* iconBitmap = iconForName(icon, mainMenuIconSize);
       if (iconBitmap != nullptr) {
-        renderer.drawIcon(iconBitmap, textX, textY + 3, mainMenuIconSize, mainMenuIconSize);
+        const bool rotateHomeIconLeft = icon == UIIcon::Folder || icon == UIIcon::Recent ||
+                                        icon == UIIcon::Transfer || icon == UIIcon::Settings;
+        if (rotateHomeIconLeft) {
+          renderer.drawIconRotatedLeft90(iconBitmap, textX, textY + 3, mainMenuIconSize, mainMenuIconSize);
+        } else {
+          renderer.drawIcon(iconBitmap, textX, textY + 3, mainMenuIconSize, mainMenuIconSize);
+        }
         textX += mainMenuIconSize + hPaddingInSelection + 2;
       }
     }

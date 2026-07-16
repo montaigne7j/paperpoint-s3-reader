@@ -1,4 +1,4 @@
-# PaperPoint S3 Reader V1.8.0 release summary
+# PaperPoint S3 Reader V1.8.3 release summary
 
 ## Highlights
 
@@ -65,3 +65,10 @@ python -m esptool --chip esp32s3 --port COM5 --baud 921600 write_flash -z 0x0 me
 
 - Wi‑Fi 傳輸、OTA、KOReader Sync 仍建議視為進階功能，發布前請以實機驗證。
 - 大型 EPUB 或大量圖片書籍第一次開啟可能需要較長索引時間。
+
+
+## V1.8.3 input diagnostics
+
+- Release logs now include touch/button events and reader input counters.
+- One pending page-turn is retained while render/cache is busy.
+- Long display/render/pending waits emit INF-level warnings.

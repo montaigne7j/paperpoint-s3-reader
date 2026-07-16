@@ -141,11 +141,10 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["frontButtonLeft"] = s.frontButtonLeft;
   doc["frontButtonRight"] = s.frontButtonRight;
 
-  // Front button remap — managed by RemapFrontButtons sub-activity, not in SettingsList.
-  doc["frontButtonBack"] = s.frontButtonBack;
-  doc["frontButtonConfirm"] = s.frontButtonConfirm;
-  doc["frontButtonLeft"] = s.frontButtonLeft;
-  doc["frontButtonRight"] = s.frontButtonRight;
+  // Comic reader tuning — managed by ComicReaderMenuActivity.
+  doc["comicGrayEnhanceEncoded"] = s.comicGrayEnhanceEncoded;
+  doc["comicGrayLevels"] = 1;  // four-level comic mode removed
+  doc["comicFullRefreshFrequency"] = s.comicFullRefreshFrequency;
 
   String json;
   serializeJson(doc, json);
@@ -261,6 +260,12 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
       clamp(doc["frontButtonLeft"] | (uint8_t)S::FRONT_HW_LEFT, S::FRONT_BUTTON_HARDWARE_COUNT, S::FRONT_HW_LEFT);
   s.frontButtonRight =
       clamp(doc["frontButtonRight"] | (uint8_t)S::FRONT_HW_RIGHT, S::FRONT_BUTTON_HARDWARE_COUNT, S::FRONT_HW_RIGHT);
+  s.comicGrayEnhanceEncoded =
+      clamp(doc["comicGrayEnhanceEncoded"] | static_cast<uint8_t>(50), static_cast<uint8_t>(101), static_cast<uint8_t>(50));
+  s.comicGrayLevels = 1;  // four-level comic mode removed
+  s.comicFullRefreshFrequency =
+      clamp(doc["comicFullRefreshFrequency"] | static_cast<uint8_t>(4), static_cast<uint8_t>(5), static_cast<uint8_t>(4));
+
   CrossPointSettings::validateFrontButtonMapping(s);
 
   LOG_DBG("CPS", "Settings loaded from file");

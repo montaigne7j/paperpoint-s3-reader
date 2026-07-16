@@ -275,7 +275,7 @@ void XtcReaderActivity::renderPage() {
 
   free(pageBuffer);
 
-  // XTC pages already have status bar pre-rendered, no need to add our own
+  // XTC pages already have status bar pre-rendered, no need to add our own.
 
   // Display with the same page-turn refresh cycle used by EPUB/TXT.
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);

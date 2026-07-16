@@ -174,7 +174,7 @@ size_t findTxtWrapPosition(
 
 // Cache file magic and version
 constexpr uint32_t CACHE_MAGIC = 0x54585449;  // "TXTI"
-constexpr uint8_t CACHE_VERSION = 3;          // Increment when cache format changes
+constexpr uint8_t CACHE_VERSION = 4;          // r33: paragraph first-line indent in cache key
 }  // namespace
 
 void TxtReaderActivity::onEnter() {
@@ -209,6 +209,7 @@ void TxtReaderActivity::onExit() {
 
   pageOffsets.clear();
   currentPageLines.clear();
+  currentPageParagraphStarts.clear();
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
   txt.reset();
@@ -255,6 +256,7 @@ void TxtReaderActivity::initializeReader() {
   cachedFontId = SETTINGS.getReaderFontId();
   cachedScreenMargin = SETTINGS.screenMargin;
   cachedParagraphAlignment = SETTINGS.paragraphAlignment;
+  cachedParagraphFirstLineIndent = SETTINGS.paragraphFirstLineIndent;
 
   // Calculate viewport dimensions
   renderer.getOrientedViewableTRBL(&cachedOrientedMarginTop, &cachedOrientedMarginRight, &cachedOrientedMarginBottom,
@@ -262,10 +264,8 @@ void TxtReaderActivity::initializeReader() {
   cachedOrientedMarginTop += cachedScreenMargin;
   cachedOrientedMarginLeft += cachedScreenMargin;
   cachedOrientedMarginRight += cachedScreenMargin;
-  const uint8_t statusBarHeight = static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight());
-  cachedOrientedMarginBottom += SETTINGS.statusBarFollowsPageMargin
-                                    ? static_cast<uint8_t>(cachedScreenMargin + statusBarHeight)
-                                    : std::max(cachedScreenMargin, statusBarHeight);
+  cachedOrientedMarginBottom +=
+      ReaderUtils::readerContentBottomReserve(renderer, false);
 
   viewportWidth = renderer.getScreenWidth() - cachedOrientedMarginLeft - cachedOrientedMarginRight;
   const int viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
@@ -369,8 +369,10 @@ void TxtReaderActivity::buildPageIndex() {
   );
 }
 
-bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>& outLines, size_t& nextOffset) {
+bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>& outLines, size_t& nextOffset,
+                                          std::vector<bool>* paragraphStarts) {
   outLines.clear();
+  if (paragraphStarts) paragraphStarts->clear();
   const size_t fileSize = txt->getFileSize();
 
   if (offset >= fileSize) {
@@ -391,8 +393,15 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
   }
   buffer[chunkSize] = '\0';
 
-  // Parse lines from buffer
+  // Parse lines from buffer. A page offset may start in the middle of a
+  // paragraph, so inspect the previous source byte before deciding whether the
+  // first wrapped line receives the two-character indent.
   size_t pos = 0;
+  bool sourceLineStartsHere = offset == 0;
+  if (offset > 0) {
+    uint8_t previous = 0;
+    if (txt->readContent(&previous, offset - 1, 1)) sourceLineStartsHere = previous == '\n';
+  }
 
   while (pos < chunkSize && static_cast<int>(outLines.size()) < linesPerPage) {
     // Find end of line
@@ -419,8 +428,16 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
     // Extract line content for display (without CR/LF)
     std::string line(reinterpret_cast<char*>(buffer + pos), displayLen);
 
-    // Track position within this source line (in bytes from pos)
+    // Track position within this source line (in bytes from pos).
     size_t lineBytePos = 0;
+    bool firstWrappedSegment = true;
+    const bool indentThisParagraph = cachedParagraphFirstLineIndent && sourceLineStartsHere &&
+        (cachedParagraphAlignment == CrossPointSettings::LEFT_ALIGN ||
+         cachedParagraphAlignment == CrossPointSettings::JUSTIFIED ||
+         cachedParagraphAlignment == CrossPointSettings::BOOK_STYLE);
+    const int indentWidth = indentThisParagraph
+        ? renderer.getTextWidth(cachedFontId, "\xe3\x80\x80\xe3\x80\x80")
+        : 0;
 
     while (!line.empty() &&
           static_cast<int>(
@@ -431,7 +448,7 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
               renderer,
               cachedFontId,
               line,
-              viewportWidth
+              std::max(1, viewportWidth - (firstWrappedSegment ? indentWidth : 0))
           );
 
       /*
@@ -441,6 +458,7 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
         outLines.push_back(
             std::move(line)
         );
+        if (paragraphStarts) paragraphStarts->push_back(indentThisParagraph && firstWrappedSegment);
 
         lineBytePos = displayLen;
         line.clear();
@@ -454,6 +472,8 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
           line.data(),
           breakPos
       );
+      if (paragraphStarts) paragraphStarts->push_back(indentThisParagraph && firstWrappedSegment);
+      firstWrappedSegment = false;
 
       size_t consumedBytes =
           breakPos;
@@ -478,12 +498,15 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
 
     // Determine how much of the source buffer we consumed
     if (line.empty()) {
-      // Fully consumed this source line, move past the newline
+      // Fully consumed this source line, move past the newline. The following
+      // source line is a new paragraph candidate.
       pos = lineEnd + 1;
+      sourceLineStartsHere = true;
     } else {
       // Partially consumed - page is full mid-line
       // Move pos to where we stopped in the line (NOT past the line)
       pos = pos + lineBytePos;
+      sourceLineStartsHere = false;
       break;
     }
   }
@@ -531,7 +554,8 @@ void TxtReaderActivity::render(RenderLock&&) {
   size_t offset = pageOffsets[currentPage];
   size_t nextOffset;
   currentPageLines.clear();
-  loadPageAtOffset(offset, currentPageLines, nextOffset);
+  currentPageParagraphStarts.clear();
+  loadPageAtOffset(offset, currentPageLines, nextOffset, &currentPageParagraphStarts);
 
   renderer.clearScreen();
   renderPage();
@@ -547,9 +571,13 @@ void TxtReaderActivity::renderPage() {
   // Render text lines with alignment
   auto renderLines = [&]() {
     int y = cachedOrientedMarginTop;
-    for (const auto& line : currentPageLines) {
+    for (size_t lineIndex = 0; lineIndex < currentPageLines.size(); ++lineIndex) {
+      const auto& line = currentPageLines[lineIndex];
       if (!line.empty()) {
         int x = cachedOrientedMarginLeft;
+        if (lineIndex < currentPageParagraphStarts.size() && currentPageParagraphStarts[lineIndex]) {
+          x += renderer.getTextWidth(cachedFontId, "\xe3\x80\x80\xe3\x80\x80");
+        }
 
         // Apply text alignment
         switch (cachedParagraphAlignment) {
@@ -646,6 +674,7 @@ bool TxtReaderActivity::loadPageIndexCache() {
   // - int32_t: font ID (to invalidate cache on font change)
   // - int32_t: screen margin (to invalidate cache on margin change)
   // - uint8_t: paragraph alignment (to invalidate cache on alignment change)
+  // - uint8_t: paragraph first-line indent toggle
   // - uint32_t: total pages count
   // - N * uint32_t: page offsets
 
@@ -713,6 +742,13 @@ bool TxtReaderActivity::loadPageIndexCache() {
     return false;
   }
 
+  uint8_t firstLineIndent;
+  serialization::readPod(f, firstLineIndent);
+  if (firstLineIndent != cachedParagraphFirstLineIndent) {
+    LOG_DBG("TRS", "Cache paragraph first-line indent mismatch, rebuilding");
+    return false;
+  }
+
   uint32_t numPages;
   serialization::readPod(f, numPages);
 
@@ -748,6 +784,7 @@ void TxtReaderActivity::savePageIndexCache() const {
   serialization::writePod(f, static_cast<int32_t>(cachedFontId));
   serialization::writePod(f, static_cast<int32_t>(cachedScreenMargin));
   serialization::writePod(f, cachedParagraphAlignment);
+  serialization::writePod(f, cachedParagraphFirstLineIndent);
   serialization::writePod(f, static_cast<uint32_t>(pageOffsets.size()));
 
   // Write page offsets

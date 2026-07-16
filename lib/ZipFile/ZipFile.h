@@ -4,6 +4,7 @@
 #include <deque>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 class ZipFile {
  public:
@@ -60,6 +61,7 @@ class ZipFile {
   bool open();
   bool close();
   bool loadAllFileStatSlims();
+  bool listEntryNames(std::vector<std::string>& names);
   bool getInflatedFileSize(const char* filename, size_t* size);
   // Batch lookup: scan ZIP central dir once and fill sizes for matching targets.
   // targets must be sorted by (hash, len). sizes[target.index] receives uncompressedSize.

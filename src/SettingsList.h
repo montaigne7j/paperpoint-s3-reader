@@ -18,6 +18,9 @@ inline const std::vector<SettingInfo>& getSettingsList() {
                         {StrId::STR_DARK, StrId::STR_LIGHT, StrId::STR_CUSTOM, StrId::STR_COVER, StrId::STR_NONE_OPT,
                          StrId::STR_COVER_CUSTOM},
                         "sleepScreen", StrId::STR_CAT_DISPLAY),
+      // Persisted by the custom sleep image selector. Empty means Random.
+      SettingInfo::String(StrId::STR_CUSTOM_SLEEP_IMAGE, SETTINGS.sleepCustomImagePath,
+                          sizeof(SETTINGS.sleepCustomImagePath), "sleepCustomImagePath"),
       // Paper S3 sleep rendering now uses the prepared/custom image path or
       // the captured reader page directly. The old cover mode/filter options
       // are intentionally hidden from the device Settings UI and web settings
@@ -48,6 +51,18 @@ inline const std::vector<SettingInfo>& getSettingsList() {
                           StrId::STR_CAT_DISPLAY),
       SettingInfo::Toggle(StrId::STR_READER_CONTENT_INVERT, &CrossPointSettings::readerContentInvert,
                           "readerContentInvert", StrId::STR_CAT_DISPLAY),
+      // readerBackgroundPngPath is persisted for the Reader Background selector.
+      // The actual device UI entry is an ACTION appended by SettingsActivity.
+      SettingInfo::String(StrId::STR_READER_BACKGROUND_PNG, SETTINGS.readerBackgroundPngPath,
+                          sizeof(SETTINGS.readerBackgroundPngPath), "readerBackgroundPngPath"),
+      SettingInfo::Enum(StrId::STR_READER_BACKGROUND_PNG, &CrossPointSettings::readerBackgroundPng,
+                        {StrId::STR_NONE_OPT, StrId::STR_FIRST_PNG_IN_BG, StrId::STR_SELECTED},
+                        "readerBackgroundPng"),
+      SettingInfo::Value(StrId::STR_READER_BACKGROUND_FADE, &CrossPointSettings::readerBackgroundFadePercent,
+                         {0, 90, 10}, "readerBackgroundFadePercent", StrId::STR_CAT_DISPLAY),
+      SettingInfo::Enum(StrId::STR_READER_GUIDE_LINES, &CrossPointSettings::readerGuideLines,
+                        {StrId::STR_NONE_OPT, StrId::STR_SOLID, StrId::STR_DASHED, StrId::STR_DOTTED},
+                        "readerGuideLines", StrId::STR_CAT_DISPLAY),
 
       // --- Reader ---
       SettingInfo::Value(StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize,
@@ -58,8 +73,7 @@ inline const std::vector<SettingInfo>& getSettingsList() {
                           CrossPointSettings::READER_LINE_SPACING_MAX, 5},
                          "lineSpacing", StrId::STR_CAT_READER),
       SettingInfo::Value(StrId::STR_CHARACTER_SPACING, &CrossPointSettings::characterSpacing,
-                         {CrossPointSettings::READER_CHARACTER_SPACING_MIN,
-                          CrossPointSettings::READER_CHARACTER_SPACING_MAX, 1},
+                         {0, 255, 1},
                          "characterSpacing", StrId::STR_CAT_READER),
       SettingInfo::Value(StrId::STR_SCREEN_MARGIN, &CrossPointSettings::screenMargin, {5, 40, 5}, "screenMargin",
                          StrId::STR_CAT_READER),
@@ -73,20 +87,27 @@ inline const std::vector<SettingInfo>& getSettingsList() {
                           StrId::STR_CAT_READER),
       SettingInfo::Toggle(StrId::STR_HYPHENATION, &CrossPointSettings::hyphenationEnabled, "hyphenationEnabled",
                           StrId::STR_CAT_READER),
-      SettingInfo::Enum(StrId::STR_ORIENTATION, &CrossPointSettings::orientation,
-                        {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW, StrId::STR_INVERTED, StrId::STR_LANDSCAPE_CCW},
-                        "orientation", StrId::STR_CAT_READER),
       SettingInfo::Enum(StrId::STR_READING_LAYOUT, &CrossPointSettings::readingLayout,
                         {StrId::STR_HORIZONTAL_LAYOUT, StrId::STR_VERTICAL_LAYOUT},
                         "readingLayout", StrId::STR_CAT_READER),
       SettingInfo::Toggle(StrId::STR_EXTRA_SPACING, &CrossPointSettings::extraParagraphSpacing, "extraParagraphSpacing",
                           StrId::STR_CAT_READER),
+      SettingInfo::Toggle(StrId::STR_PARAGRAPH_FIRST_LINE_INDENT,
+                          &CrossPointSettings::paragraphFirstLineIndent,
+                          "paragraphFirstLineIndent", StrId::STR_CAT_READER),
       SettingInfo::Toggle(StrId::STR_TEXT_AA, &CrossPointSettings::textAntiAliasing, "textAntiAliasing",
                           StrId::STR_CAT_READER),
       SettingInfo::Enum(StrId::STR_IMAGES, &CrossPointSettings::imageRendering,
                         {StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER, StrId::STR_IMAGES_SUPPRESS},
                         "imageRendering", StrId::STR_CAT_READER),
       // --- Controls ---
+#if CROSSPOINT_PAPERS3
+      SettingInfo::Enum(StrId::STR_READER_DIRECTION_MODE, &CrossPointSettings::readerOrientationMode,
+                        {StrId::STR_FIXED_NORMAL, StrId::STR_FIXED_180, StrId::STR_AUTO_0_180},
+                        "readerOrientationMode", StrId::STR_CAT_CONTROLS),
+      SettingInfo::Toggle(StrId::STR_READER_INVERSION_LOCK, &CrossPointSettings::readerInversionLock,
+                          "readerInversionLock", StrId::STR_CAT_CONTROLS),
+#endif
       SettingInfo::Toggle(StrId::STR_LONG_PRESS_SKIP, &CrossPointSettings::longPressChapterSkip, "longPressChapterSkip",
                           StrId::STR_CAT_CONTROLS),
       SettingInfo::Toggle(StrId::STR_SWIPE_PAGE_TURN, &CrossPointSettings::swipePageTurnEnabled,

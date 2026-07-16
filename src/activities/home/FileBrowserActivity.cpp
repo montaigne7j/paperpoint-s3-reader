@@ -4,6 +4,7 @@
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
+#include <HalPowerManager.h>
 #include <I18n.h>
 
 #include <algorithm>
@@ -75,6 +76,7 @@ void sortFileList(std::vector<std::string>& strs) {
 }
 
 void FileBrowserActivity::loadFiles() {
+  HalPowerManager::Lock powerLock;
   files.clear();
 
   if (basepath == "/book" || basepath == "/book/") {
@@ -89,7 +91,11 @@ void FileBrowserActivity::loadFiles() {
   root.rewindDirectory();
 
   char name[500];
+  size_t scannedEntries = 0;
   for (auto file = root.openNextFile(); file; file = root.openNextFile()) {
+    if ((++scannedEntries & 0x0F) == 0) {
+      delay(1);
+    }
     file.getName(name, sizeof(name));
     if ((!SETTINGS.showHiddenFiles && name[0] == '.') || strcmp(name, "System Volume Information") == 0) {
       continue;
@@ -99,14 +105,25 @@ void FileBrowserActivity::loadFiles() {
       files.emplace_back(std::string(name) + "/");
     } else {
       std::string_view filename{name};
-      if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
-          FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
-          FsHelpers::hasBmpExtension(filename)) {
+      const bool showFile = comicMode
+                                ? FsHelpers::hasComicZipExtension(filename)
+                                : (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
+                                   FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
+                                   FsHelpers::hasBmpExtension(filename));
+      if (showFile) {
         files.emplace_back(filename);
       }
     }
   }
+  delay(1);
   sortFileList(files);
+
+  // Keep the parent-directory entry fixed at the first row.  The SD root has
+  // no parent; Back leaves the browser only when the user is already there.
+  if (!isAtRoot()) {
+    files.insert(files.begin(), "../");
+  }
+  delay(1);
 }
 
 void FileBrowserActivity::moveSelectionTo(const size_t newIndex) {
@@ -124,10 +141,41 @@ void FileBrowserActivity::requestFullPageUpdate(const bool immediate) {
   requestUpdate(immediate);
 }
 
+bool FileBrowserActivity::isAtRoot() const {
+  return basepath.empty() || basepath == "/";
+}
+
+void FileBrowserActivity::navigateToParent() {
+  if (isAtRoot()) {
+    onGoHome();
+    return;
+  }
+
+  // Remember the folder being left so it can be selected in the parent list.
+  // This makes repeated Back/Confirm navigation predictable while still
+  // keeping ".." as the first row whenever a directory is entered.
+  std::string currentPath = basepath;
+  while (currentPath.size() > 1 && currentPath.back() == '/') {
+    currentPath.pop_back();
+  }
+
+  const size_t slash = currentPath.find_last_of('/');
+  const std::string childEntry = currentPath.substr(slash + 1) + "/";
+  basepath = FsHelpers::extractFolderPath(currentPath);
+  loadFiles();
+  selectorIndex = findEntry(childEntry);
+  requestFullPageUpdate();
+}
+
 void FileBrowserActivity::openSelectedEntry() {
   if (files.empty() || selectorIndex >= files.size()) return;
 
   const std::string& entry = files[selectorIndex];
+  if (entry == "../") {
+    navigateToParent();
+    return;
+  }
+
   const bool isDirectory = (entry.back() == '/');
   if (basepath.back() != '/') basepath += "/";
 
@@ -183,19 +231,30 @@ void FileBrowserActivity::clearFileMetadata(const std::string& fullPath) {
 }
 
 void FileBrowserActivity::loop() {
-  // Long press BACK (1s+) goes to root folder
-  // but Long press BACK (1s+) from ReaderActivity sends us here with the MappedInput already set.
-  // So ignore it the first time.
+#if CROSSPOINT_PAPERS3
+  const auto isFooterBackTap = [this]() {
+    const int footerH = UITheme::getInstance().getMetrics().buttonHintsHeight;
+    const int x = mappedInput.getTouchX();
+    const int y = mappedInput.getTouchY();
+    return mappedInput.wasAnyReleased() && footerH > 0 &&
+           y >= renderer.getScreenHeight() - footerH &&
+           x >= 0 && x < renderer.getScreenWidth() / 4;
+  };
+#else
+  const auto isFooterBackTap = []() { return false; };
+#endif
+  const bool backReleased = mappedInput.wasReleased(MappedInputManager::Button::Back) || isFooterBackTap();
+
+  // Long press BACK (1s+) leaves File Browser from every directory.
+  // A long BACK used to enter this browser from a Reader may still be held on
+  // the first frame, so lockLongPressBack suppresses that inherited press.
   if (mappedInput.isPressed(MappedInputManager::Button::Back) && mappedInput.getHeldTime() >= GO_HOME_MS &&
-      basepath != "/" && !lockLongPressBack) {
-    basepath = "/";
-    loadFiles();
-    selectorIndex = 0;
-    requestFullPageUpdate();
+      !lockLongPressBack) {
+    onGoHome();
     return;
   }
 
-  if (lockLongPressBack && mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+  if (lockLongPressBack && backReleased) {
     lockLongPressBack = false;
     return;
   }
@@ -209,7 +268,7 @@ void FileBrowserActivity::loop() {
     const std::string& entry = files[selectorIndex];
     bool isDirectory = (entry.back() == '/');
 
-    if (mappedInput.getHeldTime() >= GO_HOME_MS && !isDirectory) {
+    if (!comicMode && mappedInput.getHeldTime() >= GO_HOME_MS && !isDirectory) {
       // --- LONG PRESS ACTION: DELETE FILE ---
       std::string cleanBasePath = basepath;
       if (cleanBasePath.back() != '/') cleanBasePath += "/";
@@ -249,27 +308,17 @@ void FileBrowserActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    // Short press: go up one directory, or go home if at root
-    if (mappedInput.getHeldTime() < GO_HOME_MS) {
-      if (basepath != "/") {
-        const std::string oldPath = basepath;
-
-        basepath.replace(basepath.find_last_of('/'), std::string::npos, "");
-        if (basepath.empty()) basepath = "/";
-        loadFiles();
-
-        const auto pos = oldPath.find_last_of('/');
-        const std::string dirName = oldPath.substr(pos + 1) + "/";
-        selectorIndex = findEntry(dirName);
-
-        requestFullPageUpdate();
-        return;
-      } else {
-        onGoHome();
-        return;
-      }
+  if (backReleased) {
+    // Short Back and the footer Back zone both mean "parent directory".  Only
+    // the SD root has no parent, so Back leaves File Browser there.  Treat a
+    // long release as Home too, which also covers touch implementations that
+    // report the long press only when the finger is lifted.
+    if (mappedInput.getHeldTime() >= GO_HOME_MS && !lockLongPressBack) {
+      onGoHome();
+    } else {
+      navigateToParent();
     }
+    return;
   }
 
   int listSize = static_cast<int>(files.size());
@@ -323,6 +372,9 @@ void FileBrowserActivity::loop() {
 }
 
 std::string getFileName(std::string filename) {
+  if (filename == "../") {
+    return "..";
+  }
   if (filename.back() == '/') {
     filename.pop_back();
     if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::CLASSIC) {
@@ -384,6 +436,9 @@ void FileBrowserActivity::render(RenderLock&&) {
     renderer.clearScreen();
 
     std::string folderName = (basepath == "/") ? tr(STR_SD_CARD) : basepath.substr(basepath.rfind('/') + 1);
+    if (comicMode) {
+      folderName = std::string(tr(STR_COMIC_READER)) + " - " + folderName;
+    }
     GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, folderName.c_str());
 
     if (files.empty()) {
@@ -444,7 +499,7 @@ void FileBrowserActivity::render(RenderLock&&) {
                                     ? tr(STR_DIR_DOWN)
                                     : "";
     const auto labels =
-        mappedInput.mapLabels(basepath == "/" ? tr(STR_HOME) : tr(STR_BACK), files.empty() ? "" : tr(STR_OPEN),
+        mappedInput.mapLabels(tr(STR_BACK), files.empty() ? "" : (comicMode ? "開啟" : tr(STR_OPEN)),
                               prevPageLabel, nextPageLabel);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

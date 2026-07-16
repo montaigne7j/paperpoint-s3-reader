@@ -12,7 +12,7 @@
 
 void ReaderValueAdjustActivity::onEnter() {
   Activity::onEnter();
-  value = std::min<uint8_t>(maxValue, std::max<uint8_t>(minValue, value));
+  value = std::min<int16_t>(maxValue, std::max<int16_t>(minValue, value));
   applyCurrentValue();
   requestUpdate();
 }
@@ -24,10 +24,10 @@ void ReaderValueAdjustActivity::applyCurrentValue() {
 }
 
 void ReaderValueAdjustActivity::adjust(const int direction) {
-  const int delta = direction * static_cast<int>(std::max<uint8_t>(1, stepValue));
+  const int delta = direction * static_cast<int>(std::max<int16_t>(1, stepValue));
   const int next = std::clamp<int>(static_cast<int>(value) + delta, minValue, maxValue);
   if (next == value) return;
-  value = static_cast<uint8_t>(next);
+  value = static_cast<int16_t>(next);
   applyCurrentValue();
   requestUpdate();
 }
@@ -35,7 +35,7 @@ void ReaderValueAdjustActivity::adjust(const int direction) {
 void ReaderValueAdjustActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
       mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    setResult(FontSizeResult{value});
+    setResult(FontSizeResult{static_cast<uint8_t>(std::max<int16_t>(0, std::min<int16_t>(255, value)))});
     finish();
     return;
   }

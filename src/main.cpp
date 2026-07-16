@@ -25,10 +25,14 @@
 #include "RecentBooksStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
+#if CROSSPOINT_PAPERS3
+#include "util/PocketLock.h"
+#endif
 
 #include <Bitmap.h>
 #if defined(ESP32)
@@ -313,6 +317,11 @@ void setup() {
 #endif
 
   HalSystem::begin();
+#if CROSSPOINT_PAPERS3
+  // Initialize the shared Paper S3 I2C bus/BMI270 before attaching GT911.
+  // HalTouch uses bus_shared=true and then joins the same controller.
+  PocketLock::begin();
+#endif
   gpio.begin();
   powerManager.begin();
   halClock.begin();
@@ -511,6 +520,24 @@ void loop() {
   static unsigned long lastMemPrint = 0;
 
   gpio.update();
+#if CROSSPOINT_PAPERS3
+  PocketLock::update();
+  if (activityManager.isReaderContextActive() && PocketLock::consumeOrientationChanged()) {
+    const uint8_t sensedOrientation = PocketLock::desiredOrientation();
+    SETTINGS.orientation = sensedOrientation;
+    ReaderUtils::applyOrientation(renderer, sensedOrientation);
+    mappedInputManager.setTouchOrientation(sensedOrientation);
+    renderer.requestFullRefresh();
+    activityManager.requestUpdate();
+  }
+  const bool readerInputLocked = activityManager.isReaderContextActive() && PocketLock::isLocked();
+  static bool previousReaderInputLocked = false;
+  if (readerInputLocked != previousReaderInputLocked) {
+    mappedInputManager.clearState();
+    previousReaderInputLocked = readerInputLocked;
+    LOG_INF("LOCK", "Reader input %s by upside-down pocket lock", readerInputLocked ? "locked" : "unlocked");
+  }
+#endif
 
   renderer.setFadingFix(SETTINGS.fadingFix);
 
@@ -556,7 +583,11 @@ void loop() {
 
   // Check for any user activity (button press or release) or active background work
   static unsigned long lastActivityTime = millis();
-  if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || activityManager.preventAutoSleep()) {
+  if (((gpio.wasAnyPressed() || gpio.wasAnyReleased())
+#if CROSSPOINT_PAPERS3
+       && !readerInputLocked
+#endif
+       ) || activityManager.preventAutoSleep()) {
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
 #if CROSSPOINT_PAPERS3
@@ -583,7 +614,7 @@ void loop() {
   // on-screen power button is therefore mapped to BTN_POWER. On release,
   // reuse the normal deep-sleep path so the configured sleep picture is
   // rendered completely before panel and system power are shut down.
-  if (mappedInputManager.wasReleased(MappedInputManager::Button::Power)) {
+  if (!readerInputLocked && mappedInputManager.wasReleased(MappedInputManager::Button::Power)) {
     LOG_DBG("SLP", "On-screen power button tapped");
     enterDeepSleep();
     return;
@@ -620,7 +651,11 @@ void loop() {
 #endif
 
   const unsigned long activityStartTime = millis();
+#if CROSSPOINT_PAPERS3
+  if (!readerInputLocked) activityManager.loop();
+#else
   activityManager.loop();
+#endif
   if (activityManager.consumeDeepSleepRequest()) {
     LOG_DBG("SLP", "Deep sleep requested by UI");
     enterDeepSleep();
@@ -653,8 +688,12 @@ void loop() {
     yield();                             // Give FreeRTOS a chance to run tasks, but return immediately
   } else {
 #if CROSSPOINT_PAPERS3
-    // PaperS3: minimal delay for fast touch response (~500Hz polling).
-    // Power management is handled by the PMIC, not CPU throttling.
+    // r33 stability policy: keep Paper S3 at the normal CPU frequency.
+    // The previous 80 MHz idle transition intermittently caused freezes in
+    // touch, SD, image decoding, and reader background tasks. Retain only a
+    // short cooperative delay; deep sleep remains the supported power-saving
+    // mechanism.
+    powerManager.setPowerSaving(false);
     delay(2);
 #else
     if (millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS) {

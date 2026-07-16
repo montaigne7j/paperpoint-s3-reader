@@ -81,6 +81,22 @@ int readerBuiltinCjkScalePercent() {
          ((READER_CJK_SCALE_MAX_PERCENT - READER_CJK_SCALE_DEFAULT_PERCENT) * pos + span / 2) / span;
 }
 
+
+int externalReaderBitmapScalePercent(const ExternalFont& font) {
+  if (font.isTtfFormat()) return 100;
+  const int sourceSize = std::max(1, static_cast<int>(font.getFontSize()));
+  const int targetSize = std::max(1, static_cast<int>(SETTINGS.fontSize));
+  return std::max(25, std::min(300, (targetSize * 100 + sourceSize / 2) / sourceSize));
+}
+
+int scaleExternalBitmapMetric(const int value, const ExternalFont& font) {
+  return std::max(1, scaleMetricPercent(value, externalReaderBitmapScalePercent(font)));
+}
+
+int scaleExternalBitmapMetricCeil(const int value, const ExternalFont& font) {
+  return std::max(1, scaleMetricPercentCeil(value, externalReaderBitmapScalePercent(font)));
+}
+
 int fallbackScalePercentForFontId(const int fontId) {
   // UI fonts keep the original CJK fallback size; reader fonts get scalable
   // built-in CJK so font-size changes affect CJK glyphs, layout and cache.
@@ -1225,25 +1241,32 @@ bool GfxRenderer::renderExternalReaderGlyphCentered(
   const int visibleHeight =
       maxY - minY + 1;
 
+  const int scaledVisibleWidth = font->isTtfFormat()
+                                     ? visibleWidth
+                                     : scaleExternalBitmapMetricCeil(visibleWidth, *font);
+  const int scaledVisibleHeight = font->isTtfFormat()
+                                      ? visibleHeight
+                                      : scaleExternalBitmapMetricCeil(visibleHeight, *font);
+
   /*
-   * 將實際可見筆畫置中於直排 cell。
+   * 將實際可見筆畫置中於直排 cell。外部 legacy .bin 也跟隨
+   * Reader Font Size 做 nearest-neighbour 縮放；這修正舊版只改 layout
+   * 空間、glyph 本身不變大的問題。
    */
   const int destinationX =
       cellX +
-      (cellWidth - visibleWidth) / 2;
+      (cellWidth - scaledVisibleWidth) / 2;
 
   const int destinationY =
       cellY +
-      (cellHeight - visibleHeight) / 2;
+      (cellHeight - scaledVisibleHeight) / 2;
 
   const ReaderMemoryDiagTrace drawCenteredBefore = ReaderMemoryDiagnostics::capture();
   const unsigned long drawCenteredStart = millis();
-  for (int sourceY = minY;
-       sourceY <= maxY;
-       ++sourceY) {
-    for (int sourceX = minX;
-         sourceX <= maxX;
-         ++sourceX) {
+  for (int destY = 0; destY < scaledVisibleHeight; ++destY) {
+    const int sourceY = minY + (destY * visibleHeight) / scaledVisibleHeight;
+    for (int destX = 0; destX < scaledVisibleWidth; ++destX) {
+      const int sourceX = minX + (destX * visibleWidth) / scaledVisibleWidth;
       const int byteIndex =
           sourceY * bytesPerRow +
           sourceX / 8;
@@ -1258,12 +1281,8 @@ bool GfxRenderer::renderExternalReaderGlyphCentered(
       }
 
       drawPixel(
-          destinationX +
-              sourceX -
-              minX,
-          destinationY +
-              sourceY -
-              minY,
+          destinationX + destX,
+          destinationY + destY,
           pixelState
       );
     }
@@ -1508,6 +1527,25 @@ bool GfxRenderer::renderExternalUiGlyph(
   return true;
 }
 
+void GfxRenderer::drawIconRotatedLeft90(const uint8_t bitmap[], const int x, const int y, const int width, const int height) const {
+  if (bitmap == nullptr || width <= 0 || height <= 0) return;
+
+  const int imageWidthBytes = (width + 7) / 8;
+  for (int row = 0; row < height; ++row) {
+    for (int col = 0; col < width; ++col) {
+      const uint8_t srcByte = bitmap[row * imageWidthBytes + col / 8];
+      const bool sourceWhite = (srcByte & (0x80 >> (col % 8))) != 0;
+      if (sourceWhite) continue;
+
+      // Counter-clockwise 90° around the icon cell.  Home menu icons are square
+      // today, but keep width/height in the mapping for future assets.
+      const int destX = row;
+      const int destY = width - 1 - col;
+      drawPixel(x + destX, y + destY, true);
+    }
+  }
+}
+
 // IMPORTANT: This function is in critical rendering path and is called for every pixel. Please keep it as simple and
 // efficient as possible.
 void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
@@ -1572,7 +1610,7 @@ int GfxRenderer::getTextWidthExternalReader(
 
       // Legacy .bin is fixed-cell. TTF and EPDF use per-glyph metrics.
       if (!externalFont->isRichMetricsFormat()) {
-        width += externalFont->getCharWidth();
+        width += scaleExternalBitmapMetric(externalFont->getCharWidth(), *externalFont);
         continue;
       }
 
@@ -1607,7 +1645,7 @@ int GfxRenderer::getTextWidthExternalReader(
       // Preserve legacy fixed-cell measurement when no embedded fallback has
       // the codepoint.
       if (!externalFont->handlesAllCodepoints() || isCjk) {
-        width += externalFont->getCharWidth();
+        width += scaleExternalBitmapMetric(externalFont->getCharWidth(), *externalFont);
         continue;
       }
     }
@@ -3220,9 +3258,10 @@ int GfxRenderer::getFontAscenderSize(const int fontId) const {
 
   if (isReaderFont(fontId) && fontManager.isExternalFontEnabled()) {
     ExternalFont* readerFont = fontManager.getActiveFont();
-    if (readerFont != nullptr && readerFont->isLoaded() && readerFont->isTtfFormat()) {
-      const int externalAscender =
-          getExternalFontAscenderForRendering(*readerFont);
+    if (readerFont != nullptr && readerFont->isLoaded()) {
+      const int externalAscender = readerFont->isTtfFormat()
+                                       ? getExternalFontAscenderForRendering(*readerFont)
+                                       : scaleExternalBitmapMetric(getExternalFontAscenderForRendering(*readerFont), *readerFont);
       const EpdFontData* fallbackData =
           fallbackFont != nullptr
               ? fallbackFont->getData(EpdFontFamily::REGULAR)
@@ -3279,9 +3318,10 @@ int GfxRenderer::getLineHeight(const int fontId) const {
 
   if (isReaderFont(fontId) && fontManager.isExternalFontEnabled()) {
     ExternalFont* readerFont = fontManager.getActiveFont();
-    if (readerFont != nullptr && readerFont->isLoaded() && readerFont->isTtfFormat()) {
-      const int externalHeight =
-          getExternalFontLineHeightForRendering(*readerFont);
+    if (readerFont != nullptr && readerFont->isLoaded()) {
+      const int externalHeight = readerFont->isTtfFormat()
+                                     ? getExternalFontLineHeightForRendering(*readerFont)
+                                     : scaleExternalBitmapMetric(getExternalFontLineHeightForRendering(*readerFont), *readerFont);
       const EpdFontData* fallbackData =
           fallbackFont != nullptr
               ? fallbackFont->getData(EpdFontFamily::REGULAR)
@@ -3352,8 +3392,10 @@ int GfxRenderer::getTextHeight(const int fontId) const {
 
   if (isReaderFont(fontId) && fontManager.isExternalFontEnabled()) {
     ExternalFont* readerFont = fontManager.getActiveFont();
-    if (readerFont != nullptr && readerFont->isLoaded() && readerFont->isTtfFormat()) {
-      const int externalHeight = readerFont->getCharHeight();
+    if (readerFont != nullptr && readerFont->isLoaded()) {
+      const int externalHeight = readerFont->isTtfFormat()
+                                     ? readerFont->getCharHeight()
+                                     : scaleExternalBitmapMetric(readerFont->getCharHeight(), *readerFont);
       const EpdFontData* fallbackData =
           fallbackFont != nullptr
               ? fallbackFont->getData(EpdFontFamily::REGULAR)

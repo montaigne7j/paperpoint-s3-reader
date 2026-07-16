@@ -1,7 +1,6 @@
 #include "EpubReaderMenuActivity.h"
 
 #include <GfxRenderer.h>
-#include <HalGPIO.h>
 #include <I18n.h>
 
 #include <algorithm>
@@ -14,7 +13,7 @@
 
 namespace {
 #if CROSSPOINT_PAPERS3
-uint8_t orientationLabelIndex(uint8_t orientation) { return orientation == CrossPointSettings::LANDSCAPE_CCW ? 1 : 0; }
+uint8_t orientationLabelIndex(uint8_t orientation) { return orientation == CrossPointSettings::INVERTED ? 1 : 0; }
 #endif
 }  // namespace
 
@@ -260,19 +259,9 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
     return;
   }
 
-#if CROSSPOINT_PAPERS3
-  // EpubReaderMenu is a non-reader activity, so Activity::onEnter() enables
-  // footer mode and the existing top-left 64x64 power hotspot. Draw the same
-  // visible button used by Home/Settings so the shutdown target is discoverable.
-  GUI.drawPowerButton(renderer, Rect{contentX, contentY, HalGPIO::POWER_HOTSPOT_SIZE,
-                                     HalGPIO::POWER_HOTSPOT_SIZE});
-
-  // Keep the centered book title clear of the power button. Reserve the same
-  // amount on the right so the title remains centered on the physical screen.
-  const int titleSideReserve = HalGPIO::POWER_HOTSPOT_SIZE;
-#else
+  // The logical top-left shutdown hotspot remains active, but it is intentionally
+  // invisible in reader menus. Do not reserve title space for an icon.
   const int titleSideReserve = 20;
-#endif
 
   // Title
   const int titleMaxWidth =

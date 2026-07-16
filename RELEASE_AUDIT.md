@@ -1,10 +1,72 @@
-﻿# GitHub Release Audit Notes — V1.8.0
+# GitHub Release Audit Notes — V1.8.4
+
+本檔記錄 `PaperPoint S3 Reader` V1.8.4（整合至 r34i）GitHub source release 的整理結果與發布前檢查項目。
+
+## 發布內容
+
+- 版本號維持 `1.8.4`：`platformio.ini`、`docs/install/manifest.json` 與 `SBOM.spdx.json` 一致。
+- README、USER_GUIDE、CHANGELOG、BUILTIN_USER_MANUAL 說明與線上燒錄頁已補上本版功能。
+- 新增 `RELEASE_NOTES_v1.8.4.md`，供 GitHub Release 直接引用。
+- 保留 `.github/workflows`、授權文件、第三方聲明、SBOM、release compliance scripts、網頁安裝器與完整 firmware source。
+
+## GitHub source package 清理
+
+- 移除 `.vscode/`；其中包含維護者電腦的 `C:/Users/.../.platformio/...` 絕對路徑，且已列於 `.gitignore`。
+- 移除可由 PlatformIO pre-build scripts 重新產生的檔案：
+  - `lib/I18n/I18nKeys.h`
+  - `lib/I18n/I18nStrings.h`
+  - `lib/I18n/I18nStrings.cpp`
+  - `src/network/html/*.generated.h`
+- 確認未包含 `.pio/`、build output、log、暫存檔、Python cache、額外 ZIP 或本機設定檔。
+
+## V1.8.4 實機測試重點
+
+1. `pio run -e default` 與 `pio run -e gh_release` 均能完成。
+2. 開機 LOG 顯示 `Starting CrossPoint version 1.8.4`。
+3. USB 插入／拔除時電量百分比不瞬間大幅跳動，充電圖示使用真實 USB detect。
+4. 未校正前，自動閱讀方向與感應上鎖不動作。
+5. 完成四姿勢 BMI270 校正；第四步朝下穩定後能自動完成。
+6. 固定正向、固定 180° 與自動 0°/180° 切換後，閱讀頁與選單立即同步旋轉。
+7. 自動方向模式會關閉感應上鎖；固定方向才允許上鎖。
+8. 180° 切回正向後，EPUB 背景與 CBZ 預載畫面不沿用倒向 cache。
+9. CBZ/ZIP 漫畫可開啟、自然排序、翻頁、使用 pending preload，並套用漫畫全刷頻率。
+10. 休眠圖片可在 `/.sleep` 與 `/cover` 多層瀏覽、預覽、確認及切回隨機。
+11. 閱讀左上角隱藏 64×64 關機區可用，但畫面不顯示圖示。
+12. File Browser 非根目錄第一列為 `..`；短按返回上一層、根目錄返回首頁、長按返回直接回首頁。
+13. EPUB/TXT 段首縮排、背景淡化、輔助線、黑白反轉與狀態列安全間距正常。
+
+## 發布前命令
+
+```sh
+pio run -t clean
+python scripts/gen_i18n.py
+python scripts/generate_sbom.py --output SBOM.spdx.json
+python scripts/validate_embedded_cjk_font.py
+python scripts/check_license_compliance.py
+pio run -e gh_release
+```
+
+完成後建立 tag：
+
+```text
+v1.8.4
+```
+
+## 已知限制
+
+- 本 source package 的文件與結構已完成整理，但仍應由維護者在可連線下載 PlatformIO 套件的環境執行 release build 與 Paper S3 實機回歸後再建立正式 tag。
+- Wi-Fi 上傳、OTA 與 KOReader Sync 保留原架構，仍建議視為進階／實驗功能。
+- 自動方向只支援 0° 與 180°，不支援 90° 橫向旋轉。
+
+---
+
+# GitHub Release Audit Notes — V1.8.0
 
 本檔記錄 `PaperPoint S3 Reader` V1.8.0 發布前檢查與整理結果。
 
 ## V1.8.0 定版重點
 
-- 版本號已更新為 `1.8.0`：`platformio.ini`、`README.md`、`docs/install/manifest.json`。
+- 版本號已更新為 `1.8.0`：`platformio.ini`、`README.md`、`docs/install/manifest.json`、`.vscode/c_cpp_properties.json`。
 - README / USER_GUIDE / web installer / built-in EPUB manual 已補充 V1.8.0 TTF memory、idle glyph prewarm 與 boot page-turn waveform 說明。
 - `CHANGELOG.md` 已新增 V1.8.0 條目。
 - 保留 r15/r16 行為：FreeType PSRAM allocator、background TTF miss abort、idle glyph prewarm、visible low-memory guard、frame cache start gate、開機後 darker pass counter。
@@ -226,3 +288,8 @@ arduino-esp32
 - Large allocations are routed to PSRAM first; small allocations prefer internal heap to avoid PSRAM overhead for tiny metadata.
 - Runtime validation should look for `FT allocator summary` and large `FT alloc` logs showing `newLoc=PSRAM` during `glyph-rasterize-drawString`.
 - r14a frame-cache safety behavior is retained; this release changes allocator plumbing and idle-prewarm thresholds only.
+
+
+## V1.8.4 reader background and guide lines
+
+Place decorative PNG files in `/bg` on the SD card. Enable Reader background PNG from Settings to render the first visible PNG behind EPUB text. Optional guide lines can be set to Off, Solid, Dashed, or Dotted. Horizontal reading uses baselines below rows; vertical reading uses column guides to the left of text.

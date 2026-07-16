@@ -1129,6 +1129,38 @@ bool isSupportedSleepImage(const std::string& name) {
          FsHelpers::hasPngExtension(name);
 }
 
+void collectSleepImageCandidates(const std::string& directory,
+                                 std::vector<std::string>& output,
+                                 const int depth = 0) {
+  if (depth > 4) return;
+  auto dir = Storage.open(directory.c_str());
+  if (!dir || !dir.isDirectory()) return;
+
+  std::vector<std::string> childDirectories;
+  char name[500];
+  for (auto file = dir.openNextFile(); file; file = dir.openNextFile()) {
+    file.getName(name, sizeof(name));
+    const std::string filename(name);
+    if (filename.empty() || filename[0] == '.') continue;
+
+    std::string fullPath = directory;
+    if (fullPath.size() > 1 && fullPath.back() == '/') fullPath.pop_back();
+    fullPath += "/" + filename;
+
+    if (file.isDirectory()) {
+      childDirectories.push_back(std::move(fullPath));
+    } else if (isSupportedSleepImage(filename)) {
+      output.push_back(std::move(fullPath));
+    }
+  }
+  dir.close();
+
+  // Close the parent directory before descending to keep SD handles bounded.
+  for (const auto& child : childDirectories) {
+    collectSleepImageCandidates(child, output, depth + 1);
+  }
+}
+
 }  // namespace
 
 SleepImageManager& SleepImageManager::getInstance() {
@@ -1169,7 +1201,7 @@ void SleepImageManager::begin() {
   lastUserActivityMs = millis();
   scanCandidates();
   if (candidates.empty()) {
-    LOG_INF("SLPCACHE", "No BMP/JPG/PNG files found in /.sleep or /sleep");
+    LOG_INF("SLPCACHE", "No BMP/JPG/PNG files found in /.sleep, /cover, or /sleep");
     return;
   }
 
@@ -1189,21 +1221,26 @@ void SleepImageManager::begin() {
 
 void SleepImageManager::scanCandidates() {
   candidates.clear();
-  const char* directories[] = {"/.sleep", "/sleep"};
-  for (const char* directory : directories) {
-    auto dir = Storage.open(directory);
-    if (!dir || !dir.isDirectory()) continue;
-    char name[500];
-    for (auto file = dir.openNextFile(); file; file = dir.openNextFile()) {
-      if (file.isDirectory()) continue;
-      file.getName(name, sizeof(name));
-      std::string filename(name);
-      if (filename.empty() || filename[0] == '.' || !isSupportedSleepImage(filename)) continue;
-      candidates.emplace_back(std::string(directory) + "/" + filename);
+
+  if (SETTINGS.sleepCustomImagePath[0] != '\0') {
+    const std::string selectedPath(SETTINGS.sleepCustomImagePath);
+    const size_t slash = selectedPath.find_last_of('/');
+    const std::string filename = slash == std::string::npos ? selectedPath : selectedPath.substr(slash + 1);
+    if (Storage.exists(selectedPath.c_str()) && isSupportedSleepImage(filename)) {
+      candidates.push_back(selectedPath);
+      LOG_INF("SLPCACHE", "Using selected custom sleep image: %s", selectedPath.c_str());
+      return;
     }
-    dir.close();
-    if (!candidates.empty()) break;
+    LOG_ERR("SLPCACHE", "Selected custom sleep image is missing or unsupported; falling back to random: %s",
+            selectedPath.c_str());
   }
+
+  const char* directories[] = {"/.sleep", "/cover", "/sleep"};
+  for (const char* directory : directories) {
+    collectSleepImageCandidates(directory, candidates);
+  }
+
+  std::sort(candidates.begin(), candidates.end());
 
   if (candidates.empty()) {
     const char* roots[] = {"/sleep.bmp", "/sleep.jpg", "/sleep.jpeg", "/sleep.png"};
@@ -1211,6 +1248,24 @@ void SleepImageManager::scanCandidates() {
       if (Storage.exists(path)) candidates.emplace_back(path);
     }
   }
+}
+
+void SleepImageManager::refreshSelection() {
+  // Unlike the final sleep path, this runs while the firmware continues. Ask
+  // the cooperative decoder to unwind first so its PSRAM buffers and SD files
+  // are released normally instead of deleting the task mid-allocation.
+  cancelRequested = true;
+  const uint32_t cancelStarted = millis();
+  while (taskRunning && millis() - cancelStarted < 1500) {
+    delay(5);
+  }
+  if (taskRunning) {
+    LOG_ERR("SLPCACHE", "Timed out waiting for sleep-image preparation to stop; forcing cancellation");
+    cancelForSleep();
+  }
+
+  Storage.remove(LAST_CACHE_FILE);
+  begin();
 }
 
 void SleepImageManager::noteUserActivity() {

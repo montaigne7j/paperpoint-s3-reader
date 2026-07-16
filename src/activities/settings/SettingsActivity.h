@@ -22,6 +22,9 @@ enum class SettingAction {
   CheckForUpdates,
   Language,
   ReaderFontFile,
+  ReaderBackgroundFile,
+  SleepImageFile,
+  ImuCalibration,
 };
 
 struct SettingInfo {

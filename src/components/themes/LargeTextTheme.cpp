@@ -308,7 +308,9 @@ void LargeTextTheme::redrawListSelection(const GfxRenderer& renderer, Rect rect,
 void LargeTextTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                                      const char* btn4) const {
   const GfxRenderer::Orientation origOrientation = renderer.getOrientation();
+#if !CROSSPOINT_PAPERS3
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+#endif
 
   const int pageHeight = renderer.getScreenHeight();
   constexpr int buttonWidth = 120;
@@ -501,7 +503,8 @@ void LargeTextTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgre
     if (SETTINGS.statusBarProgressBar == CrossPointSettings::STATUS_BAR_PROGRESS_BAR::BOOK_PROGRESS) {
       progress = static_cast<size_t>(std::max(0.0f, std::min(100.0f, bookProgress)));
     } else {
-      progress = pageCount > 0 ? static_cast<size_t>((static_cast<float>(currentPage) / pageCount) * 100.0f) : 0;
+      const int displayPage = currentPage < 0 ? -currentPage : currentPage;
+      progress = pageCount > 0 ? static_cast<size_t>((static_cast<float>(displayPage) / pageCount) * 100.0f) : 0;
     }
     const int barHeight = (SETTINGS.statusBarProgressBarThickness + 1) * 2;
     const int barY = screenH - orientedBottom - paddingBottom - barHeight;
@@ -524,9 +527,15 @@ void LargeTextTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgre
   }
 
   std::string centerText;
-  char progressBuf[32] = {};
+  char progressBuf[40] = {};
+  const bool tentativePage = currentPage < 0;
+  const int displayPage = tentativePage ? -currentPage : currentPage;
   if (SETTINGS.statusBarChapterPageCount) {
-    std::snprintf(progressBuf, sizeof(progressBuf), "%d/%d", currentPage, pageCount);
+    if (tentativePage) {
+      std::snprintf(progressBuf, sizeof(progressBuf), "%d.../%d", displayPage, pageCount);
+    } else {
+      std::snprintf(progressBuf, sizeof(progressBuf), "%d/%d", displayPage, pageCount);
+    }
   } else if (SETTINGS.statusBarBookProgressPercentage) {
     std::snprintf(progressBuf, sizeof(progressBuf), "%.0f%%", bookProgress);
   }

@@ -41,6 +41,12 @@ class Activity {
   virtual void requestUpdateAndWait();
 
   virtual bool skipLoopDelay() { return false; }
+
+  // Some interactive screens perform frequent SD scans, list redraws, or
+  // touch navigation.  They may still use the normal loop delay, but should
+  // stay at full CPU speed to avoid Paper S3 timing/watchdog instability.
+  virtual bool allowIdlePowerSaving() const { return true; }
+
   virtual bool preventAutoSleep() { return false; }
   virtual bool isReaderActivity() const { return false; }
 

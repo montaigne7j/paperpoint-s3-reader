@@ -59,8 +59,8 @@ class HalGPIO {
   static constexpr uint8_t BTN_SWIPE_LEFT = 10;   // Horizontal swipe left (fires before release)
   static constexpr uint8_t BTN_SWIPE_RIGHT = 11;  // Horizontal swipe right (fires before release)
 
-  // On-screen shutdown hotspot used by non-reader UI screens.
-  // Non-reader activities are portrait-only, so this is the top-left 64x64 px area.
+  // Shutdown hotspot used by menus and full-screen readers. It may be visually
+  // hidden in reader UI. Logical coordinates make it follow 0/180 rotation.
   static constexpr int POWER_HOTSPOT_SIZE = 64;
 
  private:

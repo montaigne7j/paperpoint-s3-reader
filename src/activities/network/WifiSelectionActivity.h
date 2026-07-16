@@ -69,6 +69,11 @@ class WifiSelectionActivity final : public Activity {
   // Whether to attempt auto-connect on entry
   const bool allowAutoConnect;
 
+  // Whether the parent activity will manage WiFi after this activity exits.
+  // Network features such as WebServer/OPDS/OTA keep WiFi on; Settings > WiFi
+  // Networks passes false so a scan/connection cannot leave the radio active.
+  const bool keepWifiOnAfterExit;
+
   // Whether we are attempting to auto-connect
   bool autoConnecting = false;
 
@@ -98,8 +103,15 @@ class WifiSelectionActivity final : public Activity {
   void onComplete(bool connected);
 
  public:
-  explicit WifiSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool autoConnect = true)
-      : Activity("WifiSelection", renderer, mappedInput), allowAutoConnect(autoConnect) {}
+  explicit WifiSelectionActivity(
+      GfxRenderer& renderer,
+      MappedInputManager& mappedInput,
+      bool autoConnect = true,
+      bool keepWifiOnAfterExit = true
+  )
+      : Activity("WifiSelection", renderer, mappedInput),
+        allowAutoConnect(autoConnect),
+        keepWifiOnAfterExit(keepWifiOnAfterExit) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;

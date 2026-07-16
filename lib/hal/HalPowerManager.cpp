@@ -5,6 +5,7 @@
 #include <esp_sleep.h>
 
 #include <cassert>
+#include <algorithm>
 
 #include "HalGPIO.h"
 
@@ -13,6 +14,7 @@ static constexpr int PWROFF_PULSE_PIN = 44;
 
 // M5PaperS3 battery voltage ADC pin (hardware voltage divider, ~2.04x ratio)
 static constexpr int BAT_ADC_PIN = 3;
+static constexpr int USB_DET_PIN = 5;
 static constexpr int BAT_ADC_SAMPLES = 16;         // Number of ADC samples to average
 static constexpr uint16_t BAT_HYSTERESIS_MV = 30;  // Only update if voltage changed by ≥30mV (~3%)
 static uint16_t lastBattMv = 0;                    // Cached smoothed voltage
@@ -28,25 +30,26 @@ void HalPowerManager::begin() {
   // Battery voltage is read via ADC on GPIO 3 (hardware voltage divider).
   // analogReadMilliVolts() handles ESP32-S3 ADC calibration internally.
   pinMode(BAT_ADC_PIN, INPUT);
+  pinMode(USB_DET_PIN, INPUT);
   analogSetAttenuation(ADC_11db);
 #endif
 }
 
 void HalPowerManager::setPowerSaving(bool enabled) {
 #if CROSSPOINT_PAPERS3
-  // PaperS3 has a dedicated PMIC for power management and deep-sleeps via
-  // GPIO44 pulse.  CPU throttling from 240→10 MHz only adds touch latency
-  // (~50 ms) with negligible battery savings.  Keep full speed always.
-  (void)enabled;
-  return;
-#else
+  // r33 stability policy: Paper S3 CPU down-clocking is disabled. Keep this
+  // guard here as well as in main.cpp so future callers cannot accidentally
+  // re-enable the unstable 80 MHz transition.
+  enabled = false;
+#endif
+
   if (normalFreq <= 0) {
     return;  // invalid state
   }
 
   auto wifiMode = WiFi.getMode();
   if (wifiMode != WIFI_MODE_NULL) {
-    // Wifi is active, force disabling power saving
+    // WiFi is active, force full speed so network services remain responsive
     enabled = false;
   }
 
@@ -55,7 +58,7 @@ void HalPowerManager::setPowerSaving(bool enabled) {
   const LockMode mode = currentLockMode;
 
   if (mode == None && enabled && !isLowPower) {
-    LOG_DBG("PWR", "Going to low-power mode");
+    LOG_DBG("PWR", "Going to low-power mode: %d MHz", LOW_POWER_FREQ);
     if (!setCpuFrequencyMhz(LOW_POWER_FREQ)) {
       LOG_DBG("PWR", "Failed to set CPU frequency = %d MHz", LOW_POWER_FREQ);
       return;
@@ -63,7 +66,7 @@ void HalPowerManager::setPowerSaving(bool enabled) {
     isLowPower = true;
 
   } else if ((!enabled || mode != None) && isLowPower) {
-    LOG_DBG("PWR", "Restoring normal CPU frequency");
+    LOG_DBG("PWR", "Restoring normal CPU frequency: %d MHz", normalFreq);
     if (!setCpuFrequencyMhz(normalFreq)) {
       LOG_DBG("PWR", "Failed to set CPU frequency = %d MHz", normalFreq);
       return;
@@ -72,7 +75,6 @@ void HalPowerManager::setPowerSaving(bool enabled) {
   }
 
   // Otherwise, no change needed
-#endif
 }
 
 void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
@@ -98,42 +100,67 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
 
 uint16_t HalPowerManager::getBatteryPercentage() const {
 #if CROSSPOINT_PAPERS3
-  static uint16_t cachedPercentX10 = 0;
+  static int displayedPercent = -1;
+  static bool previousUsb = false;
+  static uint32_t usbChangedAt = 0;
+  static uint32_t lastStepAt = 0;
 
-  if (isLowPower) {
-    return cachedPercentX10 / 10;
+  if (isLowPower && displayedPercent >= 0) return displayedPercent;
+
+  // Median sampling rejects the occasional large ESP32-S3 ADC outlier better
+  // than a simple average.
+  uint16_t samples[BAT_ADC_SAMPLES];
+  for (int i = 0; i < BAT_ADC_SAMPLES; ++i) samples[i] = analogReadMilliVolts(BAT_ADC_PIN);
+  std::sort(samples, samples + BAT_ADC_SAMPLES);
+  const uint16_t adcMv = samples[BAT_ADC_SAMPLES / 2];
+  const uint16_t battMv = static_cast<uint16_t>((adcMv * 204UL) / 100UL);
+  const bool usbPowered = analogReadMilliVolts(USB_DET_PIN) > 200;
+
+  if (lastBattMv == 0 || abs((int)battMv - (int)lastBattMv) >= BAT_HYSTERESIS_MV) lastBattMv = battMv;
+
+  // Piecewise Li-Po discharge curve. Charging voltage is deliberately not
+  // allowed to make the displayed state-of-charge jump immediately.
+  struct Point { uint16_t mv; uint8_t pct; };
+  static constexpr Point curve[] = {
+      {3300,0},{3500,5},{3600,10},{3700,20},{3750,30},{3800,42},
+      {3850,55},{3900,68},{4000,82},{4100,93},{4200,100}};
+  int rawPercent = 0;
+  if (lastBattMv >= curve[10].mv) rawPercent = 100;
+  else {
+    for (size_t i = 1; i < sizeof(curve)/sizeof(curve[0]); ++i) {
+      if (lastBattMv <= curve[i].mv) {
+        const auto& a=curve[i-1]; const auto& b=curve[i];
+        rawPercent = a.pct + (lastBattMv-a.mv)*(b.pct-a.pct)/(b.mv-a.mv);
+        break;
+      }
+    }
   }
 
-  // Average multiple ADC samples to reduce noise (ESP32-S3 ADC jitters ~20-50mV).
-  uint32_t sum = 0;
-  for (int i = 0; i < BAT_ADC_SAMPLES; i++) {
-    sum += analogReadMilliVolts(BAT_ADC_PIN);
+  const uint32_t now = millis();
+  if (displayedPercent < 0) {
+    displayedPercent = rawPercent;
+    previousUsb = usbPowered;
+    usbChangedAt = lastStepAt = now;
   }
-  const uint16_t adcMv = (uint16_t)(sum / BAT_ADC_SAMPLES);
-  const uint16_t battMv = (uint16_t)((adcMv * 204) / 100);
-
-  // Hysteresis: only update cached voltage if change exceeds threshold.
-  // Prevents the raw percentage from flickering between adjacent values.
-  if (lastBattMv == 0 || abs((int)battMv - (int)lastBattMv) >= BAT_HYSTERESIS_MV) {
-    lastBattMv = battMv;
-  }
-  LOG_DBG("PWR", "Battery ADC=%umV  VBAT=%umV (cached=%umV)", adcMv, battMv, lastBattMv);
-
-  // Li-Po linear approximation: 4200mV = 100%, 3300mV = 0%
-  uint16_t rawPercent = 0;
-  if (lastBattMv >= 4200) {
-    rawPercent = 100;
-  } else if (lastBattMv > 3300) {
-    rawPercent = (uint16_t)((lastBattMv - 3300) * 100 / 900);
+  if (usbPowered != previousUsb) {
+    previousUsb = usbPowered;
+    usbChangedAt = now;
+    LOG_INF("PWR", "USB power changed=%d; hold battery display for stabilization", usbPowered ? 1 : 0);
   }
 
-  // Smooth the battery %.
-  if (cachedPercentX10 == 0) {
-    cachedPercentX10 = rawPercent * 10;
-  } else {
-    cachedPercentX10 = (cachedPercentX10 * 9 + rawPercent * 10) / 10;
+  // Hold for 30 seconds after cable changes. Afterwards move only one point at
+  // a time, preventing 74% -> 51% cable-removal jumps.
+  if (now - usbChangedAt >= 30000) {
+    const uint32_t interval = usbPowered ? 60000 : 30000;
+    if (now - lastStepAt >= interval) {
+      if (rawPercent > displayedPercent) ++displayedPercent;
+      else if (rawPercent < displayedPercent) --displayedPercent;
+      lastStepAt = now;
+    }
   }
-  return cachedPercentX10 / 10;
+  displayedPercent = std::max(0, std::min(100, displayedPercent));
+  LOG_DBG("PWR", "USB=%d ADC=%umV VBAT=%umV raw=%d display=%d", usbPowered, adcMv, lastBattMv, rawPercent, displayedPercent);
+  return static_cast<uint16_t>(displayedPercent);
 #else
   return 100;
 #endif
