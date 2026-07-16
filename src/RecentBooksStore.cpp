@@ -85,7 +85,7 @@ RecentBook RecentBooksStore::getDataFromBook(std::string path) const {
   } else if (FsHelpers::hasComicZipExtension(lastBookFileName)) {
     std::string title = lastBookFileName;
     if (FsHelpers::hasCbzExtension(title) || FsHelpers::hasZipExtension(title)) {
-      title = title.substr(0, title.length() - 4);
+      title.resize(title.length() - 4);
     }
     return RecentBook{path, title, "CBZ", ""};
   }

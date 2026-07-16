@@ -326,10 +326,10 @@ void FileBrowserActivity::loop() {
     constexpr int largeTextScale = 2;
     const int pathLineHeight = largeTextTheme ? renderer.getLineHeightScaled(UI_10_FONT_ID, largeTextScale)
                                               : renderer.getLineHeight(UI_10_FONT_ID);
-    const int pathReserved = pathLineHeight + metrics.verticalSpacing;
+    const int touchPathReserved = pathLineHeight + metrics.verticalSpacing;
     const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-    const int contentHeight =
-        renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing - pathReserved;
+    const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight -
+                              metrics.verticalSpacing - touchPathReserved;
     const int targetIndex =
         DirectTouchSelection::hitListRow(mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight},
                                          listSize, static_cast<int>(selectorIndex), metrics.listRowHeight);

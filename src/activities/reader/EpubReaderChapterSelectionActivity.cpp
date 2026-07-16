@@ -220,7 +220,7 @@ bool EpubReaderChapterSelectionActivity::selectedHasVisibleParent() const {
   if (selectedLevel <= 1) return false;
   for (int visibleIndex = selectorIndex - 1; visibleIndex >= 0; --visibleIndex) {
     const int candidateTocIndex = visibleTocIndices[visibleIndex];
-    if (candidateTocIndex < 0 || candidateTocIndex >= static_cast<int>(tocNodes.size())) continue;
+    if (candidateTocIndex >= static_cast<int>(tocNodes.size())) continue;
     if (tocNodes[candidateTocIndex].level < selectedLevel) return true;
   }
   return false;
@@ -237,7 +237,7 @@ bool EpubReaderChapterSelectionActivity::moveSelectionToParent() {
   // the nearest preceding visible item whose level is shallower.
   for (int visibleIndex = selectorIndex - 1; visibleIndex >= 0; --visibleIndex) {
     const int candidateTocIndex = visibleTocIndices[visibleIndex];
-    if (candidateTocIndex < 0 || candidateTocIndex >= static_cast<int>(tocNodes.size())) continue;
+    if (candidateTocIndex >= static_cast<int>(tocNodes.size())) continue;
 
     if (tocNodes[candidateTocIndex].level < selectedLevel) {
       selectorIndex = visibleIndex;

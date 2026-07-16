@@ -1179,7 +1179,7 @@ bool EpubReaderActivity::computePendingPageTurnTarget(const bool isForwardTurn, 
                                                       bool& crossesChapter) const {
   targetPage = -1;
   crossesChapter = false;
-  if (!epub || !section || section->pageCount <= 0) {
+  if (!epub || !section || section->pageCount == 0) {
     return false;
   }
 
@@ -1244,7 +1244,7 @@ bool EpubReaderActivity::queuePendingPageTurn(const bool isForwardTurn, const ch
     return true;
   }
 
-  if (pendingPageTurnBoundary || !pendingPageTurnTargetKnown || !section || section->pageCount <= 0) {
+  if (pendingPageTurnBoundary || !pendingPageTurnTargetKnown || !section || section->pageCount == 0) {
     inputDiagnostics.inputIgnoredPending++;
     LOG_INF("ERS", "Page turn input absorbed at chapter boundary: old=%s new=%s source=%s ignoredPending=%lu",
             pendingPageTurnForward ? "next" : "prev", isForwardTurn ? "next" : "prev", source ? source : "?",
@@ -1321,7 +1321,7 @@ void EpubReaderActivity::clearPendingPageTurn() {
 }
 
 bool EpubReaderActivity::updateTentativePageStatusFromPending(const char* source) {
-  if (!pendingPageTurnActive || !pendingPageTurnTargetKnown || !section || section->pageCount <= 0) {
+  if (!pendingPageTurnActive || !pendingPageTurnTargetKnown || !section || section->pageCount == 0) {
     clearTentativePageStatus();
     return false;
   }
@@ -1335,7 +1335,7 @@ bool EpubReaderActivity::updateTentativePageStatusFromPending(const char* source
 }
 
 bool EpubReaderActivity::drawTentativePageStatus(const char* source) {
-  if (!tentativePageStatusActive || !section || section->pageCount <= 0 ||
+  if (!tentativePageStatusActive || !section || section->pageCount == 0 ||
       tentativePageStatusSpine != currentSpineIndex) {
     return false;
   }
@@ -1459,7 +1459,7 @@ bool EpubReaderActivity::executePendingPageTurnIfReady(const char* source) {
 }
 
 bool EpubReaderActivity::sameSectionPageTurnTarget(const bool isForwardTurn, int& targetPage) const {
-  if (!section || section->pageCount <= 0) {
+  if (!section || section->pageCount == 0) {
     return false;
   }
 
@@ -1511,7 +1511,7 @@ bool EpubReaderActivity::adjacentPageFrameCachesReady() {
     return true;
   }
 
-  if (!section || section->pageCount <= 0 || pageFrameCacheWarmJob.active) {
+  if (!section || section->pageCount == 0 || pageFrameCacheWarmJob.active) {
     return false;
   }
 
@@ -1603,7 +1603,7 @@ bool EpubReaderActivity::startPageFrameCacheWarmJob(const int pageNumber, const 
 }
 
 bool EpubReaderActivity::continuePageFrameCacheWarmJobChunk() {
-  if (!pageFrameCacheWarmJob.active || !pageFrameCacheWarmJob.page) {
+  if (!section || !pageFrameCacheWarmJob.active || !pageFrameCacheWarmJob.page) {
     return false;
   }
 
@@ -1691,13 +1691,13 @@ bool EpubReaderActivity::continuePageFrameCacheWarmJobChunk() {
                   static_cast<unsigned>(elementIndex), static_cast<unsigned>(elementTag));
     logReaderHeapDelta(phaseName, glyphBefore, glyphAfter, millis() - glyphStart);
     if (ttfMissSuppressed) {
-      int pendingTargetPage = -1;
-      if (pendingPageTurnActive && sameSectionPageTurnTarget(pendingPageTurnForward, pendingTargetPage) &&
-          pendingTargetPage == pageFrameCacheWarmJob.pageNumber) {
+      int suppressedTargetPage = -1;
+      if (pendingPageTurnActive && sameSectionPageTurnTarget(pendingPageTurnForward, suppressedTargetPage) &&
+          suppressedTargetPage == pageFrameCacheWarmJob.pageNumber) {
         pendingPageTurnForceVisible = true;
         pendingPageTurnForceVisibleAt = millis();
         LOG_DBG("ERS", "Pending page turn will use visible render after background TTF miss suppression: target=%d",
-                pendingTargetPage);
+                suppressedTargetPage);
       }
       markPageFrameCacheLowMemoryCooldown(pageFrameCacheWarmJob.spineIndex, pageFrameCacheWarmJob.pageNumber,
                                           "ttf-miss-suppressed");
@@ -1706,9 +1706,7 @@ bool EpubReaderActivity::continuePageFrameCacheWarmJobChunk() {
       renderer.setRenderMode(GfxRenderer::BW);
       endReaderContentRender(renderer);
       abortPageFrameCacheWarmJob();
-      if (section) {
-        restorePageFrameCacheToRenderer(currentSpineIndex, section->currentPage, false);
-      }
+      restorePageFrameCacheToRenderer(currentSpineIndex, section->currentPage, false);
       return false;
     }
     pageFrameCacheWarmJob.nextElementIndex++;
@@ -1760,9 +1758,7 @@ bool EpubReaderActivity::continuePageFrameCacheWarmJobChunk() {
 
   // Restore the visible frame if it is cached.  This keeps the renderer buffer
   // sane after cooperative cache drawing, but it never drives the e-paper.
-  if (section) {
-    restorePageFrameCacheToRenderer(currentSpineIndex, section->currentPage, false);
-  }
+  restorePageFrameCacheToRenderer(currentSpineIndex, section->currentPage, false);
 
   LOG_DBG("ERS", "Frame cache render cooperative: page=%d stored=%d total=%lums", finishedPage, stored ? 1 : 0,
           totalMs);
@@ -1898,7 +1894,7 @@ bool EpubReaderActivity::collectPageTtfPrewarmCodepoints(const int pageNumber, s
 }
 
 bool EpubReaderActivity::idleGlyphPrewarmIfReady() {
-  if (!section || section->pageCount <= 0 || pendingPageTurnActive || pageFrameCacheWarmJob.active) {
+  if (!section || section->pageCount == 0 || pendingPageTurnActive || pageFrameCacheWarmJob.active) {
     return false;
   }
   if (hasReaderInputPending()) {
@@ -2018,7 +2014,7 @@ bool EpubReaderActivity::idleGlyphPrewarmIfReady() {
 }
 
 void EpubReaderActivity::warmPageFrameCacheIfIdle() {
-  if (!epub || !section || section->pageCount <= 0) {
+  if (!epub || !section || section->pageCount == 0) {
     abortPageFrameCacheWarmJob();
     return;
   }

@@ -430,7 +430,6 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
       // Partially consumed - page is full mid-line
       // Move pos to where we stopped in the line (NOT past the line)
       pos = pos + lineBytePos;
-      sourceLineStartsHere = false;
       break;
     }
   }

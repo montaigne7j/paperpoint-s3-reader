@@ -150,9 +150,9 @@ void CbzReaderActivity::setupCacheDir() const {
 std::string CbzReaderActivity::getTitle() const {
   std::string name = basenameOf(archivePath);
   if (FsHelpers::hasCbzExtension(name)) {
-    name = name.substr(0, name.length() - 4);
+    name.resize(name.length() - 4);
   } else if (FsHelpers::hasZipExtension(name)) {
-    name = name.substr(0, name.length() - 4);
+    name.resize(name.length() - 4);
   }
   return name;
 }
@@ -161,7 +161,7 @@ std::string CbzReaderActivity::getProgressPath() const { return cachePath + "/pr
 
 bool CbzReaderActivity::isSupportedImageEntry(const std::string& entry) {
   if (entry.empty() || entry.back() == '/') return false;
-  if (entry.find("__MACOSX/") == 0) return false;
+  if (entry.starts_with("__MACOSX/")) return false;
 
   const std::string name = basenameOf(entry);
   if (name.empty() || name[0] == '.') return false;
@@ -238,12 +238,6 @@ void CbzReaderActivity::onExit() {
 }
 
 void CbzReaderActivity::loop() {
-#if CROSSPOINT_PAPERS3
-  if (mappedInput.isPressed(MappedInputManager::Button::Back)) {
-    return;
-  }
-#endif
-
   if (mappedInput.isPressed(MappedInputManager::Button::Back) && mappedInput.getHeldTime() >= goHomeMs) {
     activityManager.goToComicFileBrowser(archivePath);
     return;
@@ -624,7 +618,6 @@ void CbzReaderActivity::applyComicToneToFramebuffer() {
 
   for (size_t i = 0; i < GfxRenderer::getBufferSize(); ++i) {
     int v = fb[i];
-    if (v < 0) v = 0;
     if (v > 3) v = 3;
     const int centeredTimes2 = v * 2 - 3;  // -3, -1, +1, +3
     int adjustedTimes2 = 3 + (centeredTimes2 * factor + (centeredTimes2 >= 0 ? 50 : -50)) / 100;
