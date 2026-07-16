@@ -51,13 +51,12 @@ class LargeTextTheme : public LyraTheme {
                            int newSelectedIndex, const std::function<std::string(int index)>& rowTitle,
                            const std::function<std::string(int index)>& rowSubtitle,
                            const std::function<UIIcon(int index)>& rowIcon,
-                           const std::function<std::string(int index)>& rowValue,
-                           bool highlightValue) const override;
+                           const std::function<std::string(int index)>& rowValue, bool highlightValue) const override;
   void drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                        const char* btn4) const override;
   void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
-                           const int selectorIndex, bool& coverRendered, bool& coverBufferStored,
-                           bool& bufferRestored, std::function<bool()> storeCoverBuffer) const override;
+                           const int selectorIndex, bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
+                           std::function<bool()> storeCoverBuffer) const override;
   Rect drawPopup(const GfxRenderer& renderer, const char* message) const override;
   void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, int progress) const override;
   void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,

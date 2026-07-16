@@ -40,12 +40,10 @@ void ReaderValueAdjustActivity::loop() {
     return;
   }
 
-  buttonNavigator.onPressAndContinuous(
-      {MappedInputManager::Button::Up, MappedInputManager::Button::Left},
-      [this] { adjust(-1); });
-  buttonNavigator.onPressAndContinuous(
-      {MappedInputManager::Button::Down, MappedInputManager::Button::Right},
-      [this] { adjust(+1); });
+  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up, MappedInputManager::Button::Left},
+                                       [this] { adjust(-1); });
+  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down, MappedInputManager::Button::Right},
+                                       [this] { adjust(+1); });
 }
 
 void ReaderValueAdjustActivity::render(RenderLock&&) {

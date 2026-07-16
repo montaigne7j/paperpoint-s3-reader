@@ -1,8 +1,8 @@
 #include "ReaderFontSizeActivity.h"
 
+#include <FontManager.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
-#include <FontManager.h>
 
 #include <algorithm>
 #include <string>
@@ -30,8 +30,7 @@ void ReaderFontSizeActivity::onEnter() {
 void ReaderFontSizeActivity::onExit() { Activity::onExit(); }
 
 void ReaderFontSizeActivity::adjust(const int delta) {
-  const int next = std::clamp<int>(static_cast<int>(value) + delta,
-                                   CrossPointSettings::READER_FONT_SIZE_MIN,
+  const int next = std::clamp<int>(static_cast<int>(value) + delta, CrossPointSettings::READER_FONT_SIZE_MIN,
                                    CrossPointSettings::READER_FONT_SIZE_MAX);
   if (next == value) return;
   value = static_cast<uint8_t>(next);
@@ -54,12 +53,10 @@ void ReaderFontSizeActivity::loop() {
   // On Paper S3 the two right-hand footer zones map to Up / Down. Physical
   // front Left / Right buttons are accepted too, so either control style can
   // decrease or increase the value. Holding a key repeats the adjustment.
-  buttonNavigator.onPressAndContinuous(
-      {MappedInputManager::Button::Up, MappedInputManager::Button::Left},
-      [this] { adjust(-1); });
-  buttonNavigator.onPressAndContinuous(
-      {MappedInputManager::Button::Down, MappedInputManager::Button::Right},
-      [this] { adjust(+1); });
+  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up, MappedInputManager::Button::Left},
+                                       [this] { adjust(-1); });
+  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down, MappedInputManager::Button::Right},
+                                       [this] { adjust(+1); });
 }
 
 void ReaderFontSizeActivity::render(RenderLock&&) {
@@ -69,13 +66,11 @@ void ReaderFontSizeActivity::render(RenderLock&&) {
   const int pageWidth = renderer.getScreenWidth();
   const int pageHeight = renderer.getScreenHeight();
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight},
-                 tr(STR_FONT_SIZE));
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_FONT_SIZE));
 
   const std::string valueText = std::to_string(value) + " px";
   const int valueY = metrics.topPadding + metrics.headerHeight + 105;
-  renderer.drawCenteredText(UI_12_FONT_ID, valueY, valueText.c_str(), true,
-                            EpdFontFamily::BOLD);
+  renderer.drawCenteredText(UI_12_FONT_ID, valueY, valueText.c_str(), true, EpdFontFamily::BOLD);
 
   constexpr int barSidePadding = 60;
   constexpr int barHeight = 16;
@@ -84,18 +79,15 @@ void ReaderFontSizeActivity::render(RenderLock&&) {
   const int barY = valueY + 75;
   renderer.drawRect(barX, barY, barWidth, barHeight);
 
-  const int range = CrossPointSettings::READER_FONT_SIZE_MAX -
-                    CrossPointSettings::READER_FONT_SIZE_MIN;
-  const int progress = static_cast<int>(value) -
-                       CrossPointSettings::READER_FONT_SIZE_MIN;
-  const int fillWidth = range > 0 ? (barWidth - 4) * progress / range : 0;
+  const int range = CrossPointSettings::READER_FONT_SIZE_MAX - CrossPointSettings::READER_FONT_SIZE_MIN;
+  const int progress = static_cast<int>(value) - CrossPointSettings::READER_FONT_SIZE_MIN;
+  const int fillWidth = (barWidth - 4) * progress / range;
   if (fillWidth > 0) {
     renderer.fillRect(barX + 2, barY + 2, fillWidth, barHeight - 4, true);
   }
 
-  const std::string rangeText =
-      std::to_string(CrossPointSettings::READER_FONT_SIZE_MIN) +
-      " - " + std::to_string(CrossPointSettings::READER_FONT_SIZE_MAX) + " px";
+  const std::string rangeText = std::to_string(CrossPointSettings::READER_FONT_SIZE_MIN) + " - " +
+                                std::to_string(CrossPointSettings::READER_FONT_SIZE_MAX) + " px";
   renderer.drawCenteredText(UI_10_FONT_ID, barY + 38, rangeText.c_str());
 
   // Keep the explanatory text clear of the footer on both portrait variants.

@@ -95,8 +95,7 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
 
       // Paper S3 has room for two 30-pixel CJK lines below each cover.
       // Limiting the line count also keeps the selection box inside the tile.
-      auto titleLines =
-          renderer.wrappedText(recentBookTextFontId, recentBooks[i].title.c_str(), maxLineWidth, 2);
+      auto titleLines = renderer.wrappedText(recentBookTextFontId, recentBooks[i].title.c_str(), maxLineWidth, 2);
 
       const int titleLineHeight = renderer.getLineHeight(recentBookTextFontId);
       const int dynamicBlockHeight = static_cast<int>(titleLines.size()) * titleLineHeight;

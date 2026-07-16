@@ -3,12 +3,14 @@
 #include <Arduino.h>
 #include <CrossPointSettings.h>
 #include <Logging.h>
+
 #include <algorithm>
 
 #if CROSSPOINT_PAPERS3
 #include <M5Unified.h>
 #include <Preferences.h>
 #include <driver/i2c.h>
+
 #include <cmath>
 #endif
 
@@ -32,11 +34,15 @@ constexpr float AXIS_MIN_G = 0.45f;
 constexpr float DOT_ENTER = 0.72f;
 constexpr float DOT_EXIT = 0.45f;
 
-float dot3(const AccelSample& a, const AccelSample& b) { return a.x*b.x + a.y*b.y + a.z*b.z; }
+float dot3(const AccelSample& a, const AccelSample& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 float mag3(const AccelSample& a) { return std::sqrt(dot3(a, a)); }
 AccelSample normalized(AccelSample s) {
   const float m = mag3(s);
-  if (m > 0.001f) { s.x /= m; s.y /= m; s.z /= m; }
+  if (m > 0.001f) {
+    s.x /= m;
+    s.y /= m;
+    s.z /= m;
+  }
   return s;
 }
 
@@ -68,13 +74,16 @@ bool averageStable(AccelSample& out) {
       const auto d = M5.Imu.getImuData();
       AccelSample s{d.accel.x, d.accel.y, d.accel.z};
       if (got == 0) first = s;
-      const float dx=s.x-first.x, dy=s.y-first.y, dz=s.z-first.z;
-      maxDelta = std::max(maxDelta, std::sqrt(dx*dx+dy*dy+dz*dz));
-      sum.x += s.x; sum.y += s.y; sum.z += s.z; ++got;
+      const float dx = s.x - first.x, dy = s.y - first.y, dz = s.z - first.z;
+      maxDelta = std::max(maxDelta, std::sqrt(dx * dx + dy * dy + dz * dz));
+      sum.x += s.x;
+      sum.y += s.y;
+      sum.z += s.z;
+      ++got;
     }
     delay(12);
   }
-  if (got < N/2 || maxDelta > 0.18f) return false;
+  if (got < N / 2 || maxDelta > 0.18f) return false;
   const AccelSample average{sum.x / got, sum.y / got, sum.z / got};
   const float averageMagnitude = mag3(average);
   if (averageMagnitude < 0.65f || averageMagnitude > 1.35f) return false;
@@ -130,7 +139,8 @@ bool captureCalibrationPose(CalibrationPose pose) {
     const float upVsDown = dot3(poses[2], poses[3]);
     calibrated = uprightVsInverted < -0.55f && upVsDown < -0.55f;
     if (calibrated) saveCalibration();
-    LOG_INF("IMU", "Calibration complete valid=%d portraitDot=%.2f flatDot=%.2f", calibrated, uprightVsInverted, upVsDown);
+    LOG_INF("IMU", "Calibration complete valid=%d portraitDot=%.2f flatDot=%.2f", calibrated, uprightVsInverted,
+            upVsDown);
   }
   return pose != CalibrationPose::FaceDown || calibrated;
 #else
@@ -156,22 +166,23 @@ FaceDownDetection pollFaceDownDetection() {
 #endif
 }
 
-bool isFaceDownCandidate() {
-  return pollFaceDownDetection() == FaceDownDetection::FaceDown;
-}
+bool isFaceDownCandidate() { return pollFaceDownDetection() == FaceDownDetection::FaceDown; }
 
 void clearCalibration() {
 #if CROSSPOINT_PAPERS3
   clearStoredCalibration();
-  calibrated = false; locked = false;
+  calibrated = false;
+  locked = false;
 #endif
 }
-
 
 void clearStoredCalibration() {
 #if CROSSPOINT_PAPERS3
   Preferences p;
-  if (p.begin("paperpoint-imu", false)) { p.clear(); p.end(); }
+  if (p.begin("paperpoint-imu", false)) {
+    p.clear();
+    p.end();
+  }
 #endif
 }
 
@@ -193,8 +204,9 @@ void update() {
 
   const uint8_t mode = SETTINGS.readerOrientationMode;
   if (mode == CrossPointSettings::READER_ORIENTATION_AUTO) {
-    const uint8_t wanted = invertedCandidate ? CrossPointSettings::INVERTED :
-                           uprightCandidate ? CrossPointSettings::PORTRAIT : currentOrientation;
+    const uint8_t wanted = invertedCandidate  ? CrossPointSettings::INVERTED
+                           : uprightCandidate ? CrossPointSettings::PORTRAIT
+                                              : currentOrientation;
     if (wanted != currentOrientation) {
       if (candidateSinceMs == 0) candidateSinceMs = now;
       if (now - candidateSinceMs >= HOLD_MS) {
@@ -203,10 +215,11 @@ void update() {
         candidateSinceMs = 0;
         LOG_INF("IMU", "Auto reader orientation=%u", currentOrientation);
       }
-    } else candidateSinceMs = 0;
+    } else
+      candidateSinceMs = 0;
   } else {
-    currentOrientation = mode == CrossPointSettings::READER_ORIENTATION_FIXED_180
-                           ? CrossPointSettings::INVERTED : CrossPointSettings::PORTRAIT;
+    currentOrientation = mode == CrossPointSettings::READER_ORIENTATION_FIXED_180 ? CrossPointSettings::INVERTED
+                                                                                  : CrossPointSettings::PORTRAIT;
     candidateSinceMs = 0;
     if (SETTINGS.readerInversionLock) {
       locked = (currentOrientation == CrossPointSettings::PORTRAIT) ? invertedCandidate : uprightCandidate;
@@ -214,7 +227,6 @@ void update() {
   }
 #endif
 }
-
 
 void beginCalibrationSession() {
 #if CROSSPOINT_PAPERS3
@@ -266,7 +278,9 @@ uint8_t desiredOrientation() {
 }
 bool consumeOrientationChanged() {
 #if CROSSPOINT_PAPERS3
-  const bool changed = orientationChanged; orientationChanged = false; return changed;
+  const bool changed = orientationChanged;
+  orientationChanged = false;
+  return changed;
 #else
   return false;
 #endif

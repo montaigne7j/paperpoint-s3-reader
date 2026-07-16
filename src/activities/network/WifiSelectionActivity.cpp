@@ -11,8 +11,8 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
-#include "activities/util/DirectTouchSelection.h"
 #include "WifiCredentialStore.h"
+#include "activities/util/DirectTouchSelection.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -450,11 +450,11 @@ void WifiSelectionActivity::loop() {
     if (!networks.empty()) {
       const auto& metrics = UITheme::getInstance().getMetrics();
       const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
-      const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight -
-                                metrics.verticalSpacing * 2;
+      const int contentHeight =
+          renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
       const int targetIndex = DirectTouchSelection::hitListRow(
-          mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight},
-          static_cast<int>(networks.size()), static_cast<int>(selectedNetworkIndex), metrics.listRowHeight);
+          mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight}, static_cast<int>(networks.size()),
+          static_cast<int>(selectedNetworkIndex), metrics.listRowHeight);
       if (targetIndex >= 0) {
         if (targetIndex == static_cast<int>(selectedNetworkIndex)) {
           selectNetwork(selectedNetworkIndex);
@@ -471,8 +471,8 @@ void WifiSelectionActivity::loop() {
 #if CROSSPOINT_PAPERS3
     const auto& metrics = UITheme::getInstance().getMetrics();
     const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
-    const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight -
-                              metrics.verticalSpacing * 2;
+    const int contentHeight =
+        renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
     const int pageItems = std::max(1, contentHeight / std::max(1, metrics.listRowHeight));
     buttonNavigator.onNextRelease([this, pageItems] {
       selectedNetworkIndex = ButtonNavigator::nextPageIndex(selectedNetworkIndex, networks.size(), pageItems);

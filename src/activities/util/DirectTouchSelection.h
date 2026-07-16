@@ -1,9 +1,8 @@
 #pragma once
 
-#include "MappedInputManager.h"
-
 #include <algorithm>
 
+#include "MappedInputManager.h"
 #include "components/themes/BaseTheme.h"
 
 namespace DirectTouchSelection {
@@ -27,8 +26,8 @@ inline bool getDirectTap(const MappedInputManager& input, int& x, int& y) {
   return false;
 }
 
-inline int hitListRow(const MappedInputManager& input, const Rect& rect, const int itemCount,
-                      const int selectedIndex, const int rowHeight) {
+inline int hitListRow(const MappedInputManager& input, const Rect& rect, const int itemCount, const int selectedIndex,
+                      const int rowHeight) {
   if (itemCount <= 0 || rowHeight <= 0 || selectedIndex < 0) {
     return -1;
   }
@@ -53,8 +52,8 @@ inline int hitListRow(const MappedInputManager& input, const Rect& rect, const i
   return targetIndex >= 0 && targetIndex < itemCount ? targetIndex : -1;
 }
 
-inline int hitButtonMenuRow(const MappedInputManager& input, const Rect& rect, const int itemCount,
-                            const int rowHeight, const int rowSpacing, const int topOffset = 0) {
+inline int hitButtonMenuRow(const MappedInputManager& input, const Rect& rect, const int itemCount, const int rowHeight,
+                            const int rowSpacing, const int topOffset = 0) {
   if (itemCount <= 0 || rowHeight <= 0) {
     return -1;
   }

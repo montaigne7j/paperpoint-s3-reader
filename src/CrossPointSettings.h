@@ -90,9 +90,7 @@ class CrossPointSettings {
     return orientation == INVERTED ? INVERTED : PORTRAIT;
   }
 
-  static uint8_t nextPaperS3Orientation(uint8_t orientation) {
-    return orientation == INVERTED ? PORTRAIT : INVERTED;
-  }
+  static uint8_t nextPaperS3Orientation(uint8_t orientation) { return orientation == INVERTED ? PORTRAIT : INVERTED; }
 #endif
 
   // Front button layout options (legacy)
@@ -132,12 +130,7 @@ class CrossPointSettings {
   static constexpr uint8_t READER_FONT_SIZE_MAX = 60;
   static constexpr uint8_t READER_FONT_SIZE_DEFAULT = 36;
   enum LEGACY_FONT_SIZE { SMALL = 0, MEDIUM = 1, LARGE = 2, EXTRA_LARGE = 3, FONT_SIZE_COUNT };
-  enum LINE_COMPRESSION {
-    TIGHT = 0,
-    NORMAL = 1,
-    WIDE = 2,
-    LINE_COMPRESSION_COUNT
-  };
+  enum LINE_COMPRESSION { TIGHT = 0, NORMAL = 1, WIDE = 2, LINE_COMPRESSION_COUNT };
   // Numeric reader spacing.  lineSpacing is a percentage; legacy enum values
   // 0/1/2 are migrated to 90/100/115.  characterSpacing is pixel spacing
   // between adjacent glyphs / vertical characters.  characterSpacing is stored
@@ -151,11 +144,7 @@ class CrossPointSettings {
   static constexpr int8_t READER_CHARACTER_SPACING_DEFAULT_SIGNED = 0;
   static constexpr uint8_t READER_CHARACTER_SPACING_DEFAULT = 0;
   // Reader text layout direction.
-  enum READING_LAYOUT {
-    HORIZONTAL_LAYOUT = 0,
-    VERTICAL_LAYOUT = 1,
-    READING_LAYOUT_COUNT
-  };
+  enum READING_LAYOUT { HORIZONTAL_LAYOUT = 0, VERTICAL_LAYOUT = 1, READING_LAYOUT_COUNT };
   enum PARAGRAPH_ALIGNMENT {
     JUSTIFIED = 0,
     LEFT_ALIGN = 1,
@@ -234,8 +223,7 @@ class CrossPointSettings {
   // Background used for transparent PNG sleep overlays. Reader pages are
   // available only when sleeping from a reader context; other activities
   // always fall back to white.
-  uint8_t transparentSleepPngBackground =
-      TRANSPARENT_SLEEP_CURRENT_READING_PAGE;
+  uint8_t transparentSleepPngBackground = TRANSPARENT_SLEEP_CURRENT_READING_PAGE;
   // Status bar settings (statusBar retained for migration only)
   uint8_t statusBar = FULL;
   uint8_t statusBarChapterPageCount = 1;

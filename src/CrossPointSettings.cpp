@@ -201,8 +201,7 @@ bool CrossPointSettings::loadFromBinaryFile() {
           fontSize = 46;
           break;
         default:
-          fontSize = std::min<uint8_t>(READER_FONT_SIZE_MAX,
-                                       std::max<uint8_t>(READER_FONT_SIZE_MIN, legacyOrPixels));
+          fontSize = std::min<uint8_t>(READER_FONT_SIZE_MAX, std::max<uint8_t>(READER_FONT_SIZE_MIN, legacyOrPixels));
           break;
       }
     }
@@ -282,8 +281,8 @@ bool CrossPointSettings::loadFromBinaryFile() {
 }
 
 float CrossPointSettings::getReaderLineCompression() const {
-  const uint8_t percent = std::min<uint8_t>(READER_LINE_SPACING_MAX,
-                                            std::max<uint8_t>(READER_LINE_SPACING_MIN, lineSpacing));
+  const uint8_t percent =
+      std::min<uint8_t>(READER_LINE_SPACING_MAX, std::max<uint8_t>(READER_LINE_SPACING_MIN, lineSpacing));
   return static_cast<float>(percent) / 100.0f;
 }
 

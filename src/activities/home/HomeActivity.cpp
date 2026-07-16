@@ -11,8 +11,8 @@
 #include <Xtc.h>
 
 #include <algorithm>
-#include <cstring>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 #if CROSSPOINT_PAPERS3
 #include <esp_heap_caps.h>
@@ -21,8 +21,8 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
-#include "activities/util/DirectTouchSelection.h"
 #include "RecentBooksStore.h"
+#include "activities/util/DirectTouchSelection.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -249,16 +249,16 @@ void HomeActivity::loop() {
     if (!recentBooks.empty() && hasTap) {
       const int visibleRecentBooks = std::min(static_cast<int>(recentBooks.size()), metrics.homeRecentBooksCount);
       const Rect recentRect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight};
-      if (tapX >= recentRect.x && tapX < recentRect.x + recentRect.width &&
-          tapY >= recentRect.y && tapY < recentRect.y + recentRect.height) {
+      if (tapX >= recentRect.x && tapX < recentRect.x + recentRect.width && tapY >= recentRect.y &&
+          tapY < recentRect.y + recentRect.height) {
         int targetRecentIndex = 0;
         if (visibleRecentBooks > 1) {
           const int tileWidth = std::max(1, (pageWidth - 2 * metrics.contentSidePadding) / visibleRecentBooks);
           targetRecentIndex = -1;
           for (int i = 0; i < visibleRecentBooks; ++i) {
             const int tileX0 = metrics.contentSidePadding + tileWidth * i;
-            const int tileX1 = (i == visibleRecentBooks - 1) ? (pageWidth - metrics.contentSidePadding)
-                                                              : (tileX0 + tileWidth);
+            const int tileX1 =
+                (i == visibleRecentBooks - 1) ? (pageWidth - metrics.contentSidePadding) : (tileX0 + tileWidth);
             if (tapX >= tileX0 && tapX < tileX1) {
               targetRecentIndex = i;
               break;
@@ -329,7 +329,7 @@ void HomeActivity::render(RenderLock&&) {
                           std::bind(&HomeActivity::storeCoverBuffer, this));
 
   // Build menu items dynamically
-  std::vector<const char*> menuItems = {tr(STR_NOVEL_READER), tr(STR_COMIC_READER), tr(STR_MENU_RECENT_BOOKS),
+  std::vector<const char*> menuItems = {tr(STR_NOVEL_READER),  tr(STR_COMIC_READER),   tr(STR_MENU_RECENT_BOOKS),
                                         tr(STR_FILE_TRANSFER), tr(STR_SETTINGS_TITLE), tr(STR_POWER_OFF)};
   std::vector<UIIcon> menuIcons = {Folder, Library, Recent, Transfer, Settings, Power};
 

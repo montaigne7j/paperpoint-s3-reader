@@ -15,13 +15,12 @@
 #include <hal/dma_types.h>
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-
-#include <cstddef>
-#include <cstdint>
 
 // I2C — TwoWire for Arduino, ESP-IDF master API otherwise
 #ifdef ARDUINO
@@ -120,34 +119,28 @@ class EPD_Painter {
   // the internal screenbuffer is updated only for that range.
   void paintRowRange(uint8_t* framebuffer, int activeRowStart, int activeRowEnd);
   void paintPacked(const uint8_t* packed);
-    /*
-  * 顯示實體面板方向的 4bpp GC16 圖片。
-  *
-  * Buffer 格式：
-  *   960 × 540
-  *   每 byte 兩個像素
-  *   高 nibble = 偶數 X
-  *   低 nibble = 奇數 X
-  *
-  * 灰階值：
-  *   0  = 黑
-  *   15 = 白
-  *
-  * 第一版只支援全螢幕同步刷新。
-  */
-  Gc16Result paintGc16Full(
-      const uint8_t* packed4bpp,
-      size_t packedSize,
-      bool clearFirst = true
-  );
+  /*
+   * 顯示實體面板方向的 4bpp GC16 圖片。
+   *
+   * Buffer 格式：
+   *   960 × 540
+   *   每 byte 兩個像素
+   *   高 nibble = 偶數 X
+   *   低 nibble = 奇數 X
+   *
+   * 灰階值：
+   *   0  = 黑
+   *   15 = 白
+   *
+   * 第一版只支援全螢幕同步刷新。
+   */
+  Gc16Result paintGc16Full(const uint8_t* packed4bpp, size_t packedSize, bool clearFirst = true);
 
   /*
-  * 產生並顯示 16 條灰階測試條。
-  * 顯示後應重新啟動裝置，不立即切回一般 UI。
-  */
-  Gc16Result paintGc16TestBars(
-      bool clearFirst = true
-  );
+   * 產生並顯示 16 條灰階測試條。
+   * 顯示後應重新啟動裝置，不立即切回一般 UI。
+   */
+  Gc16Result paintGc16TestBars(bool clearFirst = true);
   void unpaintPacked(const uint8_t* packed);
   void paintLater(uint8_t* framebuffer);
   void setInterlaceMode(bool mode) { interlace_mode = mode; }

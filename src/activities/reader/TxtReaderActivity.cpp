@@ -18,9 +18,7 @@
 namespace {
 constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
 
-size_t getUtf8CharLength(
-    const uint8_t leadByte
-) {
+size_t getUtf8CharLength(const uint8_t leadByte) {
   if ((leadByte & 0x80U) == 0) {
     return 1;
   }
@@ -50,12 +48,7 @@ size_t getUtf8CharLength(
  * 新版本先建立 UTF-8 字元邊界，再用二分搜尋，
  * 每次換行只需約 log2(N) 次寬度量測。
  */
-size_t findTxtWrapPosition(
-    const GfxRenderer& renderer,
-    const int fontId,
-    std::string& text,
-    const int maxWidth
-) {
+size_t findTxtWrapPosition(const GfxRenderer& renderer, const int fontId, std::string& text, const int maxWidth) {
   if (text.empty()) {
     return 0;
   }
@@ -71,52 +64,35 @@ size_t findTxtWrapPosition(
   size_t bytePos = 0;
 
   while (bytePos < text.size()) {
-    size_t charLength =
-        getUtf8CharLength(
-            static_cast<uint8_t>(
-                text[bytePos]
-            )
-        );
+    size_t charLength = getUtf8CharLength(static_cast<uint8_t>(text[bytePos]));
 
-    if (bytePos + charLength >
-        text.size()) {
+    if (bytePos + charLength > text.size()) {
       charLength = 1;
     }
 
     bytePos += charLength;
 
-    boundaries.push_back(
-        static_cast<uint16_t>(bytePos)
-    );
+    boundaries.push_back(static_cast<uint16_t>(bytePos));
   }
 
   if (boundaries.size() < 2) {
     return text.size();
   }
 
-  const auto measurePrefix =
-      [&](const size_t prefixBytes) -> int {
+  const auto measurePrefix = [&](const size_t prefixBytes) -> int {
     if (prefixBytes >= text.size()) {
-      return renderer.getTextWidth(
-          fontId,
-          text.c_str()
-      );
+      return renderer.getTextWidth(fontId, text.c_str());
     }
 
     /*
      * 暫時在 prefix 結尾放 '\0'，
      * 避免每次二分搜尋都產生 substr 配置。
      */
-    const char saved =
-        text[prefixBytes];
+    const char saved = text[prefixBytes];
 
     text[prefixBytes] = '\0';
 
-    const int width =
-        renderer.getTextWidth(
-            fontId,
-            text.c_str()
-        );
+    const int width = renderer.getTextWidth(fontId, text.c_str());
 
     text[prefixBytes] = saved;
 
@@ -128,14 +104,11 @@ size_t findTxtWrapPosition(
   size_t bestBytes = 0;
 
   while (low <= high) {
-    const size_t middle =
-        low + (high - low) / 2;
+    const size_t middle = low + (high - low) / 2;
 
-    const size_t prefixBytes =
-        boundaries[middle];
+    const size_t prefixBytes = boundaries[middle];
 
-    if (measurePrefix(prefixBytes) <=
-        maxWidth) {
+    if (measurePrefix(prefixBytes) <= maxWidth) {
       bestBytes = prefixBytes;
       low = middle + 1;
     } else {
@@ -160,11 +133,9 @@ size_t findTxtWrapPosition(
    * 中文通常沒有半形空格，會直接使用 UTF-8 字元邊界。
    */
   if (bestBytes < text.size()) {
-    const size_t spacePos =
-        text.rfind(' ', bestBytes - 1);
+    const size_t spacePos = text.rfind(' ', bestBytes - 1);
 
-    if (spacePos != std::string::npos &&
-        spacePos > 0) {
+    if (spacePos != std::string::npos && spacePos > 0) {
       return spacePos;
     }
   }
@@ -264,8 +235,7 @@ void TxtReaderActivity::initializeReader() {
   cachedOrientedMarginTop += cachedScreenMargin;
   cachedOrientedMarginLeft += cachedScreenMargin;
   cachedOrientedMarginRight += cachedScreenMargin;
-  cachedOrientedMarginBottom +=
-      ReaderUtils::readerContentBottomReserve(renderer, false);
+  cachedOrientedMarginBottom += ReaderUtils::readerContentBottomReserve(renderer, false);
 
   viewportWidth = renderer.getScreenWidth() - cachedOrientedMarginLeft - cachedOrientedMarginRight;
   const int viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
@@ -296,44 +266,29 @@ void TxtReaderActivity::buildPageIndex() {
   pageOffsets.push_back(0);
 
   size_t offset = 0;
-  const size_t fileSize =
-      txt->getFileSize();
+  const size_t fileSize = txt->getFileSize();
 
-  LOG_DBG(
-      "TRS",
-      "Building page index for %zu bytes...",
-      fileSize
-  );
+  LOG_DBG("TRS", "Building page index for %zu bytes...", fileSize);
 
-  GUI.drawPopup(
-      renderer,
-      tr(STR_INDEXING)
-  );
+  GUI.drawPopup(renderer, tr(STR_INDEXING));
 
   std::vector<std::string> tempLines;
-  tempLines.reserve(
-      static_cast<size_t>(linesPerPage)
-  );
+  tempLines.reserve(static_cast<size_t>(linesPerPage));
 
   while (offset < fileSize) {
     tempLines.clear();
 
     size_t nextOffset = offset;
 
-    if (!loadPageAtOffset(
-            offset,
-            tempLines,
-            nextOffset)) {
+    if (!loadPageAtOffset(offset, tempLines, nextOffset)) {
       break;
     }
 
     if (nextOffset <= offset) {
-      LOG_ERR(
-          "TRS",
-          "Indexing stopped: no progress "
-          "at offset %zu",
-          offset
-      );
+      LOG_ERR("TRS",
+              "Indexing stopped: no progress "
+              "at offset %zu",
+              offset);
       break;
     }
 
@@ -348,29 +303,18 @@ void TxtReaderActivity::buildPageIndex() {
     }
   }
 
-  totalPages =
-      static_cast<int>(
-          pageOffsets.size()
-      );
+  totalPages = static_cast<int>(pageOffsets.size());
 
-  LOG_DBG(
-      "TRS",
-      "Built page index: %d pages",
-      totalPages
-  );
+  LOG_DBG("TRS", "Built page index: %d pages", totalPages);
 
-  LOG_INF(
-      "TRS",
-      "TXT index completed: pages=%d, "
-      "size=%zu bytes, time=%lu ms",
-      totalPages,
-      fileSize,
-      millis() - indexStart
-  );
+  LOG_INF("TRS",
+          "TXT index completed: pages=%d, "
+          "size=%zu bytes, time=%lu ms",
+          totalPages, fileSize, millis() - indexStart);
 }
 
 bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>& outLines, size_t& nextOffset,
-                                          std::vector<bool>* paragraphStarts) {
+                                         std::vector<bool>* paragraphStarts) {
   outLines.clear();
   if (paragraphStarts) paragraphStarts->clear();
   const size_t fileSize = txt->getFileSize();
@@ -432,32 +376,20 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
     size_t lineBytePos = 0;
     bool firstWrappedSegment = true;
     const bool indentThisParagraph = cachedParagraphFirstLineIndent && sourceLineStartsHere &&
-        (cachedParagraphAlignment == CrossPointSettings::LEFT_ALIGN ||
-         cachedParagraphAlignment == CrossPointSettings::JUSTIFIED ||
-         cachedParagraphAlignment == CrossPointSettings::BOOK_STYLE);
-    const int indentWidth = indentThisParagraph
-        ? renderer.getTextWidth(cachedFontId, "\xe3\x80\x80\xe3\x80\x80")
-        : 0;
+                                     (cachedParagraphAlignment == CrossPointSettings::LEFT_ALIGN ||
+                                      cachedParagraphAlignment == CrossPointSettings::JUSTIFIED ||
+                                      cachedParagraphAlignment == CrossPointSettings::BOOK_STYLE);
+    const int indentWidth = indentThisParagraph ? renderer.getTextWidth(cachedFontId, "\xe3\x80\x80\xe3\x80\x80") : 0;
 
-    while (!line.empty() &&
-          static_cast<int>(
-              outLines.size()
-          ) < linesPerPage) {
-      const size_t breakPos =
-          findTxtWrapPosition(
-              renderer,
-              cachedFontId,
-              line,
-              std::max(1, viewportWidth - (firstWrappedSegment ? indentWidth : 0))
-          );
+    while (!line.empty() && static_cast<int>(outLines.size()) < linesPerPage) {
+      const size_t breakPos = findTxtWrapPosition(renderer, cachedFontId, line,
+                                                  std::max(1, viewportWidth - (firstWrappedSegment ? indentWidth : 0)));
 
       /*
-      * 整段能放進一行。
-      */
+       * 整段能放進一行。
+       */
       if (breakPos >= line.size()) {
-        outLines.push_back(
-            std::move(line)
-        );
+        outLines.push_back(std::move(line));
         if (paragraphStarts) paragraphStarts->push_back(indentThisParagraph && firstWrappedSegment);
 
         lineBytePos = displayLen;
@@ -466,34 +398,26 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
       }
 
       /*
-      * 只複製真正要顯示的這一行。
-      */
-      outLines.emplace_back(
-          line.data(),
-          breakPos
-      );
+       * 只複製真正要顯示的這一行。
+       */
+      outLines.emplace_back(line.data(), breakPos);
       if (paragraphStarts) paragraphStarts->push_back(indentThisParagraph && firstWrappedSegment);
       firstWrappedSegment = false;
 
-      size_t consumedBytes =
-          breakPos;
+      size_t consumedBytes = breakPos;
 
       // 換行點是半形空格時，下一行略過該空格。
-      if (consumedBytes < line.size() &&
-          line[consumedBytes] == ' ') {
+      if (consumedBytes < line.size() && line[consumedBytes] == ' ') {
         ++consumedBytes;
       }
 
       lineBytePos += consumedBytes;
 
       /*
-      * erase() 會在原 string 內移動資料，
-      * 比 line = line.substr(...) 少一次新的 heap allocation。
-      */
-      line.erase(
-          0,
-          consumedBytes
-      );
+       * erase() 會在原 string 內移動資料，
+       * 比 line = line.substr(...) 少一次新的 heap allocation。
+       */
+      line.erase(0, consumedBytes);
     }
 
     // Determine how much of the source buffer we consumed

@@ -60,8 +60,7 @@ class EpubReaderChapterSelectionActivity final : public Activity {
   bool moveSelectionToParent();
   void finishToReader();
 
-  void drawDisclosureTriangle(int x, int centerY, bool expanded, bool black, int halfSize = 7,
-                              int fullSize = 12) const;
+  void drawDisclosureTriangle(int x, int centerY, bool expanded, bool black, int halfSize = 7, int fullSize = 12) const;
 
  public:
   explicit EpubReaderChapterSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,

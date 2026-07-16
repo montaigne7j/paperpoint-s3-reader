@@ -71,9 +71,7 @@ bool hasZipExtension(std::string_view fileName) { return checkFileExtension(file
 
 bool hasCbzExtension(std::string_view fileName) { return checkFileExtension(fileName, ".cbz"); }
 
-bool hasComicZipExtension(std::string_view fileName) {
-  return hasZipExtension(fileName) || hasCbzExtension(fileName);
-}
+bool hasComicZipExtension(std::string_view fileName) { return hasZipExtension(fileName) || hasCbzExtension(fileName); }
 
 bool hasGifExtension(std::string_view fileName) { return checkFileExtension(fileName, ".gif"); }
 

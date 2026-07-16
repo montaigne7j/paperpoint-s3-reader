@@ -16,10 +16,7 @@ constexpr unsigned long GO_HOME_MS = 1000;
 
 constexpr int STATUS_BAR_TEXT_SAFE_GAP = 12;
 
-inline int statusBarVisibleHeightForReader(
-    const GfxRenderer& renderer,
-    const bool automaticPageTurnActive = false
-) {
+inline int statusBarVisibleHeightForReader(const GfxRenderer& renderer, const bool automaticPageTurnActive = false) {
   const int themeReservedHeight = UITheme::getInstance().getStatusBarHeight();
 
   // Large Text has its own status-bar renderer and already reserves a tall
@@ -30,16 +27,11 @@ inline int statusBarVisibleHeightForReader(
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const bool showProgressBar =
-      SETTINGS.statusBarProgressBar !=
-      CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
-  const bool showSideStatusText =
-      SETTINGS.statusBarChapterPageCount ||
-      SETTINGS.statusBarBookProgressPercentage ||
-      SETTINGS.statusBarBattery ||
-      SETTINGS.statusBarClock;
+      SETTINGS.statusBarProgressBar != CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
+  const bool showSideStatusText = SETTINGS.statusBarChapterPageCount || SETTINGS.statusBarBookProgressPercentage ||
+                                  SETTINGS.statusBarBattery || SETTINGS.statusBarClock;
   const bool showTitleText =
-      automaticPageTurnActive ||
-      SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE;
+      automaticPageTurnActive || SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE;
 
   int textHeight = 0;
   if (showSideStatusText) {
@@ -49,22 +41,16 @@ inline int statusBarVisibleHeightForReader(
     textHeight = std::max(textHeight, renderer.getLineHeight(UI_10_FONT_ID));
   }
 
-  const int progressHeight = showProgressBar
-                                 ? ((SETTINGS.statusBarProgressBarThickness + 1) * 2) +
-                                       metrics.progressBarMarginTop
-                                 : 0;
+  const int progressHeight =
+      showProgressBar ? ((SETTINGS.statusBarProgressBarThickness + 1) * 2) + metrics.progressBarMarginTop : 0;
   const int textBottomPadding = textHeight > 0 ? 2 : 0;
   const int actualDrawnHeight = progressHeight + textHeight + textBottomPadding;
 
   return std::max(themeReservedHeight, actualDrawnHeight);
 }
 
-inline int readerContentBottomReserve(
-    const GfxRenderer& renderer,
-    const bool automaticPageTurnActive = false
-) {
-  const int statusHeight =
-      statusBarVisibleHeightForReader(renderer, automaticPageTurnActive);
+inline int readerContentBottomReserve(const GfxRenderer& renderer, const bool automaticPageTurnActive = false) {
+  const int statusHeight = statusBarVisibleHeightForReader(renderer, automaticPageTurnActive);
   const int statusReserve = statusHeight > 0 ? statusHeight + STATUS_BAR_TEXT_SAFE_GAP : 0;
 
   if (SETTINGS.statusBarFollowsPageMargin) {
@@ -74,15 +60,12 @@ inline int readerContentBottomReserve(
   return std::max<int>(SETTINGS.screenMargin, statusReserve);
 }
 
-
 // Reader text anti-aliasing is intentionally disabled for inverted reader
 // content (black page background / white text).  The normal grayscale AA
 // edge pixels become dark-gray halos after inversion, which reduces contrast
 // and makes white text look fuzzy on e-ink.  Keep AA enabled for normal
 // white-page reading and for non-reader UI paths.
-inline bool shouldUseTextAntiAliasingForReader() {
-  return SETTINGS.textAntiAliasing && !SETTINGS.readerContentInvert;
-}
+inline bool shouldUseTextAntiAliasingForReader() { return SETTINGS.textAntiAliasing && !SETTINGS.readerContentInvert; }
 
 inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
   switch (orientation) {
@@ -108,55 +91,23 @@ struct PageTurnResult {
   bool next;
 };
 
-inline PageTurnResult detectPageTurn(
-    const MappedInputManager& input,
-    const bool reverseHorizontalZones = false
-) {
-  const bool usePress =
-      !SETTINGS.longPressChapterSkip;
+inline PageTurnResult detectPageTurn(const MappedInputManager& input, const bool reverseHorizontalZones = false) {
+  const bool usePress = !SETTINGS.longPressChapterSkip;
 
-  const bool pageBack =
-      usePress
-          ? input.wasPressed(
-                MappedInputManager::Button::PageBack
-            )
-          : input.wasReleased(
-                MappedInputManager::Button::PageBack
-            );
+  const bool pageBack = usePress ? input.wasPressed(MappedInputManager::Button::PageBack)
+                                 : input.wasReleased(MappedInputManager::Button::PageBack);
 
-  const bool pageForward =
-      usePress
-          ? input.wasPressed(
-                MappedInputManager::Button::PageForward
-            )
-          : input.wasReleased(
-                MappedInputManager::Button::PageForward
-            );
+  const bool pageForward = usePress ? input.wasPressed(MappedInputManager::Button::PageForward)
+                                    : input.wasReleased(MappedInputManager::Button::PageForward);
 
-  const bool left =
-      usePress
-          ? input.wasPressed(
-                MappedInputManager::Button::Left
-            )
-          : input.wasReleased(
-                MappedInputManager::Button::Left
-            );
+  const bool left = usePress ? input.wasPressed(MappedInputManager::Button::Left)
+                             : input.wasReleased(MappedInputManager::Button::Left);
 
-  const bool right =
-      usePress
-          ? input.wasPressed(
-                MappedInputManager::Button::Right
-            )
-          : input.wasReleased(
-                MappedInputManager::Button::Right
-            );
+  const bool right = usePress ? input.wasPressed(MappedInputManager::Button::Right)
+                              : input.wasReleased(MappedInputManager::Button::Right);
 
-  const bool powerTurn =
-      SETTINGS.shortPwrBtn ==
-          CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
-      input.wasReleased(
-          MappedInputManager::Button::Power
-      );
+  const bool powerTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
+                         input.wasReleased(MappedInputManager::Button::Power);
 
   // Horizontal touch gestures fire as soon as the finger crosses the threshold,
   // not on release.  V31 request:
@@ -179,21 +130,11 @@ inline PageTurnResult detectPageTurn(
    *
    * PageBack / PageForward 與實體側鍵語意維持不變。
    */
-  const bool previous =
-      pageBack ||
-      (reverseHorizontalZones ? right : left) ||
-      swipeLeft;
+  const bool previous = pageBack || (reverseHorizontalZones ? right : left) || swipeLeft;
 
-  const bool next =
-      pageForward ||
-      powerTurn ||
-      (reverseHorizontalZones ? left : right) ||
-      swipeRight;
+  const bool next = pageForward || powerTurn || (reverseHorizontalZones ? left : right) || swipeRight;
 
-  return {
-      previous,
-      next
-  };
+  return {previous, next};
 }
 
 inline bool physicalBandReverseForLogicalRightToLeft(const GfxRenderer& renderer) {

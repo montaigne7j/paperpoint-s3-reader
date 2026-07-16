@@ -15,10 +15,10 @@ enum class FontFileType : uint8_t { BitmapBin = 0, EpdFont = 1, TrueType = 2 };
 struct FontInfo {
   char filename[128];  // Full filename
   char directory[16];  // Source directory: /font has priority over /fonts
-  char name[48];      // Font name
-  uint8_t size;       // Font size (pt)
-  uint8_t width;      // Character width
-  uint8_t height;     // Character height
+  char name[48];       // Font name
+  uint8_t size;        // Font size (pt)
+  uint8_t width;       // Character width
+  uint8_t height;      // Character height
   FontFileType type = FontFileType::BitmapBin;
 };
 

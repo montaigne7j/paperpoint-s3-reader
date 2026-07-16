@@ -3,8 +3,8 @@
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
-#include <HalStorage.h>
 #include <HalPowerManager.h>
+#include <HalStorage.h>
 #include <I18n.h>
 
 #include <algorithm>
@@ -141,9 +141,7 @@ void FileBrowserActivity::requestFullPageUpdate(const bool immediate) {
   requestUpdate(immediate);
 }
 
-bool FileBrowserActivity::isAtRoot() const {
-  return basepath.empty() || basepath == "/";
-}
+bool FileBrowserActivity::isAtRoot() const { return basepath.empty() || basepath == "/"; }
 
 void FileBrowserActivity::navigateToParent() {
   if (isAtRoot()) {
@@ -236,9 +234,8 @@ void FileBrowserActivity::loop() {
     const int footerH = UITheme::getInstance().getMetrics().buttonHintsHeight;
     const int x = mappedInput.getTouchX();
     const int y = mappedInput.getTouchY();
-    return mappedInput.wasAnyReleased() && footerH > 0 &&
-           y >= renderer.getScreenHeight() - footerH &&
-           x >= 0 && x < renderer.getScreenWidth() / 4;
+    return mappedInput.wasAnyReleased() && footerH > 0 && y >= renderer.getScreenHeight() - footerH && x >= 0 &&
+           x < renderer.getScreenWidth() / 4;
   };
 #else
   const auto isFooterBackTap = []() { return false; };
@@ -327,15 +324,15 @@ void FileBrowserActivity::loop() {
     const auto& metrics = UITheme::getInstance().getMetrics();
     const bool largeTextTheme = SETTINGS.uiTheme == CrossPointSettings::UI_THEME::LARGE_TEXT;
     constexpr int largeTextScale = 2;
-    const int pathLineHeight =
-        largeTextTheme ? renderer.getLineHeightScaled(UI_10_FONT_ID, largeTextScale) : renderer.getLineHeight(UI_10_FONT_ID);
+    const int pathLineHeight = largeTextTheme ? renderer.getLineHeightScaled(UI_10_FONT_ID, largeTextScale)
+                                              : renderer.getLineHeight(UI_10_FONT_ID);
     const int pathReserved = pathLineHeight + metrics.verticalSpacing;
     const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-    const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight -
-                              metrics.verticalSpacing - pathReserved;
-    const int targetIndex = DirectTouchSelection::hitListRow(
-        mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight}, listSize,
-        static_cast<int>(selectorIndex), metrics.listRowHeight);
+    const int contentHeight =
+        renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing - pathReserved;
+    const int targetIndex =
+        DirectTouchSelection::hitListRow(mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight},
+                                         listSize, static_cast<int>(selectorIndex), metrics.listRowHeight);
     if (targetIndex >= 0) {
       if (targetIndex == static_cast<int>(selectorIndex)) {
         openSelectedEntry();
@@ -353,13 +350,11 @@ void FileBrowserActivity::loop() {
     moveSelectionTo(ButtonNavigator::previousPageIndex(static_cast<int>(selectorIndex), listSize, pageItems));
   });
 #else
-  buttonNavigator.onNextRelease([this, listSize] {
-    moveSelectionTo(ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize));
-  });
+  buttonNavigator.onNextRelease(
+      [this, listSize] { moveSelectionTo(ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize)); });
 
-  buttonNavigator.onPreviousRelease([this, listSize] {
-    moveSelectionTo(ButtonNavigator::previousIndex(static_cast<int>(selectorIndex), listSize));
-  });
+  buttonNavigator.onPreviousRelease(
+      [this, listSize] { moveSelectionTo(ButtonNavigator::previousIndex(static_cast<int>(selectorIndex), listSize)); });
 
   buttonNavigator.onNextContinuous([this, listSize, pageItems] {
     moveSelectionTo(ButtonNavigator::nextPageIndex(static_cast<int>(selectorIndex), listSize, pageItems));
@@ -402,14 +397,14 @@ void FileBrowserActivity::render(RenderLock&&) {
   constexpr int largeTextScale = 2;
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int pathLineHeight =
-      largeTextTheme ? renderer.getLineHeightScaled(UI_10_FONT_ID, largeTextScale) : renderer.getLineHeight(UI_10_FONT_ID);
+  const int pathLineHeight = largeTextTheme ? renderer.getLineHeightScaled(UI_10_FONT_ID, largeTextScale)
+                                            : renderer.getLineHeight(UI_10_FONT_ID);
   const int pathReserved = pathLineHeight + metrics.verticalSpacing;
   const int contentHeight =
       pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing - pathReserved;
   const Rect listRect{0, contentTop, pageWidth, contentHeight};
-  const int pageItems = UITheme::getInstance().getNumberOfItemsPerPage(
-      renderer, true, false, true, false, pathReserved);
+  const int pageItems =
+      UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, false, pathReserved);
 
   const size_t targetSelectorIndex = selectorIndex;
   const bool validSelection = !files.empty() && targetSelectorIndex < files.size();
@@ -428,9 +423,8 @@ void FileBrowserActivity::render(RenderLock&&) {
         [this](int index) { return UITheme::getFileIcon(files[index]); },
         [this](int index) { return getFileExtension(files[index]); }, false);
 
-    LOG_DBG("FileBrowser", "Partial row update: %u -> %u (page %u)",
-            static_cast<unsigned>(renderedSelectorIndex), static_cast<unsigned>(targetSelectorIndex),
-            static_cast<unsigned>(targetSelectorIndex / pageItems));
+    LOG_DBG("FileBrowser", "Partial row update: %u -> %u (page %u)", static_cast<unsigned>(renderedSelectorIndex),
+            static_cast<unsigned>(targetSelectorIndex), static_cast<unsigned>(targetSelectorIndex / pageItems));
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   } else {
     renderer.clearScreen();
@@ -492,15 +486,16 @@ void FileBrowserActivity::render(RenderLock&&) {
 
     // Help text: show footer page buttons only when another page exists.
     const int listSize = static_cast<int>(files.size());
-    const char* prevPageLabel = (!files.empty() && ButtonNavigator::hasPreviousPage(static_cast<int>(selectorIndex), listSize, pageItems))
-                                    ? tr(STR_DIR_UP)
-                                    : "";
-    const char* nextPageLabel = (!files.empty() && ButtonNavigator::hasNextPage(static_cast<int>(selectorIndex), listSize, pageItems))
-                                    ? tr(STR_DIR_DOWN)
-                                    : "";
-    const auto labels =
-        mappedInput.mapLabels(tr(STR_BACK), files.empty() ? "" : (comicMode ? "開啟" : tr(STR_OPEN)),
-                              prevPageLabel, nextPageLabel);
+    const char* prevPageLabel =
+        (!files.empty() && ButtonNavigator::hasPreviousPage(static_cast<int>(selectorIndex), listSize, pageItems))
+            ? tr(STR_DIR_UP)
+            : "";
+    const char* nextPageLabel =
+        (!files.empty() && ButtonNavigator::hasNextPage(static_cast<int>(selectorIndex), listSize, pageItems))
+            ? tr(STR_DIR_DOWN)
+            : "";
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), files.empty() ? "" : (comicMode ? "開啟" : tr(STR_OPEN)),
+                                              prevPageLabel, nextPageLabel);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
     if (crossedPage) {

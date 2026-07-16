@@ -1,7 +1,6 @@
 #include "CbzReaderActivity.h"
 
 #include <Arduino.h>
-
 #include <Bitmap.h>
 #include <Epub/converters/JpegToFramebufferConverter.h>
 #include <Epub/converters/PngToFramebufferConverter.h>
@@ -23,10 +22,10 @@
 #include <cstring>
 #include <variant>
 
+#include "ComicReaderMenuActivity.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
-#include "ComicReaderMenuActivity.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
@@ -38,9 +37,7 @@ constexpr int kStatusBarHeight = 30;
 constexpr uint32_t kInvalidPage = 0xFFFFFFFFu;
 constexpr size_t kCbzCopyChunkSize = 32 * 1024;
 
-void cooperativeCbzYield() {
-  vTaskDelay(1);
-}
+void cooperativeCbzYield() { vTaskDelay(1); }
 
 bool naturalLess(const std::string& a, const std::string& b) {
   const char* s1 = a.c_str();
@@ -82,9 +79,7 @@ std::string extensionOf(const std::string& path) {
   return name.substr(dot);
 }
 
-uint64_t stablePathHash(const std::string& path) {
-  return ZipFile::fnvHash64(path.c_str(), path.size());
-}
+uint64_t stablePathHash(const std::string& path) { return ZipFile::fnvHash64(path.c_str(), path.size()); }
 
 int fitLength(int srcW, int srcH, int maxW, int maxH, bool widthAxis) {
   if (srcW <= 0 || srcH <= 0 || maxW <= 0 || maxH <= 0) return 0;
@@ -126,7 +121,8 @@ bool CbzReaderActivity::ensureFrameCacheBuffer(FrameCache& cache) {
   if (cache.buffer) return true;
   cache.buffer = allocateFrameBuffer();
   if (!cache.buffer) {
-    LOG_ERR("CBZ", "Failed to allocate CBZ frame cache (%u bytes)", static_cast<unsigned>(GfxRenderer::getBufferSize()));
+    LOG_ERR("CBZ", "Failed to allocate CBZ frame cache (%u bytes)",
+            static_cast<unsigned>(GfxRenderer::getBufferSize()));
     return false;
   }
   return true;
@@ -271,10 +267,10 @@ void CbzReaderActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     auto handler = [this](const ActivityResult& result) { handleMenuResult(result); };
-    startActivityForResult(std::make_unique<ComicReaderMenuActivity>(
-                               renderer, mappedInput, getTitle(),
-                               static_cast<int>(currentPage + 1), static_cast<int>(imageEntries.size())),
-                           handler);
+    startActivityForResult(
+        std::make_unique<ComicReaderMenuActivity>(renderer, mappedInput, getTitle(), static_cast<int>(currentPage + 1),
+                                                  static_cast<int>(imageEntries.size())),
+        handler);
     return;
   }
 
@@ -407,16 +403,16 @@ void CbzReaderActivity::handleMenuResult(const ActivityResult& result) {
 int CbzReaderActivity::getComicFullRefreshFrequency() const {
   switch (SETTINGS.comicFullRefreshFrequency) {
     case 0:
-      return 1;   // every page
+      return 1;  // every page
     case 1:
-      return 2;   // every 2 pages
+      return 2;  // every 2 pages
     case 2:
-      return 5;   // every 5 pages
+      return 5;  // every 5 pages
     case 3:
       return 10;  // every 10 pages
     case 4:
     default:
-      return 0;   // never
+      return 0;  // never
   }
 }
 
@@ -512,7 +508,8 @@ bool CbzReaderActivity::renderExtractedImage(const std::string& imagePath) {
   return renderImageFrame(imagePath, currentPage, true);
 }
 
-bool CbzReaderActivity::renderImageFrame(const std::string& imagePath, const uint32_t pageIndex, const bool displayNow) {
+bool CbzReaderActivity::renderImageFrame(const std::string& imagePath, const uint32_t pageIndex,
+                                         const bool displayNow) {
   LOG_INF("CBZ", "Rendering extracted image: %s page=%lu display=%d", imagePath.c_str(),
           static_cast<unsigned long>(pageIndex + 1), displayNow ? 1 : 0);
   const uint32_t decodeStartMs = millis();
@@ -665,7 +662,8 @@ void CbzReaderActivity::preloadNextFrame() {
   const uint32_t targetPage = currentPage + 1;
   if (targetPage >= imageEntries.size()) return;
   if (nextFrameCache.valid && nextFrameCache.page == targetPage &&
-      nextFrameCache.orientation == static_cast<uint8_t>(renderer.getOrientation())) return;
+      nextFrameCache.orientation == static_cast<uint8_t>(renderer.getOrientation()))
+    return;
   if (failedPreloadPage == targetPage) return;
 
   preloadFrame(targetPage);
@@ -753,7 +751,8 @@ void CbzReaderActivity::renderStatusBar(const uint32_t pageIndex) {
   std::string title;
   if (SETTINGS.statusBarTitle == CrossPointSettings::STATUS_BAR_TITLE::BOOK_TITLE) {
     title = getTitle();
-  } else if (SETTINGS.statusBarTitle == CrossPointSettings::STATUS_BAR_TITLE::CHAPTER_TITLE && pageIndex < imageEntries.size()) {
+  } else if (SETTINGS.statusBarTitle == CrossPointSettings::STATUS_BAR_TITLE::CHAPTER_TITLE &&
+             pageIndex < imageEntries.size()) {
     title = basenameOf(imageEntries[pageIndex]);
   }
 

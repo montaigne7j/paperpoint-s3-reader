@@ -1,7 +1,7 @@
 #include "ActivityManager.h"
 
-#include <HalPowerManager.h>
 #include <HalDisplay.h>
+#include <HalPowerManager.h>
 #include <SleepImageManager.h>
 #if CROSSPOINT_PAPERS3
 #include "CrossPointSettings.h"
@@ -274,9 +274,7 @@ void ActivityManager::pushActivity(std::unique_ptr<Activity>&& activity) {
   // than with the menu UI.
   if (currentActivity && currentActivity->isReaderActivity()) {
     RenderLock snapshotLock;
-    SleepImages.captureReaderFrame(
-        display.getFrameBuffer(),
-        static_cast<uint8_t>(renderer.getOrientation()));
+    SleepImages.captureReaderFrame(display.getFrameBuffer(), static_cast<uint8_t>(renderer.getOrientation()));
   }
 #endif
 

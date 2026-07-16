@@ -16,7 +16,8 @@
 namespace {
 using BackgroundItem = ReaderBackgroundSelectActivity::BackgroundItem;
 
-void collectPngFilesFromDirectory(const char* directory, std::vector<BackgroundItem>& items, bool includeOneNestedLevel) {
+void collectPngFilesFromDirectory(const char* directory, std::vector<BackgroundItem>& items,
+                                  bool includeOneNestedLevel) {
   auto dir = Storage.open(directory);
   if (!dir || !dir.isDirectory()) return;
 
@@ -48,7 +49,8 @@ int ReaderBackgroundSelectActivity::totalItems() const { return static_cast<int>
 void ReaderBackgroundSelectActivity::scanBackgroundFiles() {
   items.clear();
   collectPngFilesFromDirectory("/bg", items, true);
-  std::sort(items.begin(), items.end(), [](const BackgroundItem& a, const BackgroundItem& b) { return a.path < b.path; });
+  std::sort(items.begin(), items.end(),
+            [](const BackgroundItem& a, const BackgroundItem& b) { return a.path < b.path; });
 }
 
 void ReaderBackgroundSelectActivity::onEnter() {
@@ -80,12 +82,14 @@ void ReaderBackgroundSelectActivity::loop() {
   {
     const auto& metrics = UITheme::getInstance().getMetrics();
     const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-    const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
-    const int targetIndex = DirectTouchSelection::hitListRow(
-        mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight}, totalItems(), selectedIndex,
-        metrics.listWithSubtitleRowHeight);
+    const int contentHeight =
+        renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
+    const int targetIndex =
+        DirectTouchSelection::hitListRow(mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight},
+                                         totalItems(), selectedIndex, metrics.listWithSubtitleRowHeight);
     if (targetIndex >= 0) {
-      if (targetIndex == selectedIndex) applySelection();
+      if (targetIndex == selectedIndex)
+        applySelection();
       else {
         selectedIndex = targetIndex;
         requestUpdate();
@@ -117,7 +121,8 @@ void ReaderBackgroundSelectActivity::applySelection() {
   const int itemIndex = selectedIndex - 1;
   if (itemIndex < 0 || itemIndex >= static_cast<int>(items.size())) return;
   SETTINGS.readerBackgroundPng = CrossPointSettings::READER_BG_SELECTED_FILE;
-  std::strncpy(SETTINGS.readerBackgroundPngPath, items[itemIndex].path.c_str(), sizeof(SETTINGS.readerBackgroundPngPath) - 1);
+  std::strncpy(SETTINGS.readerBackgroundPngPath, items[itemIndex].path.c_str(),
+               sizeof(SETTINGS.readerBackgroundPngPath) - 1);
   SETTINGS.readerBackgroundPngPath[sizeof(SETTINGS.readerBackgroundPngPath) - 1] = '\0';
   LOG_INF("ERS", "Reader background PNG selected: %s", SETTINGS.readerBackgroundPngPath);
   finish();
@@ -142,11 +147,14 @@ void ReaderBackgroundSelectActivity::render(RenderLock&&) {
       [this, activePath](int index) {
         if (index == 0) return activePath.empty() ? std::string(tr(STR_SELECTED)) : std::string();
         return items[index - 1].path == activePath ? std::string(tr(STR_SELECTED)) : std::string();
-      }, true);
+      },
+      true);
 
   const int hintPageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, true);
-  const char* prevPageLabel = ButtonNavigator::hasPreviousPage(selectedIndex, totalItems(), hintPageItems) ? tr(STR_DIR_UP) : "";
-  const char* nextPageLabel = ButtonNavigator::hasNextPage(selectedIndex, totalItems(), hintPageItems) ? tr(STR_DIR_DOWN) : "";
+  const char* prevPageLabel =
+      ButtonNavigator::hasPreviousPage(selectedIndex, totalItems(), hintPageItems) ? tr(STR_DIR_UP) : "";
+  const char* nextPageLabel =
+      ButtonNavigator::hasNextPage(selectedIndex, totalItems(), hintPageItems) ? tr(STR_DIR_DOWN) : "";
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), prevPageLabel, nextPageLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();

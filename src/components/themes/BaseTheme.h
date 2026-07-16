@@ -124,8 +124,7 @@ class BaseTheme {
   // Redraw only the two rows affected by an in-page selection change.
   // Callers must use drawList() instead when the selection crosses a page.
   virtual void redrawListSelection(const GfxRenderer& renderer, Rect rect, int itemCount, int oldSelectedIndex,
-                                   int newSelectedIndex,
-                                   const std::function<std::string(int index)>& rowTitle,
+                                   int newSelectedIndex, const std::function<std::string(int index)>& rowTitle,
                                    const std::function<std::string(int index)>& rowSubtitle = nullptr,
                                    const std::function<UIIcon(int index)>& rowIcon = nullptr,
                                    const std::function<std::string(int index)>& rowValue = nullptr,

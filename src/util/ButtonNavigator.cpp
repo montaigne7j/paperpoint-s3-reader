@@ -1,4 +1,5 @@
 #include "ButtonNavigator.h"
+
 #include <algorithm>
 
 const MappedInputManager* ButtonNavigator::mappedInput = nullptr;
@@ -88,7 +89,6 @@ int ButtonNavigator::previousIndex(const int currentIndex, const int totalItems)
   return (currentIndex + totalItems - 1) % totalItems;
 }
 
-
 bool ButtonNavigator::hasNextPage(const int currentIndex, const int totalItems, const int itemsPerPage) {
   if (totalItems <= 0 || itemsPerPage <= 0) return false;
   if (totalItems <= itemsPerPage) return false;
@@ -122,7 +122,6 @@ int ButtonNavigator::previousPageIndex(const int currentIndex, const int totalIt
 
   if (totalItems <= itemsPerPage) return currentIndex;
 
-  const int lastPageIndex = (totalItems - 1) / itemsPerPage;
   const int currentPageIndex = currentIndex / itemsPerPage;
   const int rowInPage = currentIndex % itemsPerPage;
   const int previousPageIndex = (currentPageIndex > 0) ? (currentPageIndex - 1) : currentPageIndex;

@@ -1,7 +1,6 @@
 #include "PngToFramebufferConverter.h"
 
 #include <Arduino.h>
-
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -351,8 +350,8 @@ bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath
   if (!hasPngDecodeMemory()) {
     const size_t freeHeap = ESP.getFreeHeap();
     const size_t freePsram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-    LOG_ERR("PNG", "Not enough memory for PNG decoder dimensions (%u heap, %u psram)",
-            static_cast<unsigned>(freeHeap), static_cast<unsigned>(freePsram));
+    LOG_ERR("PNG", "Not enough memory for PNG decoder dimensions (%u heap, %u psram)", static_cast<unsigned>(freeHeap),
+            static_cast<unsigned>(freePsram));
     return false;
   }
 

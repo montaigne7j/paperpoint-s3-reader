@@ -26,7 +26,7 @@ class ChapterHtmlSlimParser {
   const std::string& filepath;
   GfxRenderer& renderer;
   std::function<void(std::unique_ptr<Page>)> completePageFn;
-  std::function<void()> popupFn;  // Popup callback
+  std::function<void()> popupFn;             // Popup callback
   std::function<void(int)> popupProgressFn;  // Popup progress callback (0-100)
   int depth = 0;
   int skipUntilDepth = INT_MAX;
@@ -149,9 +149,7 @@ class ChapterHtmlSlimParser {
   ~ChapterHtmlSlimParser() = default;
   bool parseAndBuildPages();
   void addLineToPage(std::shared_ptr<TextBlock> line);
-  void addColumnToPage(
-      std::shared_ptr<TextBlock> column
-  );
+  void addColumnToPage(std::shared_ptr<TextBlock> column);
   const std::vector<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
   bool hadImageLoadFailure() const { return imageLoadFailure; }
 };

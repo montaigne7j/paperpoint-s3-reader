@@ -1,7 +1,6 @@
 #include "ZipFile.h"
 
 #include <Arduino.h>
-
 #include <HalStorage.h>
 #include <InflateReader.h>
 #include <Logging.h>

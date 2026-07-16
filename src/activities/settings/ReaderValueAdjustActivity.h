@@ -11,10 +11,9 @@
 
 class ReaderValueAdjustActivity final : public Activity {
  public:
-  ReaderValueAdjustActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, StrId titleId,
-                            int16_t initialValue, int16_t minValue, int16_t maxValue, int16_t stepValue,
-                            std::string suffix, std::string helpText,
-                            std::function<void(int16_t)> applyFn)
+  ReaderValueAdjustActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, StrId titleId, int16_t initialValue,
+                            int16_t minValue, int16_t maxValue, int16_t stepValue, std::string suffix,
+                            std::string helpText, std::function<void(int16_t)> applyFn)
       : Activity("ReaderValueAdjust", renderer, mappedInput),
         titleId(titleId),
         value(initialValue),

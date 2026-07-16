@@ -31,11 +31,7 @@ uint32_t countUtf8Codepoints(const std::string& text) {
   return count;
 }
 
-void summarizeTextBlock(
-    const TextBlock& block,
-    uint32_t& outBytes,
-    uint32_t& outGlyphs
-) {
+void summarizeTextBlock(const TextBlock& block, uint32_t& outBytes, uint32_t& outGlyphs) {
   outBytes = 0;
   outGlyphs = 0;
   for (const auto& word : block.getWords()) {
@@ -101,14 +97,8 @@ void Page::render(GfxRenderer& renderer, const int fontId, const int xOffset, co
   PageElementTag slowestTag = TAG_PageLine;
 
   if (profiling) {
-    LOG_DBG(
-        "PGE",
-        "page start: elements=%u font=%d offset=(%d,%d)",
-        static_cast<unsigned>(elements.size()),
-        fontId,
-        xOffset,
-        yOffset
-    );
+    LOG_DBG("PGE", "page start: elements=%u font=%d offset=(%d,%d)", static_cast<unsigned>(elements.size()), fontId,
+            xOffset, yOffset);
   }
 
   for (size_t i = 0; i < elements.size(); ++i) {
@@ -141,70 +131,32 @@ void Page::render(GfxRenderer& renderer, const int fontId, const int xOffset, co
         uint32_t bytes = 0;
         uint32_t glyphs = 0;
         summarizeTextBlock(*block, bytes, glyphs);
-        LOG_DBG(
-            "PGE",
-            "element %u/%u text layout=%s entries=%u logical=%u bytes=%u glyphs=%u pos=(%d,%d) time=%lums",
-            static_cast<unsigned>(i + 1),
-            static_cast<unsigned>(elements.size()),
-            block->isVertical() ? "vertical" : "horizontal",
-            static_cast<unsigned>(block->getWords().size()),
-            static_cast<unsigned>(block->wordCount()),
-            static_cast<unsigned>(bytes),
-            static_cast<unsigned>(glyphs),
-            element->xPos,
-            element->yPos,
-            dt
-        );
+        LOG_DBG("PGE", "element %u/%u text layout=%s entries=%u logical=%u bytes=%u glyphs=%u pos=(%d,%d) time=%lums",
+                static_cast<unsigned>(i + 1), static_cast<unsigned>(elements.size()),
+                block->isVertical() ? "vertical" : "horizontal", static_cast<unsigned>(block->getWords().size()),
+                static_cast<unsigned>(block->wordCount()), static_cast<unsigned>(bytes), static_cast<unsigned>(glyphs),
+                element->xPos, element->yPos, dt);
       } else {
-        LOG_DBG(
-            "PGE",
-            "element %u/%u text null-block pos=(%d,%d) time=%lums",
-            static_cast<unsigned>(i + 1),
-            static_cast<unsigned>(elements.size()),
-            element->xPos,
-            element->yPos,
-            dt
-        );
+        LOG_DBG("PGE", "element %u/%u text null-block pos=(%d,%d) time=%lums", static_cast<unsigned>(i + 1),
+                static_cast<unsigned>(elements.size()), element->xPos, element->yPos, dt);
       }
     } else if (tag == TAG_PageImage) {
       const auto& image = static_cast<const PageImage&>(*element);
-      LOG_DBG(
-          "PGE",
-          "element %u/%u image size=%dx%d pos=(%d,%d) time=%lums",
-          static_cast<unsigned>(i + 1),
-          static_cast<unsigned>(elements.size()),
-          image.getImageBlock().getWidth(),
-          image.getImageBlock().getHeight(),
-          element->xPos,
-          element->yPos,
-          dt
-      );
+      LOG_DBG("PGE", "element %u/%u image size=%dx%d pos=(%d,%d) time=%lums", static_cast<unsigned>(i + 1),
+              static_cast<unsigned>(elements.size()), image.getImageBlock().getWidth(),
+              image.getImageBlock().getHeight(), element->xPos, element->yPos, dt);
     } else {
-      LOG_DBG(
-          "PGE",
-          "element %u/%u unknown tag=%u pos=(%d,%d) time=%lums",
-          static_cast<unsigned>(i + 1),
-          static_cast<unsigned>(elements.size()),
-          static_cast<unsigned>(tag),
-          element->xPos,
-          element->yPos,
-          dt
-      );
+      LOG_DBG("PGE", "element %u/%u unknown tag=%u pos=(%d,%d) time=%lums", static_cast<unsigned>(i + 1),
+              static_cast<unsigned>(elements.size()), static_cast<unsigned>(tag), element->xPos, element->yPos, dt);
     }
   }
 
   if (profiling) {
-    LOG_DBG(
-        "PGE",
-        "page done: elements=%u total=%lums textTotal=%lums imageTotal=%lums slowestIndex=%u slowestTag=%u slowest=%lums",
-        static_cast<unsigned>(elements.size()),
-        millis() - pageStart,
-        lineTotal,
-        imageTotal,
-        static_cast<unsigned>(slowestIndex),
-        static_cast<unsigned>(slowestTag),
-        slowestMs
-    );
+    LOG_DBG("PGE",
+            "page done: elements=%u total=%lums textTotal=%lums imageTotal=%lums slowestIndex=%u slowestTag=%u "
+            "slowest=%lums",
+            static_cast<unsigned>(elements.size()), millis() - pageStart, lineTotal, imageTotal,
+            static_cast<unsigned>(slowestIndex), static_cast<unsigned>(slowestTag), slowestMs);
   }
 }
 

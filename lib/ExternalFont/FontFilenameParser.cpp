@@ -13,8 +13,7 @@ bool stripExtensionNoCase(char* filename, const char* extension) {
 
   char* tail = filename + filenameLength - extensionLength;
   for (size_t i = 0; i < extensionLength; ++i) {
-    if (std::tolower(static_cast<unsigned char>(tail[i])) !=
-        std::tolower(static_cast<unsigned char>(extension[i]))) {
+    if (std::tolower(static_cast<unsigned char>(tail[i])) != std::tolower(static_cast<unsigned char>(extension[i]))) {
       return false;
     }
   }
@@ -22,9 +21,7 @@ bool stripExtensionNoCase(char* filename, const char* extension) {
   return true;
 }
 
-bool isAsciiSeparator(const char c) {
-  return c == '_' || c == '-' || c == ' ' || c == '.';
-}
+bool isAsciiSeparator(const char c) { return c == '_' || c == '-' || c == ' ' || c == '.'; }
 
 void trimTrailingSeparators(char* text) {
   if (text == nullptr) return;
@@ -42,9 +39,7 @@ const char* previousUtf8Char(const char* begin, const char* p) {
 }
 
 bool isUtf8MultiplySign(const char* p) {
-  return p != nullptr &&
-         static_cast<unsigned char>(p[0]) == 0xC3 &&
-         static_cast<unsigned char>(p[1]) == 0x97;
+  return p != nullptr && static_cast<unsigned char>(p[0]) == 0xC3 && static_cast<unsigned char>(p[1]) == 0x97;
 }
 
 bool parseTrailingNumber(const char* begin, char*& endExclusive, int& value) {

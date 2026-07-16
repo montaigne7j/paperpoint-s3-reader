@@ -4,8 +4,8 @@
 #include <WiFi.h>
 #include <esp_sleep.h>
 
-#include <cassert>
 #include <algorithm>
+#include <cassert>
 
 #include "HalGPIO.h"
 
@@ -120,17 +120,21 @@ uint16_t HalPowerManager::getBatteryPercentage() const {
 
   // Piecewise Li-Po discharge curve. Charging voltage is deliberately not
   // allowed to make the displayed state-of-charge jump immediately.
-  struct Point { uint16_t mv; uint8_t pct; };
-  static constexpr Point curve[] = {
-      {3300,0},{3500,5},{3600,10},{3700,20},{3750,30},{3800,42},
-      {3850,55},{3900,68},{4000,82},{4100,93},{4200,100}};
+  struct Point {
+    uint16_t mv;
+    uint8_t pct;
+  };
+  static constexpr Point curve[] = {{3300, 0},  {3500, 5},  {3600, 10}, {3700, 20}, {3750, 30}, {3800, 42},
+                                    {3850, 55}, {3900, 68}, {4000, 82}, {4100, 93}, {4200, 100}};
   int rawPercent = 0;
-  if (lastBattMv >= curve[10].mv) rawPercent = 100;
+  if (lastBattMv >= curve[10].mv)
+    rawPercent = 100;
   else {
-    for (size_t i = 1; i < sizeof(curve)/sizeof(curve[0]); ++i) {
+    for (size_t i = 1; i < sizeof(curve) / sizeof(curve[0]); ++i) {
       if (lastBattMv <= curve[i].mv) {
-        const auto& a=curve[i-1]; const auto& b=curve[i];
-        rawPercent = a.pct + (lastBattMv-a.mv)*(b.pct-a.pct)/(b.mv-a.mv);
+        const auto& a = curve[i - 1];
+        const auto& b = curve[i];
+        rawPercent = a.pct + (lastBattMv - a.mv) * (b.pct - a.pct) / (b.mv - a.mv);
         break;
       }
     }
@@ -153,13 +157,16 @@ uint16_t HalPowerManager::getBatteryPercentage() const {
   if (now - usbChangedAt >= 30000) {
     const uint32_t interval = usbPowered ? 60000 : 30000;
     if (now - lastStepAt >= interval) {
-      if (rawPercent > displayedPercent) ++displayedPercent;
-      else if (rawPercent < displayedPercent) --displayedPercent;
+      if (rawPercent > displayedPercent)
+        ++displayedPercent;
+      else if (rawPercent < displayedPercent)
+        --displayedPercent;
       lastStepAt = now;
     }
   }
   displayedPercent = std::max(0, std::min(100, displayedPercent));
-  LOG_DBG("PWR", "USB=%d ADC=%umV VBAT=%umV raw=%d display=%d", usbPowered, adcMv, lastBattMv, rawPercent, displayedPercent);
+  LOG_DBG("PWR", "USB=%d ADC=%umV VBAT=%umV raw=%d display=%d", usbPowered, adcMv, lastBattMv, rawPercent,
+          displayedPercent);
   return static_cast<uint16_t>(displayedPercent);
 #else
   return 100;

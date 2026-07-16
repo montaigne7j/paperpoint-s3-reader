@@ -102,8 +102,10 @@ void ImuCalibrationActivity::loop() {
       faceDownStableSince = 0;
       faceDownLastSampleAt = 0;
 
-      if (completed) LOG_INF("IMU", "Four-pose calibration completed");
-      else LOG_ERR("IMU", "Face-down capture or four-pose validation failed");
+      if (completed)
+        LOG_INF("IMU", "Four-pose calibration completed");
+      else
+        LOG_ERR("IMU", "Face-down capture or four-pose validation failed");
       requestUpdate(true);
     }
   }
@@ -130,8 +132,8 @@ void ImuCalibrationActivity::render(RenderLock&&) {
   } else {
     // The fourth instruction is wider than the 540 px Paper S3 panel.  Wrap
     // every step so rotated rendering never writes outside the framebuffer.
-    const auto instructionLines = renderer.wrappedText(
-        UI_10_FONT_ID, I18n::getInstance().get(steps[step]), width - 56, 4, EpdFontFamily::BOLD);
+    const auto instructionLines =
+        renderer.wrappedText(UI_10_FONT_ID, I18n::getInstance().get(steps[step]), width - 56, 4, EpdFontFamily::BOLD);
     const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
     int instructionY = height / 2 - 90 - static_cast<int>(instructionLines.size() * lineHeight) / 2;
     for (const auto& line : instructionLines) {
@@ -139,16 +141,18 @@ void ImuCalibrationActivity::render(RenderLock&&) {
       instructionY += lineHeight + 4;
     }
 
-    if (sampling) renderer.drawCenteredText(UI_10_FONT_ID, height / 2 + 35, "讀取中，請保持不動…");
-    else if (unstable) renderer.drawCenteredText(UI_10_FONT_ID, height / 2 + 35, tr(STR_IMU_CAL_UNSTABLE));
+    if (sampling)
+      renderer.drawCenteredText(UI_10_FONT_ID, height / 2 + 35, "讀取中，請保持不動…");
+    else if (unstable)
+      renderer.drawCenteredText(UI_10_FONT_ID, height / 2 + 35, tr(STR_IMU_CAL_UNSTABLE));
     if (!sampling && step == 3 && faceDownStableSince != 0) {
       renderer.drawCenteredText(UI_10_FONT_ID, height / 2 + 70, "已偵測螢幕朝下，請保持不動…");
     }
   }
 
-  const auto labels = completed
-      ? mappedInput.mapLabels(tr(STR_BACK), tr(STR_DONE), "", "")
-      : mappedInput.mapLabels(tr(STR_BACK), (!imuUnavailable && step < 3) ? tr(STR_CONFIRM) : "", "", "");
+  const auto labels =
+      completed ? mappedInput.mapLabels(tr(STR_BACK), tr(STR_DONE), "", "")
+                : mappedInput.mapLabels(tr(STR_BACK), (!imuUnavailable && step < 3) ? tr(STR_CONFIRM) : "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   // Rendering only updates the shared framebuffer.  The calibration activity

@@ -1,12 +1,13 @@
 #pragma once
-#include <array>
-#include <cstdint>
-#include <memory>
-#include <vector>
 #include <Epub.h>
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Page.h>
 #include <Epub/Section.h>
+
+#include <array>
+#include <cstdint>
+#include <memory>
+#include <vector>
 
 #include "EpubReaderMenuActivity.h"
 #include "activities/Activity.h"
@@ -139,16 +140,17 @@ class EpubReaderActivity final : public Activity {
   bool isFrameCacheTargetAllowedForMemoryState(int pageNumber, ReaderMemoryState state) const;
   bool readerMemoryAllowsSilentIndexing(const char* phase);
   bool readerMemoryAllowsVisibleFrameStore(const char* phase);
-  bool readerMemoryAllowsFrameCacheStart(const ReaderMemorySnapshot& snapshot, bool pendingTurnTarget, const char* phase);
+  bool readerMemoryAllowsFrameCacheStart(const ReaderMemorySnapshot& snapshot, bool pendingTurnTarget,
+                                         const char* phase);
   bool isPageFrameCacheLowMemoryCooldownActive(int spineIndex, int pageNumber) const;
   void markPageFrameCacheLowMemoryCooldown(int spineIndex, int pageNumber, const char* reason);
   bool shouldSkipPageFrameCacheForCooldown(int spineIndex, int pageNumber);
   void prunePageFrameCacheForMemoryState(ReaderMemoryState state, const char* reason);
   bool copyCurrentFrameToPageFrameCache(int spineIndex, int pageNumber, const std::vector<FootnoteEntry>& footnotes,
-                                       bool hasImages);
+                                        bool hasImages);
   bool restorePageFrameCacheToRenderer(int spineIndex, int pageNumber, bool restoreFootnotes);
-  bool renderPageToFrameCache(int pageNumber, int orientedMarginTop, int orientedMarginRight,
-                              int orientedMarginBottom, int orientedMarginLeft);
+  bool renderPageToFrameCache(int pageNumber, int orientedMarginTop, int orientedMarginRight, int orientedMarginBottom,
+                              int orientedMarginLeft);
   bool collectPageTtfPrewarmCodepoints(int pageNumber, std::vector<uint32_t>& out, size_t maxCodepoints);
   bool idleGlyphPrewarmIfReady();
   bool hasReaderInputPending() const;

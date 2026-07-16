@@ -32,7 +32,6 @@ void addToLogRingBuffer(const char* message) {
   logHead = (logHead + 1) % MAX_LOG_LINES;
 }
 
-
 bool logShouldFormat(const char* level) {
   // ERR is kept for the RTC crash/error ring buffer.  INF/DBG are runtime-gated
   // so unplugged normal reading does not evaluate log arguments or format strings.

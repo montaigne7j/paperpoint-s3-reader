@@ -260,11 +260,11 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
       clamp(doc["frontButtonLeft"] | (uint8_t)S::FRONT_HW_LEFT, S::FRONT_BUTTON_HARDWARE_COUNT, S::FRONT_HW_LEFT);
   s.frontButtonRight =
       clamp(doc["frontButtonRight"] | (uint8_t)S::FRONT_HW_RIGHT, S::FRONT_BUTTON_HARDWARE_COUNT, S::FRONT_HW_RIGHT);
-  s.comicGrayEnhanceEncoded =
-      clamp(doc["comicGrayEnhanceEncoded"] | static_cast<uint8_t>(50), static_cast<uint8_t>(101), static_cast<uint8_t>(50));
+  s.comicGrayEnhanceEncoded = clamp(doc["comicGrayEnhanceEncoded"] | static_cast<uint8_t>(50),
+                                    static_cast<uint8_t>(101), static_cast<uint8_t>(50));
   s.comicGrayLevels = 1;  // four-level comic mode removed
-  s.comicFullRefreshFrequency =
-      clamp(doc["comicFullRefreshFrequency"] | static_cast<uint8_t>(4), static_cast<uint8_t>(5), static_cast<uint8_t>(4));
+  s.comicFullRefreshFrequency = clamp(doc["comicFullRefreshFrequency"] | static_cast<uint8_t>(4),
+                                      static_cast<uint8_t>(5), static_cast<uint8_t>(4));
 
   CrossPointSettings::validateFrontButtonMapping(s);
 

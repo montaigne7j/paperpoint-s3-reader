@@ -1,5 +1,4 @@
 #include <FreeTypePsramAllocator.h>
-
 #include <Logging.h>
 #include <esp_heap_caps.h>
 
@@ -65,17 +64,8 @@ void maybeLogDetail(const char* op, const long oldSize, const long newSize, cons
   const long logSize = newSize > 0 ? newSize : oldSize;
   if (logSize < kDetailedLogMinSize || gStats.detailLogs >= kDetailedLogLimit) return;
   ++gStats.detailLogs;
-  LOG_INF(
-      "FTALLOC",
-      "FT %s: oldSize=%ld newSize=%ld old=%p oldLoc=%s new=%p newLoc=%s",
-      op,
-      oldSize,
-      newSize,
-      oldPtr,
-      ptrLocation(oldPtr),
-      newPtr,
-      ptrLocation(newPtr)
-  );
+  LOG_INF("FTALLOC", "FT %s: oldSize=%ld newSize=%ld old=%p oldLoc=%s new=%p newLoc=%s", op, oldSize, newSize, oldPtr,
+          ptrLocation(oldPtr), newPtr, ptrLocation(newPtr));
 }
 
 void* allocImpl(FT_Memory /*memory*/, long size) {
@@ -152,21 +142,16 @@ void ensureMemoryReady() {
 void resetSummary() { gStats = AllocStats{}; }
 
 void logSummary(const char* context) {
-  LOG_INF(
-      "FTALLOC",
-      "FT allocator summary: context=%s allocCount=%lu reallocCount=%lu freeCount=%lu failCount=%lu psramAllocs=%lu internalAllocs=%lu unknownAllocs=%lu psramBytes=%llu internalBytes=%llu unknownBytes=%llu",
-      context != nullptr ? context : "",
-      static_cast<unsigned long>(gStats.allocCount),
-      static_cast<unsigned long>(gStats.reallocCount),
-      static_cast<unsigned long>(gStats.freeCount),
-      static_cast<unsigned long>(gStats.failCount),
-      static_cast<unsigned long>(gStats.psramAllocCount),
-      static_cast<unsigned long>(gStats.internalAllocCount),
-      static_cast<unsigned long>(gStats.unknownAllocCount),
-      static_cast<unsigned long long>(gStats.psramRequestedBytes),
-      static_cast<unsigned long long>(gStats.internalRequestedBytes),
-      static_cast<unsigned long long>(gStats.unknownRequestedBytes)
-  );
+  LOG_INF("FTALLOC",
+          "FT allocator summary: context=%s allocCount=%lu reallocCount=%lu freeCount=%lu failCount=%lu "
+          "psramAllocs=%lu internalAllocs=%lu unknownAllocs=%lu psramBytes=%llu internalBytes=%llu unknownBytes=%llu",
+          context != nullptr ? context : "", static_cast<unsigned long>(gStats.allocCount),
+          static_cast<unsigned long>(gStats.reallocCount), static_cast<unsigned long>(gStats.freeCount),
+          static_cast<unsigned long>(gStats.failCount), static_cast<unsigned long>(gStats.psramAllocCount),
+          static_cast<unsigned long>(gStats.internalAllocCount), static_cast<unsigned long>(gStats.unknownAllocCount),
+          static_cast<unsigned long long>(gStats.psramRequestedBytes),
+          static_cast<unsigned long long>(gStats.internalRequestedBytes),
+          static_cast<unsigned long long>(gStats.unknownRequestedBytes));
 }
 
 FT_Error newLibrary(FT_Library* library) {

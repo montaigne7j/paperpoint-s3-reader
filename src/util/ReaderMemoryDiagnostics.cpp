@@ -20,9 +20,7 @@ long deltaU32(const uint32_t after, const uint32_t before) {
   return static_cast<long>(after) - static_cast<long>(before);
 }
 
-uint32_t absDeltaU32(const uint32_t a, const uint32_t b) {
-  return a >= b ? a - b : b - a;
-}
+uint32_t absDeltaU32(const uint32_t a, const uint32_t b) { return a >= b ? a - b : b - a; }
 
 }  // namespace
 
@@ -50,60 +48,42 @@ const char* bufferLocation(const void* ptr) {
 
 void logCheckpoint(const char* phase) {
   const ReaderMemoryDiagTrace trace = capture();
-  LOG_INF(
-      "MEMD",
-      "Internal heap checkpoint: phase=%s internalFree=%lu internalMaxAlloc=%lu psramFree=%lu psramMaxAlloc=%lu",
-      phase ? phase : "?",
-      static_cast<unsigned long>(trace.internalFree),
-      static_cast<unsigned long>(trace.internalMaxAlloc),
-      static_cast<unsigned long>(trace.psramFree),
-      static_cast<unsigned long>(trace.psramMaxAlloc));
+  LOG_INF("MEMD",
+          "Internal heap checkpoint: phase=%s internalFree=%lu internalMaxAlloc=%lu psramFree=%lu psramMaxAlloc=%lu",
+          phase ? phase : "?", static_cast<unsigned long>(trace.internalFree),
+          static_cast<unsigned long>(trace.internalMaxAlloc), static_cast<unsigned long>(trace.psramFree),
+          static_cast<unsigned long>(trace.psramMaxAlloc));
 }
 
 void logLargeBuffer(const char* tag, const void* ptr, const size_t size) {
   const ReaderMemoryDiagTrace trace = capture();
-  LOG_INF(
-      "MEMD",
-      "Large buffer alloc: tag=%s ptr=%p size=%u loc=%s internalFree=%lu internalMaxAlloc=%lu psramFree=%lu psramMaxAlloc=%lu",
-      tag ? tag : "?",
-      ptr,
-      static_cast<unsigned>(size),
-      bufferLocation(ptr),
-      static_cast<unsigned long>(trace.internalFree),
-      static_cast<unsigned long>(trace.internalMaxAlloc),
-      static_cast<unsigned long>(trace.psramFree),
-      static_cast<unsigned long>(trace.psramMaxAlloc));
+  LOG_INF("MEMD",
+          "Large buffer alloc: tag=%s ptr=%p size=%u loc=%s internalFree=%lu internalMaxAlloc=%lu psramFree=%lu "
+          "psramMaxAlloc=%lu",
+          tag ? tag : "?", ptr, static_cast<unsigned>(size), bufferLocation(ptr),
+          static_cast<unsigned long>(trace.internalFree), static_cast<unsigned long>(trace.internalMaxAlloc),
+          static_cast<unsigned long>(trace.psramFree), static_cast<unsigned long>(trace.psramMaxAlloc));
 }
 
-void logDelta(const char* phase, const ReaderMemoryDiagTrace& before,
-              const ReaderMemoryDiagTrace& after, const unsigned long elapsedMs) {
-  LOG_INF(
-      "MEMD",
-      "Internal heap delta: phase=%s elapsed=%lums freeBefore=%lu freeAfter=%lu freeDelta=%ld maxBefore=%lu maxAfter=%lu maxDelta=%ld psramFreeBefore=%lu psramFreeAfter=%lu psramFreeDelta=%ld",
-      phase ? phase : "?",
-      elapsedMs,
-      static_cast<unsigned long>(before.internalFree),
-      static_cast<unsigned long>(after.internalFree),
-      deltaU32(after.internalFree, before.internalFree),
-      static_cast<unsigned long>(before.internalMaxAlloc),
-      static_cast<unsigned long>(after.internalMaxAlloc),
-      deltaU32(after.internalMaxAlloc, before.internalMaxAlloc),
-      static_cast<unsigned long>(before.psramFree),
-      static_cast<unsigned long>(after.psramFree),
-      deltaU32(after.psramFree, before.psramFree));
+void logDelta(const char* phase, const ReaderMemoryDiagTrace& before, const ReaderMemoryDiagTrace& after,
+              const unsigned long elapsedMs) {
+  LOG_INF("MEMD",
+          "Internal heap delta: phase=%s elapsed=%lums freeBefore=%lu freeAfter=%lu freeDelta=%ld maxBefore=%lu "
+          "maxAfter=%lu maxDelta=%ld psramFreeBefore=%lu psramFreeAfter=%lu psramFreeDelta=%ld",
+          phase ? phase : "?", elapsedMs, static_cast<unsigned long>(before.internalFree),
+          static_cast<unsigned long>(after.internalFree), deltaU32(after.internalFree, before.internalFree),
+          static_cast<unsigned long>(before.internalMaxAlloc), static_cast<unsigned long>(after.internalMaxAlloc),
+          deltaU32(after.internalMaxAlloc, before.internalMaxAlloc), static_cast<unsigned long>(before.psramFree),
+          static_cast<unsigned long>(after.psramFree), deltaU32(after.psramFree, before.psramFree));
 }
 
-void logDeltaIfChanged(const char* phase, const ReaderMemoryDiagTrace& before,
-                       const ReaderMemoryDiagTrace& after, const unsigned long elapsedMs,
-                       const uint32_t internalThresholdBytes,
-                       const uint32_t psramThresholdBytes,
-                       const unsigned long slowThresholdMs) {
-  const bool internalMoved =
-      absDeltaU32(before.internalFree, after.internalFree) >= internalThresholdBytes ||
-      absDeltaU32(before.internalMaxAlloc, after.internalMaxAlloc) >= internalThresholdBytes;
-  const bool psramMoved =
-      absDeltaU32(before.psramFree, after.psramFree) >= psramThresholdBytes ||
-      absDeltaU32(before.psramMaxAlloc, after.psramMaxAlloc) >= psramThresholdBytes;
+void logDeltaIfChanged(const char* phase, const ReaderMemoryDiagTrace& before, const ReaderMemoryDiagTrace& after,
+                       const unsigned long elapsedMs, const uint32_t internalThresholdBytes,
+                       const uint32_t psramThresholdBytes, const unsigned long slowThresholdMs) {
+  const bool internalMoved = absDeltaU32(before.internalFree, after.internalFree) >= internalThresholdBytes ||
+                             absDeltaU32(before.internalMaxAlloc, after.internalMaxAlloc) >= internalThresholdBytes;
+  const bool psramMoved = absDeltaU32(before.psramFree, after.psramFree) >= psramThresholdBytes ||
+                          absDeltaU32(before.psramMaxAlloc, after.psramMaxAlloc) >= psramThresholdBytes;
   const bool slow = elapsedMs >= slowThresholdMs;
   if (!internalMoved && !psramMoved && !slow) return;
   logDelta(phase, before, after, elapsedMs);

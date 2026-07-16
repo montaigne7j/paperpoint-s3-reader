@@ -87,9 +87,7 @@ bool isCjkLineBreakCodepoint(const uint32_t cp) {
   return false;
 }
 
-std::vector<Hyphenator::BreakInfo> buildCjkBreakInfos(
-    const std::vector<CodepointInfo>& codepoints
-) {
+std::vector<Hyphenator::BreakInfo> buildCjkBreakInfos(const std::vector<CodepointInfo>& codepoints) {
   std::vector<Hyphenator::BreakInfo> breaks;
 
   if (codepoints.size() < 2) {
@@ -107,12 +105,8 @@ std::vector<Hyphenator::BreakInfo> buildCjkBreakInfos(
     // Allow a break when either side is CJK.
     // requiresInsertedHyphen=false:
     // Chinese line wrapping must not insert '-'.
-    if (isCjkLineBreakCodepoint(left) ||
-        isCjkLineBreakCodepoint(right)) {
-      breaks.push_back({
-          codepoints[i].byteOffset,
-          false
-      });
+    if (isCjkLineBreakCodepoint(left) || isCjkLineBreakCodepoint(right)) {
+      breaks.push_back({codepoints[i].byteOffset, false});
     }
   }
 

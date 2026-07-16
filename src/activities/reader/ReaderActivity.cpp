@@ -3,10 +3,10 @@
 #include <FsHelpers.h>
 #include <HalStorage.h>
 
+#include "CbzReaderActivity.h"
 #include "CrossPointSettings.h"
 #include "Epub.h"
 #include "EpubReaderActivity.h"
-#include "CbzReaderActivity.h"
 #include "Txt.h"
 #include "TxtReaderActivity.h"
 #include "Xtc.h"

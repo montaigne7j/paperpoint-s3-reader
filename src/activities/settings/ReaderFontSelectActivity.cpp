@@ -49,10 +49,11 @@ void ReaderFontSelectActivity::loop() {
   {
     const auto& metrics = UITheme::getInstance().getMetrics();
     const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-    const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
-    const int targetIndex = DirectTouchSelection::hitListRow(
-        mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight}, totalItems(), selectedIndex,
-        metrics.listWithSubtitleRowHeight);
+    const int contentHeight =
+        renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
+    const int targetIndex =
+        DirectTouchSelection::hitListRow(mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight},
+                                         totalItems(), selectedIndex, metrics.listWithSubtitleRowHeight);
     if (targetIndex >= 0) {
       if (targetIndex == selectedIndex) {
         applySelection();
@@ -122,12 +123,10 @@ void ReaderFontSelectActivity::render(RenderLock&&) {
       [activeIndex](int index) { return index == activeIndex ? tr(STR_SELECTED) : ""; }, true);
 
   const int hintPageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, true);
-  const char* prevPageLabel = ButtonNavigator::hasPreviousPage(selectedIndex, totalItems(), hintPageItems)
-                                  ? tr(STR_DIR_UP)
-                                  : "";
-  const char* nextPageLabel = ButtonNavigator::hasNextPage(selectedIndex, totalItems(), hintPageItems)
-                                  ? tr(STR_DIR_DOWN)
-                                  : "";
+  const char* prevPageLabel =
+      ButtonNavigator::hasPreviousPage(selectedIndex, totalItems(), hintPageItems) ? tr(STR_DIR_UP) : "";
+  const char* nextPageLabel =
+      ButtonNavigator::hasNextPage(selectedIndex, totalItems(), hintPageItems) ? tr(STR_DIR_DOWN) : "";
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), prevPageLabel, nextPageLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();

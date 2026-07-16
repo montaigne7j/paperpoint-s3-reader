@@ -51,118 +51,43 @@ class GfxRenderer {
   static bool isUiFont(int fontId);
   static bool shouldUseExternalUiFont(int fontId);
 
-  int getTextWidthExternalUi(
-      int fontId,
-      const char* text,
-      EpdFontFamily::Style style
-  ) const;
+  int getTextWidthExternalUi(int fontId, const char* text, EpdFontFamily::Style style) const;
 
-  bool renderExternalUiGlyph(
-      uint32_t cp,
-      int* x,
-      int baselineY,
-      bool pixelState
-  ) const;
+  bool renderExternalUiGlyph(uint32_t cp, int* x, int baselineY, bool pixelState) const;
 
-  int getTextWidthExternalReader(
-    int fontId,
-    const char* text,
-    EpdFontFamily::Style style
-) const;
+  int getTextWidthExternalReader(int fontId, const char* text, EpdFontFamily::Style style) const;
 
-  int getTextWidthBuiltinFallback(
-      int fontId,
-      const EpdFontFamily& primaryFont,
-      const char* text,
-      EpdFontFamily::Style style
-  ) const;
+  int getTextWidthBuiltinFallback(int fontId, const EpdFontFamily& primaryFont, const char* text,
+                                  EpdFontFamily::Style style) const;
 
   const EpdFontFamily* getBuiltinFallbackForFontId(int fontId) const;
 
-  bool shouldUseBuiltinFallback(
-      const EpdFontFamily& primaryFont,
-      const EpdFontFamily* fallbackFont,
-      uint32_t codepoint,
-      EpdFontFamily::Style style
-  ) const;
+  bool shouldUseBuiltinFallback(const EpdFontFamily& primaryFont, const EpdFontFamily* fallbackFont, uint32_t codepoint,
+                                EpdFontFamily::Style style) const;
 
-  bool renderPrimaryGlyphCentered(
-      int fontId,
-      int cellX,
-      int cellY,
-      int cellWidth,
-      int cellHeight,
-      uint32_t codepoint,
-      bool pixelState,
-      EpdFontFamily::Style style
-  ) const;
+  bool renderPrimaryGlyphCentered(int fontId, int cellX, int cellY, int cellWidth, int cellHeight, uint32_t codepoint,
+                                  bool pixelState, EpdFontFamily::Style style) const;
 
-  bool renderBuiltinFallbackGlyphCentered(
-      int fontId,
-      int cellX,
-      int cellY,
-      int cellWidth,
-      int cellHeight,
-      uint32_t codepoint,
-      bool pixelState,
-      EpdFontFamily::Style style
-  ) const;
+  bool renderBuiltinFallbackGlyphCentered(int fontId, int cellX, int cellY, int cellWidth, int cellHeight,
+                                          uint32_t codepoint, bool pixelState, EpdFontFamily::Style style) const;
 
-  bool renderBuiltinFallbackGlyphRotated90CW(
-      int fontId,
-      int cellX,
-      int cellY,
-      int cellSize,
-      uint32_t codepoint,
-      bool pixelState,
-      EpdFontFamily::Style style
-  ) const;
+  bool renderBuiltinFallbackGlyphRotated90CW(int fontId, int cellX, int cellY, int cellSize, uint32_t codepoint,
+                                             bool pixelState, EpdFontFamily::Style style) const;
 
-  bool renderBuiltinFallbackGlyphScaled(
-      const EpdFontFamily& fallbackFont,
-      uint32_t codepoint,
-      int cursorX,
-      int lineTopY,
-      bool pixelState,
-      EpdFontFamily::Style style
-  ) const;
+  bool renderBuiltinFallbackGlyphScaled(const EpdFontFamily& fallbackFont, uint32_t codepoint, int cursorX,
+                                        int lineTopY, bool pixelState, EpdFontFamily::Style style) const;
 
-  bool renderBuiltinFallbackGlyphScaledPercent(
-      const EpdFontFamily& fallbackFont,
-      uint32_t codepoint,
-      int cursorX,
-      int lineTopY,
-      int percent,
-      bool pixelState,
-      EpdFontFamily::Style style
-  ) const;
+  bool renderBuiltinFallbackGlyphScaledPercent(const EpdFontFamily& fallbackFont, uint32_t codepoint, int cursorX,
+                                               int lineTopY, int percent, bool pixelState,
+                                               EpdFontFamily::Style style) const;
 
-  bool renderBuiltinFallbackGlyphScaledRotated90CW(
-      const EpdFontFamily& fallbackFont,
-      uint32_t codepoint,
-      int cursorX,
-      int cursorY,
-      bool pixelState,
-      EpdFontFamily::Style style
-  ) const;
+  bool renderBuiltinFallbackGlyphScaledRotated90CW(const EpdFontFamily& fallbackFont, uint32_t codepoint, int cursorX,
+                                                   int cursorY, bool pixelState, EpdFontFamily::Style style) const;
 
-bool renderExternalReaderGlyph(
-    uint32_t cp,
-    int* x,
-    int baselineY,
-    bool pixelState
-) const;
+  bool renderExternalReaderGlyph(uint32_t cp, int* x, int baselineY, bool pixelState) const;
 
-void renderExternalGlyph(
-    const uint8_t* bitmap,
-    ExternalFont* font,
-    int* x,
-    int baselineY,
-    bool pixelState,
-    const ExternalGlyphMetrics& metrics,
-    int advanceOverride = -1,
-    int cellClipWidth = -1
-) const;
+  void renderExternalGlyph(const uint8_t* bitmap, ExternalFont* font, int* x, int baselineY, bool pixelState,
+                           const ExternalGlyphMetrics& metrics, int advanceOverride = -1, int cellClipWidth = -1) const;
 
   void renderChar(const EpdFontFamily& fontFamily, uint32_t cp, int* x, int* y, bool pixelState,
                   EpdFontFamily::Style style) const;
@@ -171,24 +96,11 @@ void renderExternalGlyph(
   template <Color color>
   void fillArc(int maxRadius, int cx, int cy, int xDir, int yDir) const;
 
-  bool renderExternalReaderGlyphCentered(
-      int fontId,
-      int cellX,
-      int cellY,
-      int cellWidth,
-      int cellHeight,
-      uint32_t codepoint,
-      bool pixelState
-  ) const;
+  bool renderExternalReaderGlyphCentered(int fontId, int cellX, int cellY, int cellWidth, int cellHeight,
+                                         uint32_t codepoint, bool pixelState) const;
 
-  bool renderExternalReaderGlyphRotated90CW(
-      int fontId,
-      int cellX,
-      int cellY,
-      int cellSize,
-      uint32_t codepoint,
-      bool pixelState
-  ) const;
+  bool renderExternalReaderGlyphRotated90CW(int fontId, int cellX, int cellY, int cellSize, uint32_t codepoint,
+                                            bool pixelState) const;
 
  public:
   explicit GfxRenderer(HalDisplay& halDisplay)
@@ -241,20 +153,15 @@ void renderExternalGlyph(
   void logicalRectToPhysicalRows(int x, int y, int width, int height, int* rowStart, int* rowEnd) const;
 
   /*
-  * 顯示全螢幕 GC16 Bitmap。
-  *
-  * 目前底層只支援：
-  *   540 × 960 logical portrait
-  *   24-bit 或 32-bit BMP
-  */
-  bool displayGc16Bitmap(
-      const Bitmap& bitmap,
-      bool clearFirst = true,
-      HalDisplay::Gc16DitherMode ditherMode =
-          HalDisplay::Gc16DitherMode::
-              FloydSteinberg,
-      bool rotate180 = false
-  ) const;
+   * 顯示全螢幕 GC16 Bitmap。
+   *
+   * 目前底層只支援：
+   *   540 × 960 logical portrait
+   *   24-bit 或 32-bit BMP
+   */
+  bool displayGc16Bitmap(const Bitmap& bitmap, bool clearFirst = true,
+                         HalDisplay::Gc16DitherMode ditherMode = HalDisplay::Gc16DitherMode::FloydSteinberg,
+                         bool rotate180 = false) const;
 
   // Force the next displayBuffer() to use FULL_REFRESH (consumed after one use)
   void requestFullRefresh() { forceNextFullRefresh = true; }
@@ -301,15 +208,8 @@ void renderExternalGlyph(
   void drawTextScaled(int fontId, int x, int y, const char* text, int scale, bool black = true,
                       EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
 
-  void drawVerticalText(
-      int fontId,
-      int rightX,
-      int topY,
-      const char* text,
-      bool black = true,
-      EpdFontFamily::Style style =
-          EpdFontFamily::REGULAR
-  ) const;
+  void drawVerticalText(int fontId, int rightX, int topY, const char* text, bool black = true,
+                        EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
 
   int getSpaceWidth(int fontId, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   /// Returns the total inter-word advance: fp4::toPixel(spaceAdvance + kern(leftCp,' ') + kern(' ',rightCp)).

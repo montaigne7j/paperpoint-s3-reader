@@ -19,14 +19,10 @@ constexpr unsigned long BACK_LONG_PRESS_MS = 1000;
 constexpr int LARGE_TEXT_SCALE = 2;
 constexpr int LARGE_TEXT_CORNER_RADIUS = 6;
 
-bool isLargeTextTheme() {
-  return SETTINGS.uiTheme == CrossPointSettings::UI_THEME::LARGE_TEXT;
-}
-}
+bool isLargeTextTheme() { return SETTINGS.uiTheme == CrossPointSettings::UI_THEME::LARGE_TEXT; }
+}  // namespace
 
-int EpubReaderChapterSelectionActivity::getTotalItems() const {
-  return static_cast<int>(visibleTocIndices.size());
-}
+int EpubReaderChapterSelectionActivity::getTotalItems() const { return static_cast<int>(visibleTocIndices.size()); }
 
 int EpubReaderChapterSelectionActivity::getPageItems() const {
   if (isLargeTextTheme()) {
@@ -375,7 +371,8 @@ void EpubReaderChapterSelectionActivity::loop() {
     if (isLargeTextTheme()) {
       const auto& metrics = UITheme::getInstance().getMetrics();
       const int listTop = contentY + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-      const int listHeight = renderer.getScreenHeight() - listTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+      const int listHeight =
+          renderer.getScreenHeight() - listTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
       listRect = Rect{contentX, listTop, contentWidth, std::max(1, listHeight)};
       rowHeight = metrics.listRowHeight;
     } else {
@@ -440,9 +437,9 @@ void EpubReaderChapterSelectionActivity::render(RenderLock&&) {
     const int listHeight = std::max(1, pageHeight - listTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2);
     const int rowHeight = metrics.listRowHeight;
     const int rowX = contentX + metrics.contentSidePadding;
-    const int rowW = std::max(1, contentWidth - metrics.contentSidePadding * 2 -
-                                     (totalItems > pageItems ? metrics.scrollBarWidth + metrics.scrollBarRightOffset + 8
-                                                             : 0));
+    const int rowW =
+        std::max(1, contentWidth - metrics.contentSidePadding * 2 -
+                        (totalItems > pageItems ? metrics.scrollBarWidth + metrics.scrollBarRightOffset + 8 : 0));
     constexpr int leftPadding = 14;
     constexpr int rightPadding = 18;
     constexpr int indentStep = 32;
@@ -473,8 +470,7 @@ void EpubReaderChapterSelectionActivity::render(RenderLock&&) {
       const auto& node = tocNodes[tocIndex];
 
       if (isSelected) {
-        renderer.fillRoundedRect(rowX, displayY + 2, rowW, rowHeight - 4, LARGE_TEXT_CORNER_RADIUS,
-                                 Color::LightGray);
+        renderer.fillRoundedRect(rowX, displayY + 2, rowW, rowHeight - 4, LARGE_TEXT_CORNER_RADIUS, Color::LightGray);
       }
 
       const int visualDepth = std::min(std::max(0, static_cast<int>(node.level) - 1), maximumVisualDepth);
@@ -491,15 +487,12 @@ void EpubReaderChapterSelectionActivity::render(RenderLock&&) {
       renderer.drawTextScaled(UI_10_FONT_ID, textX, displayY + textYOff, chapterName.c_str(), LARGE_TEXT_SCALE, true);
     }
 
-    const char* parentLabel = selectedHasVisibleParent()
-                                  ? (I18N.getLanguage() == Language::ZH_TW ? "上層" : "Parent")
-                                  : "";
-    const char* prevPageLabel = ButtonNavigator::hasPreviousPage(selectorIndex, totalItems, pageItems)
-                                    ? tr(STR_DIR_UP)
-                                    : "";
-    const char* nextPageLabel = ButtonNavigator::hasNextPage(selectorIndex, totalItems, pageItems)
-                                    ? tr(STR_DIR_DOWN)
-                                    : "";
+    const char* parentLabel =
+        selectedHasVisibleParent() ? (I18N.getLanguage() == Language::ZH_TW ? "上層" : "Parent") : "";
+    const char* prevPageLabel =
+        ButtonNavigator::hasPreviousPage(selectorIndex, totalItems, pageItems) ? tr(STR_DIR_UP) : "";
+    const char* nextPageLabel =
+        ButtonNavigator::hasNextPage(selectorIndex, totalItems, pageItems) ? tr(STR_DIR_DOWN) : "";
     const auto labels = mappedInput.mapLabels(tr(STR_EXIT), parentLabel, prevPageLabel, nextPageLabel);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
@@ -558,15 +551,12 @@ void EpubReaderChapterSelectionActivity::render(RenderLock&&) {
     renderer.drawText(UI_10_FONT_ID, textX, displayY + textYOff, chapterName.c_str(), !isSelected);
   }
 
-  const char* parentLabel = selectedHasVisibleParent()
-                                ? (I18N.getLanguage() == Language::ZH_TW ? "上層" : "Parent")
-                                : "";
-  const char* prevPageLabel = ButtonNavigator::hasPreviousPage(selectorIndex, totalItems, pageItems)
-                                  ? tr(STR_DIR_UP)
-                                  : "";
-  const char* nextPageLabel = ButtonNavigator::hasNextPage(selectorIndex, totalItems, pageItems)
-                                  ? tr(STR_DIR_DOWN)
-                                  : "";
+  const char* parentLabel =
+      selectedHasVisibleParent() ? (I18N.getLanguage() == Language::ZH_TW ? "上層" : "Parent") : "";
+  const char* prevPageLabel =
+      ButtonNavigator::hasPreviousPage(selectorIndex, totalItems, pageItems) ? tr(STR_DIR_UP) : "";
+  const char* nextPageLabel =
+      ButtonNavigator::hasNextPage(selectorIndex, totalItems, pageItems) ? tr(STR_DIR_DOWN) : "";
   const auto labels = mappedInput.mapLabels(tr(STR_EXIT), parentLabel, prevPageLabel, nextPageLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

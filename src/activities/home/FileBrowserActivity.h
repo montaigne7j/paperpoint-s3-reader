@@ -41,8 +41,8 @@ class FileBrowserActivity final : public Activity {
   void requestFullPageUpdate(bool immediate = false);
 
  public:
-  explicit FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialPath = "/book",
-                               bool comicMode = false)
+  explicit FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
+                               std::string initialPath = "/book", bool comicMode = false)
       : Activity(comicMode ? "ComicFileBrowser" : "FileBrowser", renderer, mappedInput),
         basepath(initialPath.empty() ? "/book" : std::move(initialPath)),
         comicMode(comicMode) {}

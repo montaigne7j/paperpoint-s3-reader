@@ -15,8 +15,8 @@ class ComicReaderMenuActivity final : public Activity {
     ACTION_SETTINGS_CHANGED = 2,
   };
 
-  ComicReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string title,
-                          int currentPage, int totalPages);
+  ComicReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string title, int currentPage,
+                          int totalPages);
 
   void onEnter() override;
   void loop() override;

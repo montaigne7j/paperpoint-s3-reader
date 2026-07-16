@@ -1,7 +1,7 @@
 #include "SettingsActivity.h"
 
-#include <GfxRenderer.h>
 #include <FontManager.h>
+#include <GfxRenderer.h>
 #include <Logging.h>
 
 #include <algorithm>
@@ -10,24 +10,24 @@
 #include "CalibreSettingsActivity.h"
 #include "ClearCacheActivity.h"
 #include "CrossPointSettings.h"
+#include "ImuCalibrationActivity.h"
 #include "KOReaderSettingsActivity.h"
 #include "LanguageSelectActivity.h"
-#include "ImuCalibrationActivity.h"
-#include "util/PocketLock.h"
 #include "MappedInputManager.h"
-#include "activities/util/DirectTouchSelection.h"
 #include "OtaUpdateActivity.h"
-#include "ReaderFontSelectActivity.h"
 #include "ReaderBackgroundSelectActivity.h"
-#include "SleepImageSelectActivity.h"
+#include "ReaderFontSelectActivity.h"
 #include "ReaderFontSizeActivity.h"
 #include "ReaderValueAdjustActivity.h"
-#include "activities/reader/ReaderUtils.h"
 #include "SettingsList.h"
+#include "SleepImageSelectActivity.h"
 #include "StatusBarSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "activities/reader/ReaderUtils.h"
+#include "activities/util/DirectTouchSelection.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/PocketLock.h"
 
 const StrId SettingsActivity::categoryNames[categoryCount] = {StrId::STR_CAT_DISPLAY, StrId::STR_CAT_READER,
                                                               StrId::STR_CAT_CONTROLS, StrId::STR_CAT_SYSTEM};
@@ -133,10 +133,10 @@ void SettingsActivity::loop() {
       const int tapX = mappedInput.getContentTapX();
       const int tapY = mappedInput.getContentTapY();
       const Rect tabRect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.tabBarHeight};
-      if (tapX >= tabRect.x && tapX < tabRect.x + tabRect.width &&
-          tapY >= tabRect.y && tapY < tabRect.y + tabRect.height) {
-        const int targetCategory = std::max(0, std::min(categoryCount - 1,
-            ((tapX - tabRect.x) * categoryCount) / std::max(1, tabRect.width)));
+      if (tapX >= tabRect.x && tapX < tabRect.x + tabRect.width && tapY >= tabRect.y &&
+          tapY < tabRect.y + tabRect.height) {
+        const int targetCategory =
+            std::max(0, std::min(categoryCount - 1, ((tapX - tabRect.x) * categoryCount) / std::max(1, tabRect.width)));
         if (targetCategory != selectedCategoryIndex) {
           enterCategory(targetCategory);
         }
@@ -147,12 +147,12 @@ void SettingsActivity::loop() {
     }
 
     const int listTop = metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
-    const int listHeight = renderer.getScreenHeight() -
-                           (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight +
-                            metrics.buttonHintsHeight + metrics.verticalSpacing * 2);
-    const int targetSetting = DirectTouchSelection::hitListRow(
-        mappedInput, Rect{0, listTop, pageWidth, listHeight}, settingsCount,
-        std::max(0, selectedSettingIndex - 1), metrics.listRowHeight);
+    const int listHeight =
+        renderer.getScreenHeight() - (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight +
+                                      metrics.buttonHintsHeight + metrics.verticalSpacing * 2);
+    const int targetSetting =
+        DirectTouchSelection::hitListRow(mappedInput, Rect{0, listTop, pageWidth, listHeight}, settingsCount,
+                                         std::max(0, selectedSettingIndex - 1), metrics.listRowHeight);
     if (targetSetting >= 0) {
       const int targetSelection = targetSetting + 1;
       const bool wasAlreadySelected = targetSelection == selectedSettingIndex;
@@ -162,8 +162,7 @@ void SettingsActivity::loop() {
       // immediately on the first tap so it cannot appear selected yet fail to
       // enter because a second tap was missed by the e-paper touch cycle.
       const auto& tappedSetting = (*currentSettings)[targetSetting];
-      if (tappedSetting.type == SettingType::ACTION &&
-          tappedSetting.action == SettingAction::ImuCalibration) {
+      if (tappedSetting.type == SettingType::ACTION && tappedSetting.action == SettingAction::ImuCalibration) {
         toggleCurrentSetting();
         return;
       }
@@ -210,9 +209,9 @@ void SettingsActivity::loop() {
   // Category tabs are selected by direct touch, not by footer paging.
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int listTop = metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
-  const int listHeight = renderer.getScreenHeight() -
-                         (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight +
-                          metrics.buttonHintsHeight + metrics.verticalSpacing * 2);
+  const int listHeight =
+      renderer.getScreenHeight() - (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight +
+                                    metrics.buttonHintsHeight + metrics.verticalSpacing * 2);
   const int pageItems = std::max(1, listHeight / std::max(1, metrics.listRowHeight));
 
   buttonNavigator.onNextRelease([this, pageItems] {
@@ -245,7 +244,8 @@ void SettingsActivity::toggleCurrentSetting() {
     // Direction sensing lock is valid only after calibration and in fixed modes.
 #if CROSSPOINT_PAPERS3
     if (setting.valuePtr == &CrossPointSettings::readerInversionLock) {
-      if (!PocketLock::isCalibrated() || SETTINGS.readerOrientationMode == CrossPointSettings::READER_ORIENTATION_AUTO) {
+      if (!PocketLock::isCalibrated() ||
+          SETTINGS.readerOrientationMode == CrossPointSettings::READER_ORIENTATION_AUTO) {
         SETTINGS.readerInversionLock = 0;
         return;
       }
@@ -271,7 +271,8 @@ void SettingsActivity::toggleCurrentSetting() {
         SETTINGS.readerInversionLock = 0;
       } else {
         SETTINGS.orientation = SETTINGS.readerOrientationMode == CrossPointSettings::READER_ORIENTATION_FIXED_180
-                                   ? CrossPointSettings::INVERTED : CrossPointSettings::PORTRAIT;
+                                   ? CrossPointSettings::INVERTED
+                                   : CrossPointSettings::PORTRAIT;
 
         // Apply fixed 0/180 selection immediately.  The old implementation
         // only queued a normal deferred update, so the visible Settings/menu
@@ -300,23 +301,21 @@ void SettingsActivity::toggleCurrentSetting() {
   } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
     if (setting.valuePtr == &CrossPointSettings::fontSize) {
       // Open a focused numeric picker. +/- applies immediately; Back/Done just returns.
-      startActivityForResult(
-          std::make_unique<ReaderFontSizeActivity>(renderer, mappedInput, SETTINGS.fontSize),
-          [](const ActivityResult&) {});
+      startActivityForResult(std::make_unique<ReaderFontSizeActivity>(renderer, mappedInput, SETTINGS.fontSize),
+                             [](const ActivityResult&) {});
       return;
     }
 
     if (setting.valuePtr == &CrossPointSettings::lineSpacing) {
-      startActivityForResult(
-          std::make_unique<ReaderValueAdjustActivity>(
-              renderer, mappedInput, StrId::STR_LINE_SPACING, SETTINGS.lineSpacing,
-              CrossPointSettings::READER_LINE_SPACING_MIN, CrossPointSettings::READER_LINE_SPACING_MAX, 5, "%",
-              "直排：調整欄距",
-              [](uint8_t value) {
-                SETTINGS.lineSpacing = static_cast<uint8_t>(value);
-                SETTINGS.saveToFile();
-              }),
-          [](const ActivityResult&) {});
+      startActivityForResult(std::make_unique<ReaderValueAdjustActivity>(
+                                 renderer, mappedInput, StrId::STR_LINE_SPACING, SETTINGS.lineSpacing,
+                                 CrossPointSettings::READER_LINE_SPACING_MIN,
+                                 CrossPointSettings::READER_LINE_SPACING_MAX, 5, "%", "直排：調整欄距",
+                                 [](uint8_t value) {
+                                   SETTINGS.lineSpacing = static_cast<uint8_t>(value);
+                                   SETTINGS.saveToFile();
+                                 }),
+                             [](const ActivityResult&) {});
       return;
     }
 
@@ -324,8 +323,8 @@ void SettingsActivity::toggleCurrentSetting() {
       startActivityForResult(
           std::make_unique<ReaderValueAdjustActivity>(
               renderer, mappedInput, StrId::STR_CHARACTER_SPACING, SETTINGS.getReaderCharacterSpacing(),
-              CrossPointSettings::READER_CHARACTER_SPACING_MIN, CrossPointSettings::READER_CHARACTER_SPACING_MAX, 1, " px",
-              "可為負值；外部 BIN 字型若字距過寬可往負值調整",
+              CrossPointSettings::READER_CHARACTER_SPACING_MIN, CrossPointSettings::READER_CHARACTER_SPACING_MAX, 1,
+              " px", "可為負值；外部 BIN 字型若字距過寬可往負值調整",
               [](int16_t value) {
                 SETTINGS.characterSpacing = static_cast<uint8_t>(static_cast<int8_t>(value));
                 SETTINGS.saveToFile();
@@ -357,7 +356,8 @@ void SettingsActivity::toggleCurrentSetting() {
         startActivityForResult(std::make_unique<CalibreSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::Network:
-        startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput, false, false), resultHandler);
+        startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput, false, false),
+                               resultHandler);
         break;
       case SettingAction::ClearCache:
         startActivityForResult(std::make_unique<ClearCacheActivity>(renderer, mappedInput), resultHandler);
@@ -483,21 +483,19 @@ void SettingsActivity::render(RenderLock&&) {
     const bool opensSelector =
         selected.type == SettingType::ACTION ||
         (selected.type == SettingType::VALUE &&
-         (selected.valuePtr == &CrossPointSettings::fontSize ||
-          selected.valuePtr == &CrossPointSettings::lineSpacing ||
+         (selected.valuePtr == &CrossPointSettings::fontSize || selected.valuePtr == &CrossPointSettings::lineSpacing ||
           selected.valuePtr == &CrossPointSettings::characterSpacing));
     confirmLabel = opensSelector ? tr(STR_SELECT) : tr(STR_TOGGLE);
   }
   const int currentListIndex = std::max(0, selectedSettingIndex - 1);
-  const int listPageItems = std::max(1, (pageHeight - (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight +
-                                                      metrics.buttonHintsHeight + metrics.verticalSpacing * 2)) /
-                                           std::max(1, metrics.listRowHeight));
-  const char* prevPageLabel = ButtonNavigator::hasPreviousPage(currentListIndex, settingsCount, listPageItems)
-                                  ? tr(STR_DIR_UP)
-                                  : "";
-  const char* nextPageLabel = ButtonNavigator::hasNextPage(currentListIndex, settingsCount, listPageItems)
-                                  ? tr(STR_DIR_DOWN)
-                                  : "";
+  const int listPageItems =
+      std::max(1, (pageHeight - (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight +
+                                 metrics.buttonHintsHeight + metrics.verticalSpacing * 2)) /
+                      std::max(1, metrics.listRowHeight));
+  const char* prevPageLabel =
+      ButtonNavigator::hasPreviousPage(currentListIndex, settingsCount, listPageItems) ? tr(STR_DIR_UP) : "";
+  const char* nextPageLabel =
+      ButtonNavigator::hasNextPage(currentListIndex, settingsCount, listPageItems) ? tr(STR_DIR_DOWN) : "";
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, prevPageLabel, nextPageLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

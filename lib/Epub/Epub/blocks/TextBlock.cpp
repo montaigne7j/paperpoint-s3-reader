@@ -1,12 +1,13 @@
 #include "TextBlock.h"
 
 #include <Arduino.h>
-#include <algorithm>
-#include <cstdio>
 #include <GfxRenderer.h>
 #include <Logging.h>
-#include <Serialization.h>
 #include <ReaderMemoryDiagnostics.h>
+#include <Serialization.h>
+
+#include <algorithm>
+#include <cstdio>
 
 #include "../PageRenderProfiler.h"
 
@@ -35,11 +36,7 @@ uint32_t countUtf8Codepoints(const std::string& text) {
   return count;
 }
 
-void summarizeWords(
-    const std::vector<std::string>& words,
-    uint32_t& outBytes,
-    uint32_t& outGlyphs
-) {
+void summarizeWords(const std::vector<std::string>& words, uint32_t& outBytes, uint32_t& outGlyphs) {
   outBytes = 0;
   outGlyphs = 0;
   for (const auto& word : words) {
@@ -50,27 +47,18 @@ void summarizeWords(
 
 }  // namespace
 
-void TextBlock::render(
-    const GfxRenderer& renderer,
-    const int fontId,
-    const int x,
-    const int y
-) const {
+void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int x, const int y) const {
   const bool profiling = PageRenderProfiler::isEnabled();
   const ReaderMemoryDiagTrace blockMemBefore = ReaderMemoryDiagnostics::capture();
   const unsigned long blockStart = millis();
   const bool vertical = layoutMode == TextLayoutMode::Vertical;
 
-  if (words.size() != wordXpos.size() ||
-      words.size() != wordStyles.size()) {
-    LOG_ERR(
-        "TXB",
-        "Render skipped: size mismatch "
-        "(words=%u, xpos=%u, styles=%u)",
-        static_cast<uint32_t>(words.size()),
-        static_cast<uint32_t>(wordXpos.size()),
-        static_cast<uint32_t>(wordStyles.size())
-    );
+  if (words.size() != wordXpos.size() || words.size() != wordStyles.size()) {
+    LOG_ERR("TXB",
+            "Render skipped: size mismatch "
+            "(words=%u, xpos=%u, styles=%u)",
+            static_cast<uint32_t>(words.size()), static_cast<uint32_t>(wordXpos.size()),
+            static_cast<uint32_t>(wordStyles.size()));
     return;
   }
 
@@ -87,13 +75,10 @@ void TextBlock::render(
 
   if (vertical) {
     if (words.size() != wordYpos.size()) {
-      LOG_ERR(
-          "TXB",
-          "Vertical render skipped: "
-          "words=%u, ypos=%u",
-          static_cast<uint32_t>(words.size()),
-          static_cast<uint32_t>(wordYpos.size())
-      );
+      LOG_ERR("TXB",
+              "Vertical render skipped: "
+              "words=%u, ypos=%u",
+              static_cast<uint32_t>(words.size()), static_cast<uint32_t>(wordYpos.size()));
       return;
     }
 
@@ -103,14 +88,7 @@ void TextBlock::render(
 
       const ReaderMemoryDiagTrace wordMemBefore = ReaderMemoryDiagnostics::capture();
       const unsigned long tWord = millis();
-      renderer.drawVerticalText(
-          fontId,
-          glyphX,
-          glyphY,
-          words[i].c_str(),
-          true,
-          wordStyles[i]
-      );
+      renderer.drawVerticalText(fontId, glyphX, glyphY, words[i].c_str(), true, wordStyles[i]);
       const unsigned long wordMs = millis() - tWord;
       const ReaderMemoryDiagTrace wordMemAfter = ReaderMemoryDiagnostics::capture();
       {
@@ -128,31 +106,18 @@ void TextBlock::render(
     if (profiling) {
       const unsigned long total = millis() - blockStart;
       const unsigned long avgDraw = words.empty() ? 0 : drawTotal / words.size();
-      LOG_DBG(
-          "TXB",
-          "summary layout=vertical entries=%u logical=%u bytes=%u glyphs=%u draw=%lums underline=0ms total=%lums avgDraw=%lums slowestIndex=%u slowest=%lums",
-          static_cast<unsigned>(words.size()),
-          static_cast<unsigned>(logicalWordCount),
-          static_cast<unsigned>(totalBytes),
-          static_cast<unsigned>(totalGlyphs),
-          drawTotal,
-          total,
-          avgDraw,
-          static_cast<unsigned>(slowestWordIndex),
-          slowestWordMs
-      );
+      LOG_DBG("TXB",
+              "summary layout=vertical entries=%u logical=%u bytes=%u glyphs=%u draw=%lums underline=0ms total=%lums "
+              "avgDraw=%lums slowestIndex=%u slowest=%lums",
+              static_cast<unsigned>(words.size()), static_cast<unsigned>(logicalWordCount),
+              static_cast<unsigned>(totalBytes), static_cast<unsigned>(totalGlyphs), drawTotal, total, avgDraw,
+              static_cast<unsigned>(slowestWordIndex), slowestWordMs);
     }
 
     {
       const ReaderMemoryDiagTrace blockMemAfter = ReaderMemoryDiagnostics::capture();
-      ReaderMemoryDiagnostics::logDeltaIfChanged(
-          "textblock-render-total[vertical]",
-          blockMemBefore,
-          blockMemAfter,
-          millis() - blockStart,
-          512,
-          4096,
-          120);
+      ReaderMemoryDiagnostics::logDeltaIfChanged("textblock-render-total[vertical]", blockMemBefore, blockMemAfter,
+                                                 millis() - blockStart, 512, 4096, 120);
     }
 
     // 直排底線之後再處理。
@@ -166,14 +131,7 @@ void TextBlock::render(
     const EpdFontFamily::Style currentStyle = wordStyles[i];
 
     const unsigned long tWord = millis();
-    renderer.drawText(
-        fontId,
-        wordX,
-        y,
-        words[i].c_str(),
-        true,
-        currentStyle
-    );
+    renderer.drawText(fontId, wordX, y, words[i].c_str(), true, currentStyle);
     const unsigned long wordMs = millis() - tWord;
     drawTotal += wordMs;
     if (wordMs > slowestWordMs) {
@@ -181,139 +139,78 @@ void TextBlock::render(
       slowestWordIndex = i;
     }
 
-    if ((currentStyle &
-         EpdFontFamily::UNDERLINE) != 0) {
+    if ((currentStyle & EpdFontFamily::UNDERLINE) != 0) {
       const unsigned long tUnderline = millis();
       const std::string& word = words[i];
 
-      const int fullWordWidth =
-          renderer.getTextWidth(
-              fontId,
-              word.c_str(),
-              currentStyle
-          );
+      const int fullWordWidth = renderer.getTextWidth(fontId, word.c_str(), currentStyle);
 
-      const int underlineY =
-          y +
-          renderer.getFontAscenderSize(fontId) +
-          2;
+      const int underlineY = y + renderer.getFontAscenderSize(fontId) + 2;
 
       int startX = wordX;
       int underlineWidth = fullWordWidth;
 
-      if (word.size() >= 3 &&
-          static_cast<uint8_t>(word[0]) == 0xE2 &&
-          static_cast<uint8_t>(word[1]) == 0x80 &&
+      if (word.size() >= 3 && static_cast<uint8_t>(word[0]) == 0xE2 && static_cast<uint8_t>(word[1]) == 0x80 &&
           static_cast<uint8_t>(word[2]) == 0x83) {
-        const char* visiblePtr =
-            word.c_str() + 3;
+        const char* visiblePtr = word.c_str() + 3;
 
-        const int prefixWidth =
-            renderer.getTextAdvanceX(
-                fontId,
-                "\xe2\x80\x83",
-                currentStyle
-            );
+        const int prefixWidth = renderer.getTextAdvanceX(fontId, "\xe2\x80\x83", currentStyle);
 
-        const int visibleWidth =
-            renderer.getTextWidth(
-                fontId,
-                visiblePtr,
-                currentStyle
-            );
+        const int visibleWidth = renderer.getTextWidth(fontId, visiblePtr, currentStyle);
 
         startX = wordX + prefixWidth;
         underlineWidth = visibleWidth;
       }
 
-      renderer.drawLine(
-          startX,
-          underlineY,
-          startX + underlineWidth,
-          underlineY,
-          true
-      );
+      renderer.drawLine(startX, underlineY, startX + underlineWidth, underlineY, true);
       underlineTotal += millis() - tUnderline;
     }
   }
 
   {
     const ReaderMemoryDiagTrace blockMemAfter = ReaderMemoryDiagnostics::capture();
-    ReaderMemoryDiagnostics::logDeltaIfChanged(
-        "textblock-render-total[horizontal]",
-        blockMemBefore,
-        blockMemAfter,
-        millis() - blockStart,
-        512,
-        4096,
-        120);
+    ReaderMemoryDiagnostics::logDeltaIfChanged("textblock-render-total[horizontal]", blockMemBefore, blockMemAfter,
+                                               millis() - blockStart, 512, 4096, 120);
   }
 
   if (profiling) {
     const unsigned long total = millis() - blockStart;
     const unsigned long avgDraw = words.empty() ? 0 : drawTotal / words.size();
-    LOG_DBG(
-        "TXB",
-        "summary layout=horizontal entries=%u logical=%u bytes=%u glyphs=%u draw=%lums underline=%lums total=%lums avgDraw=%lums slowestIndex=%u slowest=%lums",
-        static_cast<unsigned>(words.size()),
-        static_cast<unsigned>(logicalWordCount),
-        static_cast<unsigned>(totalBytes),
-        static_cast<unsigned>(totalGlyphs),
-        drawTotal,
-        underlineTotal,
-        total,
-        avgDraw,
-        static_cast<unsigned>(slowestWordIndex),
-        slowestWordMs
-    );
+    LOG_DBG("TXB",
+            "summary layout=horizontal entries=%u logical=%u bytes=%u glyphs=%u draw=%lums underline=%lums total=%lums "
+            "avgDraw=%lums slowestIndex=%u slowest=%lums",
+            static_cast<unsigned>(words.size()), static_cast<unsigned>(logicalWordCount),
+            static_cast<unsigned>(totalBytes), static_cast<unsigned>(totalGlyphs), drawTotal, underlineTotal, total,
+            avgDraw, static_cast<unsigned>(slowestWordIndex), slowestWordMs);
   }
 }
 
 bool TextBlock::serialize(FsFile& file) const {
-  if (words.size() != wordXpos.size() ||
-      words.size() != wordStyles.size()) {
-    LOG_ERR(
-        "TXB",
-        "Serialization failed: size mismatch "
-        "(words=%u, xpos=%u, styles=%u)",
-        static_cast<unsigned>(words.size()),
-        static_cast<unsigned>(wordXpos.size()),
-        static_cast<unsigned>(wordStyles.size())
-    );
+  if (words.size() != wordXpos.size() || words.size() != wordStyles.size()) {
+    LOG_ERR("TXB",
+            "Serialization failed: size mismatch "
+            "(words=%u, xpos=%u, styles=%u)",
+            static_cast<unsigned>(words.size()), static_cast<unsigned>(wordXpos.size()),
+            static_cast<unsigned>(wordStyles.size()));
     return false;
   }
 
-  const bool vertical =
-      layoutMode == TextLayoutMode::Vertical;
+  const bool vertical = layoutMode == TextLayoutMode::Vertical;
 
   if (words.size() > 65535) {
-    LOG_ERR(
-        "TXB",
-        "Serialization failed: too many glyphs (%u)",
-        static_cast<unsigned>(words.size())
-    );
+    LOG_ERR("TXB", "Serialization failed: too many glyphs (%u)", static_cast<unsigned>(words.size()));
     return false;
   }
 
   // Layout header
-  serialization::writePod(
-      file,
-      static_cast<uint8_t>(layoutMode)
-  );
+  serialization::writePod(file, static_cast<uint8_t>(layoutMode));
 
-  serialization::writePod(
-      file,
-      logicalWordCount
-  );
+  serialization::writePod(file, logicalWordCount);
 
   // Word/glyph count
-  const uint16_t wordCount =
-      static_cast<uint16_t>(words.size());
+  const uint16_t wordCount = static_cast<uint16_t>(words.size());
 
-  serialization::writePod(
-      file,
-      wordCount
-  );
+  serialization::writePod(file, wordCount);
 
   for (const auto& word : words) {
     serialization::writeString(file, word);
@@ -334,118 +231,61 @@ bool TextBlock::serialize(FsFile& file) const {
     serialization::writePod(file, style);
   }
 
-  serialization::writePod(
-      file,
-      blockStyle.alignment
-  );
-  serialization::writePod(
-      file,
-      blockStyle.textAlignDefined
-  );
-  serialization::writePod(
-      file,
-      blockStyle.marginTop
-  );
-  serialization::writePod(
-      file,
-      blockStyle.marginBottom
-  );
-  serialization::writePod(
-      file,
-      blockStyle.marginLeft
-  );
-  serialization::writePod(
-      file,
-      blockStyle.marginRight
-  );
-  serialization::writePod(
-      file,
-      blockStyle.paddingTop
-  );
-  serialization::writePod(
-      file,
-      blockStyle.paddingBottom
-  );
-  serialization::writePod(
-      file,
-      blockStyle.paddingLeft
-  );
-  serialization::writePod(
-      file,
-      blockStyle.paddingRight
-  );
-  serialization::writePod(
-      file,
-      blockStyle.textIndent
-  );
-  serialization::writePod(
-      file,
-      blockStyle.textIndentDefined
-  );
+  serialization::writePod(file, blockStyle.alignment);
+  serialization::writePod(file, blockStyle.textAlignDefined);
+  serialization::writePod(file, blockStyle.marginTop);
+  serialization::writePod(file, blockStyle.marginBottom);
+  serialization::writePod(file, blockStyle.marginLeft);
+  serialization::writePod(file, blockStyle.marginRight);
+  serialization::writePod(file, blockStyle.paddingTop);
+  serialization::writePod(file, blockStyle.paddingBottom);
+  serialization::writePod(file, blockStyle.paddingLeft);
+  serialization::writePod(file, blockStyle.paddingRight);
+  serialization::writePod(file, blockStyle.textIndent);
+  serialization::writePod(file, blockStyle.textIndentDefined);
 
   return true;
 }
 
-std::unique_ptr<TextBlock>
-TextBlock::deserialize(FsFile& file) {
+std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   uint8_t layoutModeRaw = 0;
   uint16_t logicalWordCount = 0;
   uint16_t storedWordCount = 0;
 
-  serialization::readPod(
-      file,
-      layoutModeRaw
-  );
+  serialization::readPod(file, layoutModeRaw);
 
-  if (layoutModeRaw >
-      static_cast<uint8_t>(
-          TextLayoutMode::Vertical)) {
-    LOG_ERR(
-        "TXB",
-        "Deserialization failed: "
-        "invalid layout mode %u",
-        layoutModeRaw
-    );
+  if (layoutModeRaw > static_cast<uint8_t>(TextLayoutMode::Vertical)) {
+    LOG_ERR("TXB",
+            "Deserialization failed: "
+            "invalid layout mode %u",
+            layoutModeRaw);
     return nullptr;
   }
 
-  const TextLayoutMode layoutMode =
-      static_cast<TextLayoutMode>(
-          layoutModeRaw
-      );
+  const TextLayoutMode layoutMode = static_cast<TextLayoutMode>(layoutModeRaw);
 
-  serialization::readPod(
-      file,
-      logicalWordCount
-  );
+  serialization::readPod(file, logicalWordCount);
 
-  serialization::readPod(
-      file,
-      storedWordCount
-  );
+  serialization::readPod(file, storedWordCount);
 
   if (storedWordCount > 10000) {
-    LOG_ERR(
-        "TXB",
-        "Deserialization failed: "
-        "word count %u exceeds maximum",
-        storedWordCount
-    );
+    LOG_ERR("TXB",
+            "Deserialization failed: "
+            "word count %u exceeds maximum",
+            storedWordCount);
     return nullptr;
   }
 
   std::vector<std::string> words;
   std::vector<int16_t> wordXpos;
   std::vector<int16_t> wordYpos;
-  std::vector<EpdFontFamily::Style>
-      wordStyles;
+  std::vector<EpdFontFamily::Style> wordStyles;
 
   words.resize(storedWordCount);
   wordXpos.resize(storedWordCount);
   wordStyles.resize(storedWordCount);
 
-  if (layoutMode ==
-      TextLayoutMode::Vertical) {
+  if (layoutMode == TextLayoutMode::Vertical) {
     wordYpos.resize(storedWordCount);
   }
 
@@ -457,8 +297,7 @@ TextBlock::deserialize(FsFile& file) {
     serialization::readPod(file, x);
   }
 
-  if (layoutMode ==
-      TextLayoutMode::Vertical) {
+  if (layoutMode == TextLayoutMode::Vertical) {
     for (auto& y : wordYpos) {
       serialization::readPod(file, y);
     }
@@ -470,82 +309,29 @@ TextBlock::deserialize(FsFile& file) {
 
   BlockStyle blockStyle;
 
-  serialization::readPod(
-      file,
-      blockStyle.alignment
-  );
-  serialization::readPod(
-      file,
-      blockStyle.textAlignDefined
-  );
-  serialization::readPod(
-      file,
-      blockStyle.marginTop
-  );
-  serialization::readPod(
-      file,
-      blockStyle.marginBottom
-  );
-  serialization::readPod(
-      file,
-      blockStyle.marginLeft
-  );
-  serialization::readPod(
-      file,
-      blockStyle.marginRight
-  );
-  serialization::readPod(
-      file,
-      blockStyle.paddingTop
-  );
-  serialization::readPod(
-      file,
-      blockStyle.paddingBottom
-  );
-  serialization::readPod(
-      file,
-      blockStyle.paddingLeft
-  );
-  serialization::readPod(
-      file,
-      blockStyle.paddingRight
-  );
-  serialization::readPod(
-      file,
-      blockStyle.textIndent
-  );
-  serialization::readPod(
-      file,
-      blockStyle.textIndentDefined
-  );
+  serialization::readPod(file, blockStyle.alignment);
+  serialization::readPod(file, blockStyle.textAlignDefined);
+  serialization::readPod(file, blockStyle.marginTop);
+  serialization::readPod(file, blockStyle.marginBottom);
+  serialization::readPod(file, blockStyle.marginLeft);
+  serialization::readPod(file, blockStyle.marginRight);
+  serialization::readPod(file, blockStyle.paddingTop);
+  serialization::readPod(file, blockStyle.paddingBottom);
+  serialization::readPod(file, blockStyle.paddingLeft);
+  serialization::readPod(file, blockStyle.paddingRight);
+  serialization::readPod(file, blockStyle.textIndent);
+  serialization::readPod(file, blockStyle.textIndentDefined);
 
-  if (layoutMode ==
-      TextLayoutMode::Vertical) {
-    return std::unique_ptr<TextBlock>(
-        new TextBlock(
-            std::move(words),
-            std::move(wordXpos),
-            std::move(wordYpos),
-            std::move(wordStyles),
-            blockStyle,
-            TextLayoutMode::Vertical,
-            logicalWordCount
-        )
-    );
+  if (layoutMode == TextLayoutMode::Vertical) {
+    return std::unique_ptr<TextBlock>(new TextBlock(std::move(words), std::move(wordXpos), std::move(wordYpos),
+                                                    std::move(wordStyles), blockStyle, TextLayoutMode::Vertical,
+                                                    logicalWordCount));
   }
 
-  auto result =
-      std::unique_ptr<TextBlock>(
-          new TextBlock(
-              std::move(words),
-              std::move(wordXpos),
-              std::move(wordStyles),
-              blockStyle
-          )
-      );
+  auto result = std::unique_ptr<TextBlock>(
+      new TextBlock(std::move(words), std::move(wordXpos), std::move(wordStyles), blockStyle));
 
-  result->logicalWordCount =
-      logicalWordCount;
+  result->logicalWordCount = logicalWordCount;
 
   return result;
 }

@@ -117,8 +117,7 @@ void ComicReaderMenuActivity::loop() {
     const int rowHeight = metrics.listRowHeight;
     const Rect listRect{0, contentTop, renderer.getScreenWidth(), std::max(1, footerTop - contentTop)};
 
-    const int hitIndex = DirectTouchSelection::hitListRow(
-        mappedInput, listRect, ITEM_COUNT, selectedIndex, rowHeight);
+    const int hitIndex = DirectTouchSelection::hitListRow(mappedInput, listRect, ITEM_COUNT, selectedIndex, rowHeight);
     if (hitIndex >= 0) {
       // Comic menu touch should behave like a large button list: one tap both
       // selects and activates.  The old select-then-second-tap behavior felt
@@ -174,12 +173,8 @@ void ComicReaderMenuActivity::render(RenderLock&&) {
   const Rect listRect{0, contentTop, pageWidth, std::max(1, footerTop - contentTop)};
 
   GUI.drawList(
-      renderer, listRect, ITEM_COUNT, selectedIndex,
-      [this](int index) { return std::string(itemLabel(index)); },
-      nullptr,
-      nullptr,
-      [this](int index) { return itemValue(index); },
-      true);
+      renderer, listRect, ITEM_COUNT, selectedIndex, [this](int index) { return std::string(itemLabel(index)); },
+      nullptr, nullptr, [this](int index) { return itemValue(index); }, true);
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

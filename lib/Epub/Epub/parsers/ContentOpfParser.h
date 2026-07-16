@@ -2,8 +2,8 @@
 #include <Print.h>
 
 #include <algorithm>
-#include <memory>
 #include <deque>
+#include <memory>
 #include <vector>
 
 #include "Epub.h"

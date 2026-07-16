@@ -41,7 +41,8 @@ void CalibreSettingsActivity::loop() {
   {
     const auto& metrics = UITheme::getInstance().getMetrics();
     const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing + metrics.tabBarHeight;
-    const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+    const int contentHeight =
+        renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
     const int targetIndex = DirectTouchSelection::hitListRow(
         mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight}, static_cast<int>(MENU_ITEMS),
         static_cast<int>(selectedIndex), metrics.listRowHeight);

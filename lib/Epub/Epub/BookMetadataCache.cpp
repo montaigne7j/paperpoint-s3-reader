@@ -254,8 +254,7 @@ bool BookMetadataCache::endWrite() {
   return !tempWriteFailed;
 }
 
-bool BookMetadataCache::flushTempBuffer(FsFile& file,
-                                        std::array<uint8_t, TEMP_WRITE_BUFFER_SIZE>& buffer,
+bool BookMetadataCache::flushTempBuffer(FsFile& file, std::array<uint8_t, TEMP_WRITE_BUFFER_SIZE>& buffer,
                                         size_t& used) {
   if (used == 0) return true;
   const size_t written = file.write(buffer.data(), used);
@@ -267,9 +266,8 @@ bool BookMetadataCache::flushTempBuffer(FsFile& file,
   return true;
 }
 
-bool BookMetadataCache::appendTempBytes(FsFile& file,
-                                        std::array<uint8_t, TEMP_WRITE_BUFFER_SIZE>& buffer,
-                                        size_t& used, const void* data, size_t length) {
+bool BookMetadataCache::appendTempBytes(FsFile& file, std::array<uint8_t, TEMP_WRITE_BUFFER_SIZE>& buffer, size_t& used,
+                                        const void* data, size_t length) {
   const auto* input = static_cast<const uint8_t*>(data);
   while (length > 0) {
     if (used == buffer.size() && !flushTempBuffer(file, buffer, used)) return false;
@@ -282,9 +280,8 @@ bool BookMetadataCache::appendTempBytes(FsFile& file,
   return true;
 }
 
-bool BookMetadataCache::writeTempString(FsFile& file,
-                                        std::array<uint8_t, TEMP_WRITE_BUFFER_SIZE>& buffer,
-                                        size_t& used, const std::string& value) {
+bool BookMetadataCache::writeTempString(FsFile& file, std::array<uint8_t, TEMP_WRITE_BUFFER_SIZE>& buffer, size_t& used,
+                                        const std::string& value) {
   const uint32_t length = static_cast<uint32_t>(value.size());
   return appendTempBytes(file, buffer, used, &length, sizeof(length)) &&
          (length == 0 || appendTempBytes(file, buffer, used, value.data(), length));
@@ -294,8 +291,7 @@ bool BookMetadataCache::writeTempSpineEntry(const SpineEntry& entry) {
   return writeTempString(spineFile, spineWriteBuffer, spineWriteUsed, entry.href) &&
          appendTempBytes(spineFile, spineWriteBuffer, spineWriteUsed, &entry.cumulativeSize,
                          sizeof(entry.cumulativeSize)) &&
-         appendTempBytes(spineFile, spineWriteBuffer, spineWriteUsed, &entry.tocIndex,
-                         sizeof(entry.tocIndex));
+         appendTempBytes(spineFile, spineWriteBuffer, spineWriteUsed, &entry.tocIndex, sizeof(entry.tocIndex));
 }
 
 bool BookMetadataCache::writeTempTocEntry(const TocEntry& entry) {
@@ -303,8 +299,7 @@ bool BookMetadataCache::writeTempTocEntry(const TocEntry& entry) {
          writeTempString(tocFile, tocWriteBuffer, tocWriteUsed, entry.href) &&
          writeTempString(tocFile, tocWriteBuffer, tocWriteUsed, entry.anchor) &&
          appendTempBytes(tocFile, tocWriteBuffer, tocWriteUsed, &entry.level, sizeof(entry.level)) &&
-         appendTempBytes(tocFile, tocWriteBuffer, tocWriteUsed, &entry.spineIndex,
-                         sizeof(entry.spineIndex));
+         appendTempBytes(tocFile, tocWriteBuffer, tocWriteUsed, &entry.spineIndex, sizeof(entry.spineIndex));
 }
 
 bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMetadata& metadata) {
@@ -347,10 +342,9 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
 
   BufferedFileWriter bookWriter(bookFile);
   if (!bookWriter.writePod(BOOK_CACHE_VERSION) || !bookWriter.writePod(finalLutOffset) ||
-      !bookWriter.writePod(spineCount) || !bookWriter.writePod(tocCount) ||
-      !bookWriter.writeString(metadata.title) || !bookWriter.writeString(metadata.author) ||
-      !bookWriter.writeString(metadata.language) || !bookWriter.writeString(metadata.coverItemHref) ||
-      !bookWriter.writeString(metadata.textReferenceHref)) {
+      !bookWriter.writePod(spineCount) || !bookWriter.writePod(tocCount) || !bookWriter.writeString(metadata.title) ||
+      !bookWriter.writeString(metadata.author) || !bookWriter.writeString(metadata.language) ||
+      !bookWriter.writeString(metadata.coverItemHref) || !bookWriter.writeString(metadata.textReferenceHref)) {
     return failBuild();
   }
 
@@ -360,8 +354,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
     BufferedFileReader reader(spineFile, 0);
     for (int i = 0; i < spineCount; ++i) {
       const uint32_t entryPos = spineDataOffset + static_cast<uint32_t>(reader.position());
-      if (!bookWriter.writePod(entryPos) || !reader.skipString() ||
-          !reader.skip(sizeof(size_t) + sizeof(int16_t))) {
+      if (!bookWriter.writePod(entryPos) || !reader.skipString() || !reader.skip(sizeof(size_t) + sizeof(int16_t))) {
         LOG_ERR("BMC", "Failed while building spine LUT at %d", i);
         return failBuild();
       }
@@ -371,8 +364,8 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
     BufferedFileReader reader(tocFile, 0);
     for (int i = 0; i < tocCount; ++i) {
       const uint32_t entryPos = tocDataOffset + static_cast<uint32_t>(reader.position());
-      if (!bookWriter.writePod(entryPos) || !reader.skipString() || !reader.skipString() ||
-          !reader.skipString() || !reader.skip(sizeof(uint8_t) + sizeof(int16_t))) {
+      if (!bookWriter.writePod(entryPos) || !reader.skipString() || !reader.skipString() || !reader.skipString() ||
+          !reader.skip(sizeof(uint8_t) + sizeof(int16_t))) {
         LOG_ERR("BMC", "Failed while building TOC LUT at %d", i);
         return failBuild();
       }
@@ -386,8 +379,8 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
     for (int j = 0; j < tocCount; ++j) {
       uint8_t level = 0;
       int16_t spineIndex = -1;
-      if (!reader.skipString() || !reader.skipString() || !reader.skipString() ||
-          !reader.readPod(level) || !reader.readPod(spineIndex)) {
+      if (!reader.skipString() || !reader.skipString() || !reader.skipString() || !reader.readPod(level) ||
+          !reader.readPod(spineIndex)) {
         LOG_ERR("BMC", "Failed while building spine/TOC map at %d", j);
         return failBuild();
       }
@@ -705,8 +698,8 @@ bool BookMetadataCache::getTocNodeInfos(std::vector<TocNodeInfo>& nodes) {
   BufferedFileReader reader(bookFile, firstTocEntryPos);
   for (int i = 0; i < tocCount; ++i) {
     TocNodeInfo info;
-    if (!reader.skipString() || !reader.skipString() || !reader.skipString() ||
-        !reader.readPod(info.level) || !reader.readPod(info.spineIndex)) {
+    if (!reader.skipString() || !reader.skipString() || !reader.skipString() || !reader.readPod(info.level) ||
+        !reader.readPod(info.spineIndex)) {
       LOG_ERR("BMC", "Failed to read TOC node metadata at %d", i);
       nodes.clear();
       return false;

@@ -28,8 +28,7 @@ bool endsWithNoCase(const char* text, const char* suffix) {
   if (suffixLength > textLength) return false;
   const char* start = text + textLength - suffixLength;
   for (size_t i = 0; i < suffixLength; ++i) {
-    if (std::tolower(static_cast<unsigned char>(start[i])) !=
-        std::tolower(static_cast<unsigned char>(suffix[i]))) {
+    if (std::tolower(static_cast<unsigned char>(start[i])) != std::tolower(static_cast<unsigned char>(suffix[i]))) {
       return false;
     }
   }
@@ -64,8 +63,7 @@ const char* fontTypeLabel(const FontFileType type) {
 bool sameFilenameNoCase(const char* a, const char* b) {
   if (a == nullptr || b == nullptr) return false;
   while (*a != '\0' && *b != '\0') {
-    if (std::tolower(static_cast<unsigned char>(*a)) !=
-        std::tolower(static_cast<unsigned char>(*b))) {
+    if (std::tolower(static_cast<unsigned char>(*a)) != std::tolower(static_cast<unsigned char>(*b))) {
       return false;
     }
     ++a;
@@ -86,8 +84,7 @@ FontManager& FontManager::getInstance() {
 
 uint8_t FontManager::getTtfPixelSize() {
   return std::min<uint8_t>(CrossPointSettings::READER_FONT_SIZE_MAX,
-                           std::max<uint8_t>(CrossPointSettings::READER_FONT_SIZE_MIN,
-                                             SETTINGS.fontSize));
+                           std::max<uint8_t>(CrossPointSettings::READER_FONT_SIZE_MIN, SETTINGS.fontSize));
 }
 
 void FontManager::scanFonts() {
@@ -101,12 +98,10 @@ void FontManager::scanFonts() {
   const bool hadReaderSelection = _selectedIndex >= 0 && _selectedIndex < _fontCount;
   const bool hadUiSelection = _selectedUiIndex >= 0 && _selectedUiIndex < _fontCount;
   if (hadReaderSelection) {
-    std::strncpy(selectedReaderFilename, _fonts[_selectedIndex].filename,
-                 sizeof(selectedReaderFilename) - 1);
+    std::strncpy(selectedReaderFilename, _fonts[_selectedIndex].filename, sizeof(selectedReaderFilename) - 1);
   }
   if (hadUiSelection) {
-    std::strncpy(selectedUiFilename, _fonts[_selectedUiIndex].filename,
-                 sizeof(selectedUiFilename) - 1);
+    std::strncpy(selectedUiFilename, _fonts[_selectedUiIndex].filename, sizeof(selectedUiFilename) - 1);
   }
 
   _fontCount = 0;
@@ -173,8 +168,8 @@ void FontManager::scanFonts() {
       const int existing = existingIndexForFilename(filename);
       if (existing >= 0) {
         if (isPrimaryFontDirectory(directory) && !isPrimaryFontDirectory(_fonts[existing].directory)) {
-          LOG_INF("FONT_MGR", "Font override: /font/%s replaces %s/%s", filename,
-                  _fonts[existing].directory, _fonts[existing].filename);
+          LOG_INF("FONT_MGR", "Font override: /font/%s replaces %s/%s", filename, _fonts[existing].directory,
+                  _fonts[existing].filename);
           _fonts[existing] = candidate;
         } else {
           LOG_INF("FONT_MGR", "Duplicate font ignored: %s/%s", directory, filename);
@@ -188,9 +183,8 @@ void FontManager::scanFonts() {
       }
 
       _fonts[_fontCount] = candidate;
-      LOG_INF("FONT_MGR", "Found %s font: %s (%d, %dx%d) path=%s/%s", fontTypeLabel(candidate.type),
-              candidate.name, candidate.size, candidate.width, candidate.height, candidate.directory,
-              candidate.filename);
+      LOG_INF("FONT_MGR", "Found %s font: %s (%d, %dx%d) path=%s/%s", fontTypeLabel(candidate.type), candidate.name,
+              candidate.size, candidate.width, candidate.height, candidate.directory, candidate.filename);
       ++_fontCount;
     }
 
@@ -275,7 +269,9 @@ bool FontManager::loadSelectedUiFont() {
 
   _activeUiFont.unload();
   char filepath[192];
-  std::snprintf(filepath, sizeof(filepath), "%s/%s", _fonts[_selectedUiIndex].directory[0] ? _fonts[_selectedUiIndex].directory : FONTS_DIR, _fonts[_selectedUiIndex].filename);
+  std::snprintf(filepath, sizeof(filepath), "%s/%s",
+                _fonts[_selectedUiIndex].directory[0] ? _fonts[_selectedUiIndex].directory : FONTS_DIR,
+                _fonts[_selectedUiIndex].filename);
   return _activeUiFont.load(filepath);
 }
 
@@ -302,8 +298,7 @@ void FontManager::selectFont(int index) {
 }
 
 bool FontManager::reloadReaderFontForSize() {
-  if (_selectedIndex < 0 || _selectedIndex >= _fontCount ||
-      _fonts[_selectedIndex].type != FontFileType::TrueType) {
+  if (_selectedIndex < 0 || _selectedIndex >= _fontCount || _fonts[_selectedIndex].type != FontFileType::TrueType) {
     return false;
   }
 
@@ -331,8 +326,8 @@ void FontManager::invalidateReaderLayoutCaches() {
   int removed = 0;
   for (HalFile entry = root.openNextFile(); entry; entry = root.openNextFile()) {
     entry.getName(name, sizeof(name));
-    const bool bookCache = entry.isDirectory() &&
-                           (std::strncmp(name, "epub_", 5) == 0 || std::strncmp(name, "xtc_", 4) == 0);
+    const bool bookCache =
+        entry.isDirectory() && (std::strncmp(name, "epub_", 5) == 0 || std::strncmp(name, "xtc_", 4) == 0);
     entry.close();
     if (!bookCache) continue;
 
@@ -352,7 +347,10 @@ void FontManager::selectUiFont(int index) {
   }
 
   _selectedUiIndex = index;
-  if (index >= 0) loadSelectedUiFont(); else _activeUiFont.unload();
+  if (index >= 0)
+    loadSelectedUiFont();
+  else
+    _activeUiFont.unload();
   saveSettings();
 }
 
@@ -376,8 +374,14 @@ bool FontManager::previewUiFont(int index) {
 void FontManager::restoreFontSelection(int readerIndex, int uiIndex) {
   _selectedIndex = readerIndex;
   _selectedUiIndex = uiIndex;
-  if (_selectedIndex >= 0) loadSelectedFont(); else _activeFont.unload();
-  if (_selectedUiIndex >= 0) loadSelectedUiFont(); else _activeUiFont.unload();
+  if (_selectedIndex >= 0)
+    loadSelectedFont();
+  else
+    _activeFont.unload();
+  if (_selectedUiIndex >= 0)
+    loadSelectedUiFont();
+  else
+    _activeUiFont.unload();
 }
 
 ExternalFont* FontManager::getActiveFont() {
@@ -416,18 +420,15 @@ FontManager::ScopedGlyphCacheSuspension::ScopedGlyphCacheSuspension(FontManager&
   _manager.setGlyphCachesSuspended(true);
 }
 
-FontManager::ScopedGlyphCacheSuspension::~ScopedGlyphCacheSuspension() {
-  _manager.setGlyphCachesSuspended(_previous);
-}
+FontManager::ScopedGlyphCacheSuspension::~ScopedGlyphCacheSuspension() { _manager.setGlyphCachesSuspended(_previous); }
 
 void FontManager::writeFontChoice(HalFile& file, const int index) const {
   serialization::writePod(file, index);
-  serialization::writeString(file, index >= 0 && index < _fontCount ? std::string(_fonts[index].filename)
-                                                                    : std::string(""));
+  serialization::writeString(file,
+                             index >= 0 && index < _fontCount ? std::string(_fonts[index].filename) : std::string(""));
 }
 
-void FontManager::readFontChoice(HalFile& file, const char* label, int& outIndex,
-                                 bool (FontManager::*loader)()) {
+void FontManager::readFontChoice(HalFile& file, const char* label, int& outIndex, bool (FontManager::*loader)()) {
   int savedIndex = -1;
   serialization::readPod(file, savedIndex);
   std::string savedFilename;

@@ -32,9 +32,7 @@ class SleepImageManager {
   // Preserve the last fully rendered reader page before a reader menu is
   // pushed. The snapshot is kept in PSRAM and is used only for transparent PNG
   // overlays when the setting requests Current Reading Page.
-  void captureReaderFrame(
-      const uint8_t* physicalFrameBuffer,
-      uint8_t readerOrientation);
+  void captureReaderFrame(const uint8_t* physicalFrameBuffer, uint8_t readerOrientation);
 
   // Stop any unfinished background job immediately. Incomplete .tmp files are
   // never used as sleep screens.
@@ -43,11 +41,8 @@ class SleepImageManager {
   // Display the prepared image, or the last valid cache. Returns false when no
   // valid custom cache exists, allowing SleepActivity to show the built-in
   // fallback. This function never performs JPG/PNG decoding.
-  bool displayPreparedOrPrevious(
-      HalDisplay& display,
-      bool readerContext,
-      bool rotate180,
-      uint8_t transparentBackgroundMode);
+  bool displayPreparedOrPrevious(HalDisplay& display, bool readerContext, bool rotate180,
+                                 uint8_t transparentBackgroundMode);
 
   bool isPreparing() const { return taskRunning; }
 
@@ -61,12 +56,8 @@ class SleepImageManager {
 
   void scanCandidates();
   bool prepareCandidate(size_t candidateIndex, std::string& cachePathOut);
-  bool displayCache(
-      HalDisplay& display,
-      const std::string& cachePath,
-      bool readerContext,
-      bool rotate180,
-      uint8_t transparentBackgroundMode);
+  bool displayCache(HalDisplay& display, const std::string& cachePath, bool readerContext, bool rotate180,
+                    uint8_t transparentBackgroundMode);
 
   std::vector<std::string> candidates;
   size_t selectedCandidate = 0;

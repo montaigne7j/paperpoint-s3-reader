@@ -167,8 +167,8 @@ class SettingsActivity final : public Activity {
   void toggleCurrentSetting();
 
  public:
-  explicit SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                            int initialCategoryIndex = 0, bool returnToCaller = false)
+  explicit SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, int initialCategoryIndex = 0,
+                            bool returnToCaller = false)
       : Activity("Settings", renderer, mappedInput),
         initialCategoryIndex(initialCategoryIndex),
         returnToCaller(returnToCaller) {}

@@ -1,6 +1,7 @@
 #include <HalGPIO.h>
 #include <Logging.h>
 #include <SPI.h>
+
 #include "../../src/CrossPointSettings.h"
 
 // Touch zones in LOGICAL portrait coordinates (540 wide x 960 tall).
@@ -231,8 +232,8 @@ void HalGPIO::update() {
         const int16_t dy = lastLogicalY - startLogicalY;
         const bool insideContent = startLogicalX >= 0 && startLogicalX < logicalW && startLogicalY >= 0 &&
                                    startLogicalY < logicalH - footerHeight;
-        const bool lowDrift = dx >= -TAP_DRIFT_THRESHOLD && dx <= TAP_DRIFT_THRESHOLD &&
-                              dy >= -TAP_DRIFT_THRESHOLD && dy <= TAP_DRIFT_THRESHOLD;
+        const bool lowDrift = dx >= -TAP_DRIFT_THRESHOLD && dx <= TAP_DRIFT_THRESHOLD && dy >= -TAP_DRIFT_THRESHOLD &&
+                              dy <= TAP_DRIFT_THRESHOLD;
         if (insideContent && lowDrift) {
           lastContentTapX = startLogicalX;
           lastContentTapY = startLogicalY;
@@ -275,7 +276,8 @@ void HalGPIO::update() {
             LOG_INF("TOUCH", "swipe right release dx=%d dy=%d", deltaX, deltaY);
           }
         } else {
-          LOG_INF("TOUCH", "horizontal swipe release ignored by setting dir=%d dx=%d dy=%d", horizontalSwipeDirection, deltaX, deltaY);
+          LOG_INF("TOUCH", "horizontal swipe release ignored by setting dir=%d dx=%d dy=%d", horizontalSwipeDirection,
+                  deltaX, deltaY);
         }
       } else if (deltaY < -SWIPE_THRESHOLD && absDy >= absDx + HORIZONTAL_SWIPE_DOMINANCE_MARGIN) {
         // Swiped up (finger moved upward)

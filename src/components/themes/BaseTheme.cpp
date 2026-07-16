@@ -47,14 +47,12 @@ void drawBatteryIcon(const GfxRenderer& renderer, int x, int y, int battWidth, i
   renderer.fillRect(x + 2, y + 2, filledWidth, rectHeight - 4);
 }
 
-
-
 int uiLineBoxHeight(const std::function<std::string(int index)>& rowSubtitle) {
   return rowSubtitle != nullptr ? 60 : 30;
 }
 
-void drawProgressRing(const GfxRenderer& renderer, const int cx, const int cy, const int radius,
-                      const int thickness, const int progress) {
+void drawProgressRing(const GfxRenderer& renderer, const int cx, const int cy, const int radius, const int thickness,
+                      const int progress) {
   const int clamped = std::max(0, std::min(100, progress));
   const float pi = 3.14159265358979323846f;
 
@@ -85,8 +83,7 @@ void drawProgressRing(const GfxRenderer& renderer, const int cx, const int cy, c
 }
 
 int classicListRowHeight(const std::function<std::string(int index)>& rowSubtitle) {
-  return rowSubtitle != nullptr ? BaseMetrics::values.listWithSubtitleRowHeight
-                                : BaseMetrics::values.listRowHeight;
+  return rowSubtitle != nullptr ? BaseMetrics::values.listWithSubtitleRowHeight : BaseMetrics::values.listRowHeight;
 }
 
 void drawClassicListPageIndicator(const GfxRenderer& renderer, const Rect rect, const int itemCount,
@@ -143,8 +140,7 @@ void drawClassicListRow(const GfxRenderer& renderer, const Rect rect, const int 
   constexpr int columnGap = 12;
   constexpr int valueRightSafeInset = 18;
   const int rightInset = BaseMetrics::values.contentSidePadding + valueRightSafeInset;
-  const int availableWidth =
-      std::max(0, contentWidth - BaseMetrics::values.contentSidePadding - rightInset);
+  const int availableWidth = std::max(0, contentWidth - BaseMetrics::values.contentSidePadding - rightInset);
   const int valueColumnWidth =
       rowValue != nullptr ? std::min(valueColumnMaxWidth, std::max(80, availableWidth / 2)) : 0;
   const int valueReservation = rowValue != nullptr ? (valueColumnWidth + columnGap) : 0;
@@ -399,12 +395,10 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
 }
 
 void BaseTheme::redrawListSelection(const GfxRenderer& renderer, Rect rect, int itemCount, int oldSelectedIndex,
-                                    int newSelectedIndex,
-                                    const std::function<std::string(int index)>& rowTitle,
+                                    int newSelectedIndex, const std::function<std::string(int index)>& rowTitle,
                                     const std::function<std::string(int index)>& rowSubtitle,
                                     const std::function<UIIcon(int index)>& rowIcon,
-                                    const std::function<std::string(int index)>& rowValue,
-                                    bool highlightValue) const {
+                                    const std::function<std::string(int index)>& rowValue, bool highlightValue) const {
   (void)rowIcon;
   (void)highlightValue;
 
@@ -481,8 +475,7 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
   if (title) {
     // Reserve equal space on both sides so the centered title cannot overlap
     // either the battery area or the on-screen power button.
-    int padding = std::max(rect.width - batteryX + BaseMetrics::values.batteryWidth,
-                           HalGPIO::POWER_HOTSPOT_SIZE);
+    int padding = std::max(rect.width - batteryX + BaseMetrics::values.batteryWidth, HalGPIO::POWER_HOTSPOT_SIZE);
     auto truncatedTitle = renderer.truncatedText(UI_12_FONT_ID, title,
                                                  rect.width - padding * 2 - BaseMetrics::values.contentSidePadding * 2,
                                                  EpdFontFamily::BOLD);
@@ -888,9 +881,8 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
       SETTINGS.statusBarProgressBar != CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
   const int progressBarHeight = (SETTINGS.statusBarProgressBarThickness + 1) * 2;
   const int progressBarY = screenHeight - orientedMarginBottom - progressBarHeight - paddingBottom;
-  const int statusTextBottomY = showProgressBar
-                                    ? progressBarY - metrics.progressBarMarginTop
-                                    : screenHeight - orientedMarginBottom - paddingBottom - 2;
+  const int statusTextBottomY = showProgressBar ? progressBarY - metrics.progressBarMarginTop
+                                                : screenHeight - orientedMarginBottom - paddingBottom - 2;
   const int textY = statusTextBottomY - renderer.getLineHeight(SMALL_FONT_ID);
   int progressTextWidth = 0;
   const bool tentativePage = currentPage < 0;
@@ -963,75 +955,47 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   // Draw Title
   if (!title.empty()) {
     /*
-    * 左右狀態資訊使用內建 SMALL_FONT_ID，
-    * 中間章節名稱可能包含中文，因此使用外部 UI 字型。
-    */
+     * 左右狀態資訊使用內建 SMALL_FONT_ID，
+     * 中間章節名稱可能包含中文，因此使用外部 UI 字型。
+     */
     constexpr int titleFontId = UI_10_FONT_ID;
 
-    const int titleLineHeight =
-        renderer.getLineHeight(titleFontId);
+    const int titleLineHeight = renderer.getLineHeight(titleFontId);
 
     /*
-    * Align the bottom edge of the Chinese title with the Latin status text.
-    * The 21x30 CJK fallback may extend upward above the reserved status-bar
-    * area, which is acceptable; it must not extend downward into the progress
-    * bar and create a ghost line.
-    */
+     * Align the bottom edge of the Chinese title with the Latin status text.
+     * The 21x30 CJK fallback may extend upward above the reserved status-bar
+     * area, which is acceptable; it must not extend downward into the progress
+     * bar and create a ghost line.
+     */
     const int titleY = statusTextBottomY - titleLineHeight - textYOffset;
 
     // Page width minus existing content.
     const int renderableScreenWidth =
-        renderer.getScreenWidth() -
-        (metrics.statusBarHorizontalMargin * 2) -
-        orientedMarginLeft -
-        orientedMarginRight;
+        renderer.getScreenWidth() - (metrics.statusBarHorizontalMargin * 2) - orientedMarginLeft - orientedMarginRight;
 
-    const int batterySize =
-        SETTINGS.statusBarBattery
-            ? (showBatteryPercentage ? 50 : 20)
-            : 0;
+    const int batterySize = SETTINGS.statusBarBattery ? (showBatteryPercentage ? 50 : 20) : 0;
 
-    const int titleMarginLeft =
-        batterySize + 30;
+    const int titleMarginLeft = batterySize + 30;
 
-    const int clockReserve =
-        clockTextWidth > 0
-            ? clockTextWidth + 10
-            : 0;
+    const int clockReserve = clockTextWidth > 0 ? clockTextWidth + 10 : 0;
 
-    const int titleMarginRight =
-        progressTextWidth +
-        clockReserve +
-        30;
+    const int titleMarginRight = progressTextWidth + clockReserve + 30;
 
     /*
-    * 優先以畫面中心為基準；
-    * 左右內容不對稱時，改在剩餘空間內置中。
-    */
-    int titleMarginLeftAdjusted =
-        std::max(
-            titleMarginLeft,
-            titleMarginRight
-        );
+     * 優先以畫面中心為基準；
+     * 左右內容不對稱時，改在剩餘空間內置中。
+     */
+    int titleMarginLeftAdjusted = std::max(titleMarginLeft, titleMarginRight);
 
-    int availableTitleSpace =
-        renderableScreenWidth -
-        2 * titleMarginLeftAdjusted;
+    int availableTitleSpace = renderableScreenWidth - 2 * titleMarginLeftAdjusted;
 
-    int titleWidth =
-        renderer.getTextWidth(
-            titleFontId,
-            title.c_str()
-        );
+    int titleWidth = renderer.getTextWidth(titleFontId, title.c_str());
 
     if (titleWidth > availableTitleSpace) {
-      availableTitleSpace =
-          renderableScreenWidth -
-          titleMarginLeft -
-          titleMarginRight;
+      availableTitleSpace = renderableScreenWidth - titleMarginLeft - titleMarginRight;
 
-      titleMarginLeftAdjusted =
-          titleMarginLeft;
+      titleMarginLeftAdjusted = titleMarginLeft;
     }
 
     if (availableTitleSpace < 1) {
@@ -1039,29 +1003,15 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     }
 
     if (titleWidth > availableTitleSpace) {
-      title =
-          renderer.truncatedText(
-              titleFontId,
-              title.c_str(),
-              availableTitleSpace
-          );
+      title = renderer.truncatedText(titleFontId, title.c_str(), availableTitleSpace);
 
-      titleWidth =
-          renderer.getTextWidth(
-              titleFontId,
-              title.c_str()
-          );
+      titleWidth = renderer.getTextWidth(titleFontId, title.c_str());
     }
 
-    renderer.drawText(
-        titleFontId,
-        titleMarginLeftAdjusted +
-            metrics.statusBarHorizontalMargin +
-            orientedMarginLeft +
-            (availableTitleSpace - titleWidth) / 2,
-        titleY,
-        title.c_str()
-    );
+    renderer.drawText(titleFontId,
+                      titleMarginLeftAdjusted + metrics.statusBarHorizontalMargin + orientedMarginLeft +
+                          (availableTitleSpace - titleWidth) / 2,
+                      titleY, title.c_str());
   }
 }
 
