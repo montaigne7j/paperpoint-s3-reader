@@ -2,11 +2,10 @@
 #include <EpdFontFamily.h>
 #include <HalStorage.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
-
-#include <cstdint>
 
 #include "Block.h"
 #include "BlockStyle.h"
@@ -41,8 +40,7 @@ class TextBlock final : public Block {
 
   BlockStyle blockStyle;
 
-  TextLayoutMode layoutMode =
-      TextLayoutMode::Horizontal;
+  TextLayoutMode layoutMode = TextLayoutMode::Horizontal;
 
   // 用於 footnote/anchor 的原始 parser word 數量。
   // 直排時 words 會變成逐字 glyph，不能直接使用 words.size()。
@@ -60,26 +58,21 @@ class TextBlock final : public Block {
    */
   uint16_t logicalWordCount = 0;
 
-  public:
+ public:
   /*
    * 橫排 constructor。
    *
    * 保留原本呼叫格式，避免現有 ParsedText::extractLine()
    * 和舊的橫排流程需要一起修改。
    */
-  explicit TextBlock(
-      std::vector<std::string> words,
-      std::vector<int16_t> word_xpos,
-      std::vector<EpdFontFamily::Style> word_styles,
-      const BlockStyle& blockStyle = BlockStyle()
-  )
+  explicit TextBlock(std::vector<std::string> words, std::vector<int16_t> word_xpos,
+                     std::vector<EpdFontFamily::Style> word_styles, const BlockStyle& blockStyle = BlockStyle())
       : words(std::move(words)),
         wordXpos(std::move(word_xpos)),
         wordStyles(std::move(word_styles)),
         blockStyle(blockStyle),
         layoutMode(TextLayoutMode::Horizontal) {
-    logicalWordCount =
-        static_cast<uint16_t>(this->words.size());
+    logicalWordCount = static_cast<uint16_t>(this->words.size());
   }
 
   /*
@@ -88,15 +81,9 @@ class TextBlock final : public Block {
    * word_xpos 和 word_ypos 的數量都必須與 words 相同。
    * logical_word_count 是拆成 glyph 前的 parser word 數量。
    */
-  explicit TextBlock(
-      std::vector<std::string> words,
-      std::vector<int16_t> word_xpos,
-      std::vector<int16_t> word_ypos,
-      std::vector<EpdFontFamily::Style> word_styles,
-      const BlockStyle& blockStyle,
-      const TextLayoutMode layoutMode,
-      const uint16_t logical_word_count
-   )
+  explicit TextBlock(std::vector<std::string> words, std::vector<int16_t> word_xpos, std::vector<int16_t> word_ypos,
+                     std::vector<EpdFontFamily::Style> word_styles, const BlockStyle& blockStyle,
+                     const TextLayoutMode layoutMode, const uint16_t logical_word_count)
       : words(std::move(words)),
         wordXpos(std::move(word_xpos)),
         wordYpos(std::move(word_ypos)),
@@ -107,32 +94,17 @@ class TextBlock final : public Block {
 
   ~TextBlock() override = default;
 
-  void setBlockStyle(
-      const BlockStyle& blockStyle
-  ) {
-    this->blockStyle = blockStyle;
-  }
+  void setBlockStyle(const BlockStyle& blockStyle) { this->blockStyle = blockStyle; }
 
-  const BlockStyle& getBlockStyle() const {
-    return blockStyle;
-  }
+  const BlockStyle& getBlockStyle() const { return blockStyle; }
 
-  const std::vector<std::string>& getWords() const {
-    return words;
-  }
+  const std::vector<std::string>& getWords() const { return words; }
 
-  bool isVertical() const {
-    return layoutMode ==
-           TextLayoutMode::Vertical;
-  }
+  bool isVertical() const { return layoutMode == TextLayoutMode::Vertical; }
 
-  TextLayoutMode getLayoutMode() const {
-    return layoutMode;
-  }
+  TextLayoutMode getLayoutMode() const { return layoutMode; }
 
-  bool isEmpty() override {
-    return words.empty();
-  }
+  bool isEmpty() override { return words.empty(); }
 
   /*
    * 這裡不能直接回傳 words.size()。
@@ -140,9 +112,7 @@ class TextBlock final : public Block {
    * 直排模式的 words 是 glyph 數量，
    * footnote tracking 需要原始 parser word 數量。
    */
-  size_t wordCount() const {
-    return logicalWordCount;
-  }
+  size_t wordCount() const { return logicalWordCount; }
 
   /*
    * 橫排：
@@ -152,20 +122,11 @@ class TextBlock final : public Block {
    *   x、y 是整個直排 block 的基準位置，
    *   再加上每個 glyph 的 wordXpos / wordYpos。
    */
-  void render(
-      const GfxRenderer& renderer,
-      int fontId,
-      int x,
-      int y
-  ) const;
+  void render(const GfxRenderer& renderer, int fontId, int x, int y) const;
 
-  BlockType getType() override {
-    return TEXT_BLOCK;
-  }
+  BlockType getType() override { return TEXT_BLOCK; }
 
   bool serialize(FsFile& file) const;
 
-  static std::unique_ptr<TextBlock> deserialize(
-      FsFile& file
-  );
+  static std::unique_ptr<TextBlock> deserialize(FsFile& file);
 };

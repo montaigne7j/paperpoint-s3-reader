@@ -1,14 +1,14 @@
 #include "LargeTextTheme.h"
 
 #include <GfxRenderer.h>
-#include <HalDisplay.h>
 #include <HalClock.h>
+#include <HalDisplay.h>
 #include <HalPowerManager.h>
 #include <I18n.h>
 
 #include <algorithm>
-#include <cstdio>
 #include <cmath>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -75,13 +75,13 @@ int largeListRowHeight(const std::function<std::string(int index)>& rowSubtitle)
 }
 
 int largeListContentWidth(const Rect rect, const int totalPages) {
-  return rect.width -
-         (totalPages > 1 ? (LargeTextMetrics::values.scrollBarWidth + LargeTextMetrics::values.scrollBarRightOffset)
-                         : 1);
+  return rect.width - (totalPages > 1
+                           ? (LargeTextMetrics::values.scrollBarWidth + LargeTextMetrics::values.scrollBarRightOffset)
+                           : 1);
 }
 
-void drawLargeListScrollBar(const GfxRenderer& renderer, const Rect rect, const int itemCount,
-                            const int selectedIndex, const int pageItems) {
+void drawLargeListScrollBar(const GfxRenderer& renderer, const Rect rect, const int itemCount, const int selectedIndex,
+                            const int pageItems) {
   if (pageItems <= 0) return;
 
   const int totalPages = (itemCount + pageItems - 1) / pageItems;
@@ -98,8 +98,7 @@ void drawLargeListScrollBar(const GfxRenderer& renderer, const Rect rect, const 
 }
 
 void drawLargeListRow(const GfxRenderer& renderer, const Rect rect, const int itemCount, const int pageItems,
-                      const int index, const int selectedIndex,
-                      const std::function<std::string(int index)>& rowTitle,
+                      const int index, const int selectedIndex, const std::function<std::string(int index)>& rowTitle,
                       const std::function<std::string(int index)>& rowSubtitle,
                       const std::function<std::string(int index)>& rowValue, const bool highlightValue) {
   if (pageItems <= 0 || itemCount <= 0 || index < 0 || index >= itemCount) return;
@@ -156,14 +155,12 @@ void drawLargeListRow(const GfxRenderer& renderer, const Rect rect, const int it
       renderer.fillRoundedRect(valueX - hPadding, valueY - 2, valueW + hPadding * 2, titleLineH + 4, cornerRadius,
                                Color::Black);
     }
-    renderer.drawTextScaled(UI_10_FONT_ID, valueX, valueY, value.c_str(), textScale,
-                            !(selected && highlightValue));
+    renderer.drawTextScaled(UI_10_FONT_ID, valueX, valueY, value.c_str(), textScale, !(selected && highlightValue));
   }
 }
 }  // namespace
 
-void LargeTextTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title,
-                                const char* subtitle) const {
+void LargeTextTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle) const {
   renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
   if (title != nullptr) {
     drawPowerButton(renderer, rect);
@@ -172,10 +169,10 @@ void LargeTextTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const ch
   const bool showBatteryPercentage =
       SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS;
   const int batteryX = rect.x + rect.width - 12 - LargeTextMetrics::values.batteryWidth;
-  drawBatteryRight(renderer,
-                   Rect{batteryX, rect.y + 5, LargeTextMetrics::values.batteryWidth,
-                        LargeTextMetrics::values.batteryHeight},
-                   showBatteryPercentage);
+  drawBatteryRight(
+      renderer,
+      Rect{batteryX, rect.y + 5, LargeTextMetrics::values.batteryWidth, LargeTextMetrics::values.batteryHeight},
+      showBatteryPercentage);
 
   if (subtitle != nullptr) {
     const int maxSubtitleWidth = 130;
@@ -188,10 +185,10 @@ void LargeTextTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const ch
   if (title != nullptr) {
     const int safeSide = 96;
     const int maxTitleWidth = std::max(1, rect.width - safeSide * 2);
-    auto truncatedTitle = renderer.truncatedTextScaled(UI_12_FONT_ID, title, maxTitleWidth, textScale,
-                                                       EpdFontFamily::BOLD);
-    const int titleWidth = renderer.getTextWidthScaled(UI_12_FONT_ID, truncatedTitle.c_str(), textScale,
-                                                       EpdFontFamily::BOLD);
+    auto truncatedTitle =
+        renderer.truncatedTextScaled(UI_12_FONT_ID, title, maxTitleWidth, textScale, EpdFontFamily::BOLD);
+    const int titleWidth =
+        renderer.getTextWidthScaled(UI_12_FONT_ID, truncatedTitle.c_str(), textScale, EpdFontFamily::BOLD);
     const int titleX = rect.x + (rect.width - titleWidth) / 2;
     const int titleY = rect.y + rect.height - lineHeight(renderer, UI_12_FONT_ID) - 8;
     renderer.drawTextScaled(UI_12_FONT_ID, titleX, titleY, truncatedTitle.c_str(), textScale, true,
@@ -215,7 +212,8 @@ void LargeTextTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const
   if (hasRight) {
     auto truncatedRight = fitText(renderer, UI_10_FONT_ID, rightLabel, textW);
     const int rightWidth = textWidth(renderer, UI_10_FONT_ID, truncatedRight);
-    renderer.drawTextScaled(UI_10_FONT_ID, rect.x + rect.width - LargeTextMetrics::values.contentSidePadding - rightWidth,
+    renderer.drawTextScaled(UI_10_FONT_ID,
+                            rect.x + rect.width - LargeTextMetrics::values.contentSidePadding - rightWidth,
                             labelY + mainLineH + 4, truncatedRight.c_str(), textScale);
   }
 
@@ -294,8 +292,7 @@ void LargeTextTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCo
 }
 
 void LargeTextTheme::redrawListSelection(const GfxRenderer& renderer, Rect rect, int itemCount, int oldSelectedIndex,
-                                         int newSelectedIndex,
-                                         const std::function<std::string(int index)>& rowTitle,
+                                         int newSelectedIndex, const std::function<std::string(int index)>& rowTitle,
                                          const std::function<std::string(int index)>& rowSubtitle,
                                          const std::function<UIIcon(int index)>& rowIcon,
                                          const std::function<std::string(int index)>& rowValue,
@@ -308,7 +305,9 @@ void LargeTextTheme::redrawListSelection(const GfxRenderer& renderer, Rect rect,
 void LargeTextTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                                      const char* btn4) const {
   const GfxRenderer::Orientation origOrientation = renderer.getOrientation();
+#if !CROSSPOINT_PAPERS3
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+#endif
 
   const int pageHeight = renderer.getScreenHeight();
   constexpr int buttonWidth = 120;
@@ -342,8 +341,8 @@ void LargeTextTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, co
 }
 
 void LargeTextTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
-                                          const int selectorIndex, bool& coverRendered, bool& coverBufferStored,
-                                          bool& bufferRestored, std::function<bool()> storeCoverBuffer) const {
+                                         const int selectorIndex, bool& coverRendered, bool& coverBufferStored,
+                                         bool& bufferRestored, std::function<bool()> storeCoverBuffer) const {
   (void)storeCoverBuffer;
   coverRendered = false;
   coverBufferStored = false;
@@ -457,14 +456,13 @@ void LargeTextTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int button
 
     const bool selected = selectedIndex == i;
     if (selected) {
-      renderer.fillRoundedRect(tileRect.x, tileRect.y, tileRect.width, tileRect.height, cornerRadius,
-                               Color::LightGray);
+      renderer.fillRoundedRect(tileRect.x, tileRect.y, tileRect.width, tileRect.height, cornerRadius, Color::LightGray);
     }
 
     const int textLineH = lineHeight(renderer, UI_12_FONT_ID);
     const int textY = tileRect.y + (tileRect.height - textLineH) / 2;
-    const auto label = renderer.truncatedTextScaled(UI_12_FONT_ID, buttonLabel(i).c_str(), tileRect.width - 32,
-                                                    textScale);
+    const auto label =
+        renderer.truncatedTextScaled(UI_12_FONT_ID, buttonLabel(i).c_str(), tileRect.width - 32, textScale);
     renderer.drawTextScaled(UI_12_FONT_ID, tileRect.x + 16, textY, label.c_str(), textScale);
   }
 }
@@ -501,7 +499,8 @@ void LargeTextTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgre
     if (SETTINGS.statusBarProgressBar == CrossPointSettings::STATUS_BAR_PROGRESS_BAR::BOOK_PROGRESS) {
       progress = static_cast<size_t>(std::max(0.0f, std::min(100.0f, bookProgress)));
     } else {
-      progress = pageCount > 0 ? static_cast<size_t>((static_cast<float>(currentPage) / pageCount) * 100.0f) : 0;
+      const int displayPage = currentPage < 0 ? -currentPage : currentPage;
+      progress = pageCount > 0 ? static_cast<size_t>((static_cast<float>(displayPage) / pageCount) * 100.0f) : 0;
     }
     const int barHeight = (SETTINGS.statusBarProgressBarThickness + 1) * 2;
     const int barY = screenH - orientedBottom - paddingBottom - barHeight;
@@ -514,8 +513,8 @@ void LargeTextTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgre
   }
 
   const int statusLineH = lineHeight(renderer, UI_10_FONT_ID);
-  const int textY = statusTop + std::max(0, (LargeTextMetrics::values.statusBarVerticalMargin - statusLineH) / 2) -
-                    textYOffset;
+  const int textY =
+      statusTop + std::max(0, (LargeTextMetrics::values.statusBarVerticalMargin - statusLineH) / 2) - textYOffset;
   constexpr int gap = 14;
 
   std::string leftText;
@@ -524,9 +523,15 @@ void LargeTextTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgre
   }
 
   std::string centerText;
-  char progressBuf[32] = {};
+  char progressBuf[40] = {};
+  const bool tentativePage = currentPage < 0;
+  const int displayPage = tentativePage ? -currentPage : currentPage;
   if (SETTINGS.statusBarChapterPageCount) {
-    std::snprintf(progressBuf, sizeof(progressBuf), "%d/%d", currentPage, pageCount);
+    if (tentativePage) {
+      std::snprintf(progressBuf, sizeof(progressBuf), "%d.../%d", displayPage, pageCount);
+    } else {
+      std::snprintf(progressBuf, sizeof(progressBuf), "%d/%d", displayPage, pageCount);
+    }
   } else if (SETTINGS.statusBarBookProgressPercentage) {
     std::snprintf(progressBuf, sizeof(progressBuf), "%.0f%%", bookProgress);
   }

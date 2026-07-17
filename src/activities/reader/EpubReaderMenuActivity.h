@@ -54,7 +54,7 @@ class EpubReaderMenuActivity final : public Activity {
   uint8_t pendingOrientation = 0;
   uint8_t selectedPageTurnOption = 0;
 #if CROSSPOINT_PAPERS3
-  const std::vector<StrId> orientationLabels = {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CCW};
+  const std::vector<StrId> orientationLabels = {StrId::STR_PORTRAIT, StrId::STR_INVERTED};
 #else
   const std::vector<StrId> orientationLabels = {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW, StrId::STR_INVERTED,
                                                 StrId::STR_LANDSCAPE_CCW};

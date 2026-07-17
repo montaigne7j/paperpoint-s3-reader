@@ -21,6 +21,26 @@ bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint
   const auto sideLayout = static_cast<CrossPointSettings::SIDE_BUTTON_LAYOUT>(SETTINGS.sideButtonLayout);
   const auto& side = kSideLayouts[sideLayout];
 
+  // Footer-mode screens draw four fixed on-screen buttons:
+  // Back / Select / Previous / Next.  HalGPIO also emits the fixed raw
+  // BTN_BACK / BTN_CONFIRM / BTN_LEFT / BTN_RIGHT zones.  Do not apply the
+  // reader front-button remap here, otherwise the visible footer can say
+  // "返回" while tapping that zone fails or triggers another logical action.
+  if (gpio.getFooterHeight() > 0) {
+    switch (button) {
+      case Button::Back:
+        return (gpio.*fn)(HalGPIO::BTN_BACK);
+      case Button::Confirm:
+        return (gpio.*fn)(HalGPIO::BTN_CONFIRM);
+      case Button::Left:
+        return (gpio.*fn)(HalGPIO::BTN_LEFT);
+      case Button::Right:
+        return (gpio.*fn)(HalGPIO::BTN_RIGHT);
+      default:
+        break;
+    }
+  }
+
   switch (button) {
     case Button::Back:
       // Logical Back maps to user-configured front button.
@@ -72,6 +92,10 @@ unsigned long MappedInputManager::getHeldTime() const { return gpio.getHeldTime(
 
 MappedInputManager::Labels MappedInputManager::mapLabels(const char* back, const char* confirm, const char* previous,
                                                          const char* next) const {
+  if (gpio.getFooterHeight() > 0) {
+    return {back, confirm, previous, next};
+  }
+
   // Build the label order based on the configured hardware mapping.
   auto labelForHardware = [&](uint8_t hw) -> const char* {
     // Compare against configured logical roles and return the matching label.

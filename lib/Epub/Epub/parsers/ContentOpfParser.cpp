@@ -3,10 +3,11 @@
 #include <FsHelpers.h>
 #include <Logging.h>
 #include <Serialization.h>
+#include <XmlParserUtils.h>
+#include <esp_heap_caps.h>
+
 #include <cstring>
 #include <new>
-#include <esp_heap_caps.h>
-#include <XmlParserUtils.h>
 
 #include "../BookMetadataCache.h"
 
@@ -76,8 +77,7 @@ bool ContentOpfParser::appendItemBytes(const void* data, size_t length) {
 
 bool ContentOpfParser::writeItemString(const std::string& value) {
   const uint32_t length = static_cast<uint32_t>(value.size());
-  return appendItemBytes(&length, sizeof(length)) &&
-         (length == 0 || appendItemBytes(value.data(), length));
+  return appendItemBytes(&length, sizeof(length)) && (length == 0 || appendItemBytes(value.data(), length));
 }
 
 void ContentOpfParser::releaseItemStoreBuffer() {
@@ -96,8 +96,7 @@ bool ContentOpfParser::loadItemStoreBuffer() {
   const size_t freePsram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
   if (freePsram < fileSize + 256 * 1024) return false;
 
-  itemStoreBuffer = static_cast<uint8_t*>(
-      heap_caps_malloc(fileSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  itemStoreBuffer = static_cast<uint8_t*>(heap_caps_malloc(fileSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!itemStoreBuffer) return false;
 
   tempItemStore.seek(0);

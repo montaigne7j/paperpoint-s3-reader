@@ -68,10 +68,11 @@ void RecentBooksActivity::loop() {
   {
     const auto& metrics = UITheme::getInstance().getMetrics();
     const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-    const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
-    const int targetIndex = DirectTouchSelection::hitListRow(
-        mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight}, listSize,
-        static_cast<int>(selectorIndex), metrics.listWithSubtitleRowHeight);
+    const int contentHeight =
+        renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
+    const int targetIndex =
+        DirectTouchSelection::hitListRow(mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight},
+                                         listSize, static_cast<int>(selectorIndex), metrics.listWithSubtitleRowHeight);
     if (targetIndex >= 0) {
       if (targetIndex == static_cast<int>(selectorIndex)) {
         activateSelectedBook();
@@ -144,12 +145,14 @@ void RecentBooksActivity::render(RenderLock&&) {
 
   // Help text: show footer page buttons only when another page exists.
   const int hintPageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, true);
-  const char* prevPageLabel = ButtonNavigator::hasPreviousPage(static_cast<int>(selectorIndex), static_cast<int>(recentBooks.size()), hintPageItems)
+  const char* prevPageLabel = ButtonNavigator::hasPreviousPage(static_cast<int>(selectorIndex),
+                                                               static_cast<int>(recentBooks.size()), hintPageItems)
                                   ? tr(STR_DIR_UP)
                                   : "";
-  const char* nextPageLabel = ButtonNavigator::hasNextPage(static_cast<int>(selectorIndex), static_cast<int>(recentBooks.size()), hintPageItems)
-                                  ? tr(STR_DIR_DOWN)
-                                  : "";
+  const char* nextPageLabel =
+      ButtonNavigator::hasNextPage(static_cast<int>(selectorIndex), static_cast<int>(recentBooks.size()), hintPageItems)
+          ? tr(STR_DIR_DOWN)
+          : "";
   const auto labels = mappedInput.mapLabels(tr(STR_HOME), tr(STR_OPEN), prevPageLabel, nextPageLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

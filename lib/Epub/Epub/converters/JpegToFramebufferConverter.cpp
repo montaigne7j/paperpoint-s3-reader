@@ -1,5 +1,6 @@
 #include "JpegToFramebufferConverter.h"
 
+#include <Arduino.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -52,6 +53,8 @@ struct JpegContext {
         caching(false) {}
 };
 
+void cooperativeImageYield();
+
 // File I/O callbacks use pFile->fHandle to access the FsFile*,
 // avoiding the need for global file state.
 void* jpegOpen(const char* filename, int32_t* size) {
@@ -79,6 +82,7 @@ void jpegClose(void* handle) {
 int32_t jpegRead(JPEGFILE* pFile, uint8_t* pBuf, int32_t len) {
   FsFile* f = reinterpret_cast<FsFile*>(pFile->fHandle);
   if (!f) return 0;
+  cooperativeImageYield();
   int32_t bytesRead = f->read(pBuf, len);
   if (bytesRead < 0) return 0;
   pFile->iPos += bytesRead;
@@ -88,6 +92,7 @@ int32_t jpegRead(JPEGFILE* pFile, uint8_t* pBuf, int32_t len) {
 int32_t jpegSeek(JPEGFILE* pFile, int32_t pos) {
   FsFile* f = reinterpret_cast<FsFile*>(pFile->fHandle);
   if (!f) return -1;
+  cooperativeImageYield();
   if (!f->seek(pos)) return -1;
   pFile->iPos = pos;
   return pos;
@@ -121,6 +126,15 @@ int chooseJpegScale(float targetScale, int& jpegScaleOption) {
 constexpr int FP_SHIFT = 16;
 constexpr int32_t FP_ONE = 1 << FP_SHIFT;
 constexpr int32_t FP_MASK = FP_ONE - 1;
+
+void cooperativeImageYield() {
+  static uint32_t lastYieldMs = 0;
+  const uint32_t now = millis();
+  if (now - lastYieldMs >= 3) {
+    lastYieldMs = now;
+    vTaskDelay(1);
+  }
+}
 
 int jpegDrawCallback(JPEGDRAW* pDraw) {
   JpegContext* ctx = reinterpret_cast<JpegContext*>(pDraw->pUser);
@@ -170,6 +184,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   // === 1:1 fast path: no scaling math ===
   if (fineScaleFP == FP_ONE) {
     for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
+      cooperativeImageYield();
       const int outY = cfgY + dstY;
       const uint8_t* row = &pixels[(dstY - blockY) * stride];
       for (int dstX = dstXStart; dstX < dstXEnd; dstX++) {
@@ -202,6 +217,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
     if (safeXStart > safeXEnd) safeXEnd = safeXStart;
 
     for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
+      cooperativeImageYield();
       const int outY = cfgY + dstY;
       const int32_t srcFyFP = dstY * invScaleFP;
       const int32_t fy = srcFyFP & FP_MASK;
@@ -297,6 +313,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
 
   // === Nearest-neighbor (downscale: fineScale < 1.0) ===
   for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
+    cooperativeImageYield();
     const int outY = cfgY + dstY;
     const int32_t srcFyFP = dstY * invScaleFP;
     int ly = (srcFyFP >> FP_SHIFT) - blockY;
@@ -464,7 +481,9 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   }
 
   unsigned long decodeStart = millis();
+  cooperativeImageYield();
   rc = jpeg->decode(0, 0, jpegScaleOption);
+  cooperativeImageYield();
   unsigned long decodeTime = millis() - decodeStart;
 
   if (rc != 1) {

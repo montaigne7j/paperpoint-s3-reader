@@ -1,6 +1,7 @@
 #include "Logging.h"
 
 #include <algorithm>
+#include <cstring>
 #include <string>
 
 #define MAX_ENTRY_LEN 256
@@ -31,10 +32,24 @@ void addToLogRingBuffer(const char* message) {
   logHead = (logHead + 1) % MAX_LOG_LINES;
 }
 
+bool logShouldFormat(const char* level) {
+  // ERR is kept for the RTC crash/error ring buffer.  INF/DBG are runtime-gated
+  // so unplugged normal reading does not evaluate log arguments or format strings.
+  return strcmp(level, "ERR") == 0 || static_cast<bool>(logSerial);
+}
+
 // Since logging can take a large amount of flash, we want to make the format string as short as possible.
 // This logPrintf prepend the timestamp, level and origin to the user-provided message, so that the user only needs to
 // provide the format string for the message itself.
 void logPrintf(const char* level, const char* origin, const char* format, ...) {
+  // Power-saving log policy:
+  // - ERR is still formatted and kept in the RTC ring buffer even without a USB serial monitor.
+  // - INF/DBG is skipped before va_start/vsnprintf when no monitor is connected,
+  //   so normal unplugged reading does not spend CPU time building verbose log strings.
+  if (!logShouldFormat(level)) {
+    return;
+  }
+
   va_list args;
   va_start(args, format);
   char buf[MAX_ENTRY_LEN];

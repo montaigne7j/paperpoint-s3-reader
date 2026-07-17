@@ -201,8 +201,7 @@ bool CrossPointSettings::loadFromBinaryFile() {
           fontSize = 46;
           break;
         default:
-          fontSize = std::min<uint8_t>(READER_FONT_SIZE_MAX,
-                                       std::max<uint8_t>(READER_FONT_SIZE_MIN, legacyOrPixels));
+          fontSize = std::min<uint8_t>(READER_FONT_SIZE_MAX, std::max<uint8_t>(READER_FONT_SIZE_MIN, legacyOrPixels));
           break;
       }
     }
@@ -282,14 +281,15 @@ bool CrossPointSettings::loadFromBinaryFile() {
 }
 
 float CrossPointSettings::getReaderLineCompression() const {
-  const uint8_t percent = std::min<uint8_t>(READER_LINE_SPACING_MAX,
-                                            std::max<uint8_t>(READER_LINE_SPACING_MIN, lineSpacing));
+  const uint8_t percent =
+      std::min<uint8_t>(READER_LINE_SPACING_MAX, std::max<uint8_t>(READER_LINE_SPACING_MIN, lineSpacing));
   return static_cast<float>(percent) / 100.0f;
 }
 
-uint8_t CrossPointSettings::getReaderCharacterSpacing() const {
-  return std::min<uint8_t>(READER_CHARACTER_SPACING_MAX,
-                           std::max<uint8_t>(READER_CHARACTER_SPACING_MIN, characterSpacing));
+int16_t CrossPointSettings::getReaderCharacterSpacing() const {
+  const int16_t signedSpacing = static_cast<int8_t>(characterSpacing);
+  return std::min<int16_t>(READER_CHARACTER_SPACING_MAX,
+                           std::max<int16_t>(READER_CHARACTER_SPACING_MIN, signedSpacing));
 }
 
 unsigned long CrossPointSettings::getSleepTimeoutMs() const {

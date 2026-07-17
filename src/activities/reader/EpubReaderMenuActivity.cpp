@@ -1,7 +1,6 @@
 #include "EpubReaderMenuActivity.h"
 
 #include <GfxRenderer.h>
-#include <HalGPIO.h>
 #include <I18n.h>
 
 #include <algorithm>
@@ -14,7 +13,7 @@
 
 namespace {
 #if CROSSPOINT_PAPERS3
-uint8_t orientationLabelIndex(uint8_t orientation) { return orientation == CrossPointSettings::LANDSCAPE_CCW ? 1 : 0; }
+uint8_t orientationLabelIndex(uint8_t orientation) { return orientation == CrossPointSettings::INVERTED ? 1 : 0; }
 #endif
 }  // namespace
 
@@ -134,8 +133,9 @@ void EpubReaderMenuActivity::loop() {
       listRect = Rect{contentX, startY, contentWidth, static_cast<int>(menuItems.size()) * rowHeight};
     }
 
-    const int hitIndex = DirectTouchSelection::hitListRow(
-        mappedInput, listRect, static_cast<int>(menuItems.size()) + summaryRows, selectedIndex + summaryRows, rowHeight);
+    const int hitIndex =
+        DirectTouchSelection::hitListRow(mappedInput, listRect, static_cast<int>(menuItems.size()) + summaryRows,
+                                         selectedIndex + summaryRows, rowHeight);
     if (hitIndex >= 0) {
       const int targetIndex = hitIndex - summaryRows;
       if (targetIndex >= 0 && targetIndex < static_cast<int>(menuItems.size())) {
@@ -200,8 +200,8 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
 
     std::string chapterLine = std::string(tr(STR_CHAPTER_PREFIX));
     if (totalPages > 0) {
-      chapterLine += std::to_string(currentPage) + "/" + std::to_string(totalPages) +
-                     std::string(tr(STR_PAGES_SEPARATOR));
+      chapterLine +=
+          std::to_string(currentPage) + "/" + std::to_string(totalPages) + std::string(tr(STR_PAGES_SEPARATOR));
     } else {
       chapterLine += "-";
     }
@@ -213,8 +213,8 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
     const int listHeight = std::max(1, footerTop - listY);
 
     GUI.drawList(
-        renderer, Rect{contentX, listY, contentWidth, listHeight},
-        static_cast<int>(menuItems.size()) + summaryRows, selectedIndex + summaryRows,
+        renderer, Rect{contentX, listY, contentWidth, listHeight}, static_cast<int>(menuItems.size()) + summaryRows,
+        selectedIndex + summaryRows,
         [this, chapterLine, bookLine, summaryRows](int index) {
           if (index == 0) return chapterLine;
           if (index == 1) return bookLine;
@@ -248,35 +248,26 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
 
     const int pageItems = std::max(1, listHeight / std::max(1, metrics.listRowHeight));
     const int menuPageItems = std::max(1, pageItems - summaryRows);
-    const char* prevPageLabel = ButtonNavigator::hasPreviousPage(selectedIndex, static_cast<int>(menuItems.size()), menuPageItems)
-                                    ? tr(STR_DIR_UP)
-                                    : "";
-    const char* nextPageLabel = ButtonNavigator::hasNextPage(selectedIndex, static_cast<int>(menuItems.size()), menuPageItems)
-                                    ? tr(STR_DIR_DOWN)
-                                    : "";
+    const char* prevPageLabel =
+        ButtonNavigator::hasPreviousPage(selectedIndex, static_cast<int>(menuItems.size()), menuPageItems)
+            ? tr(STR_DIR_UP)
+            : "";
+    const char* nextPageLabel =
+        ButtonNavigator::hasNextPage(selectedIndex, static_cast<int>(menuItems.size()), menuPageItems)
+            ? tr(STR_DIR_DOWN)
+            : "";
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), prevPageLabel, nextPageLabel);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;
   }
 
-#if CROSSPOINT_PAPERS3
-  // EpubReaderMenu is a non-reader activity, so Activity::onEnter() enables
-  // footer mode and the existing top-left 64x64 power hotspot. Draw the same
-  // visible button used by Home/Settings so the shutdown target is discoverable.
-  GUI.drawPowerButton(renderer, Rect{contentX, contentY, HalGPIO::POWER_HOTSPOT_SIZE,
-                                     HalGPIO::POWER_HOTSPOT_SIZE});
-
-  // Keep the centered book title clear of the power button. Reserve the same
-  // amount on the right so the title remains centered on the physical screen.
-  const int titleSideReserve = HalGPIO::POWER_HOTSPOT_SIZE;
-#else
+  // The logical top-left shutdown hotspot remains active, but it is intentionally
+  // invisible in reader menus. Do not reserve title space for an icon.
   const int titleSideReserve = 20;
-#endif
 
   // Title
-  const int titleMaxWidth =
-      (contentWidth > titleSideReserve * 2) ? contentWidth - titleSideReserve * 2 : 0;
+  const int titleMaxWidth = (contentWidth > titleSideReserve * 2) ? contentWidth - titleSideReserve * 2 : 0;
   const std::string truncTitle =
       renderer.truncatedText(UI_12_FONT_ID, title.c_str(), titleMaxWidth, EpdFontFamily::BOLD);
   // Manual centering inside the safe title area.
@@ -321,8 +312,7 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
       itemLabel += " ";
       itemLabel += tr(STR_SETTINGS_TITLE);
     }
-    renderer.drawText(UI_10_FONT_ID, contentX + 20, displayY + textYOff,
-                      itemLabel.c_str(), !isSelected);
+    renderer.drawText(UI_10_FONT_ID, contentX + 20, displayY + textYOff, itemLabel.c_str(), !isSelected);
 
     if (menuItems[i].action == MenuAction::ROTATE_SCREEN) {
       // Render current orientation value on the right edge of the content area.
@@ -348,12 +338,13 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
   // menu page exists; hidden buttons also no-op because ButtonNavigator no
   // longer wraps page navigation at boundaries.
   const int menuPageItems = std::max(1, availableHeight / std::max(1, lineHeight));
-  const char* prevPageLabel = ButtonNavigator::hasPreviousPage(selectedIndex, static_cast<int>(menuItems.size()), menuPageItems)
-                                  ? tr(STR_DIR_UP)
-                                  : "";
-  const char* nextPageLabel = ButtonNavigator::hasNextPage(selectedIndex, static_cast<int>(menuItems.size()), menuPageItems)
-                                  ? tr(STR_DIR_DOWN)
-                                  : "";
+  const char* prevPageLabel =
+      ButtonNavigator::hasPreviousPage(selectedIndex, static_cast<int>(menuItems.size()), menuPageItems)
+          ? tr(STR_DIR_UP)
+          : "";
+  const char* nextPageLabel =
+      ButtonNavigator::hasNextPage(selectedIndex, static_cast<int>(menuItems.size()), menuPageItems) ? tr(STR_DIR_DOWN)
+                                                                                                     : "";
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), prevPageLabel, nextPageLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

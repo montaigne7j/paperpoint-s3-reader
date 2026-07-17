@@ -11,8 +11,8 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
-#include "activities/util/DirectTouchSelection.h"
 #include "WifiCredentialStore.h"
+#include "activities/util/DirectTouchSelection.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -84,9 +84,17 @@ void WifiSelectionActivity::onExit() {
   WiFi.scanDelete();
   LOG_DBG("WIFI", "Free heap after scanDelete: %d bytes", ESP.getFreeHeap());
 
-  // Note: We do NOT disconnect WiFi here - the parent activity
-  // (CrossPointWebServerActivity) manages WiFi connection state. We just clean
-  // up the scan and task.
+  if (!keepWifiOnAfterExit) {
+    LOG_INF("WIFI", "Turning WiFi off after standalone WiFi selection");
+    WiFi.disconnect(false);
+    delay(30);
+    WiFi.mode(WIFI_OFF);
+    delay(30);
+  } else {
+    // Parent activity manages WiFi connection state.  WebServer/Calibre/OPDS/OTA
+    // need the connection after this screen exits, so only clean up scan results.
+    LOG_DBG("WIFI", "Leaving WiFi on for parent activity");
+  }
 
   LOG_DBG("WIFI", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());
 }
@@ -442,11 +450,11 @@ void WifiSelectionActivity::loop() {
     if (!networks.empty()) {
       const auto& metrics = UITheme::getInstance().getMetrics();
       const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
-      const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight -
-                                metrics.verticalSpacing * 2;
+      const int contentHeight =
+          renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
       const int targetIndex = DirectTouchSelection::hitListRow(
-          mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight},
-          static_cast<int>(networks.size()), static_cast<int>(selectedNetworkIndex), metrics.listRowHeight);
+          mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight}, static_cast<int>(networks.size()),
+          static_cast<int>(selectedNetworkIndex), metrics.listRowHeight);
       if (targetIndex >= 0) {
         if (targetIndex == static_cast<int>(selectedNetworkIndex)) {
           selectNetwork(selectedNetworkIndex);
@@ -463,8 +471,8 @@ void WifiSelectionActivity::loop() {
 #if CROSSPOINT_PAPERS3
     const auto& metrics = UITheme::getInstance().getMetrics();
     const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
-    const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight -
-                              metrics.verticalSpacing * 2;
+    const int contentHeight =
+        renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
     const int pageItems = std::max(1, contentHeight / std::max(1, metrics.listRowHeight));
     buttonNavigator.onNextRelease([this, pageItems] {
       selectedNetworkIndex = ButtonNavigator::nextPageIndex(selectedNetworkIndex, networks.size(), pageItems);

@@ -88,6 +88,7 @@ class ActivityManager {
   void goToFileTransfer();
   void goToSettings();
   void goToFileBrowser(std::string path = {});
+  void goToComicFileBrowser(std::string path = {});
   void goToRecentBooks();
   void goToBrowser();
   void goToReader(std::string path);
@@ -112,6 +113,7 @@ class ActivityManager {
   // a pushed sub-activity such as EpubReaderMenu.
   bool isReaderContextActive() const;
   bool skipLoopDelay() const;
+  bool allowIdlePowerSaving() const;
 
   // If immediate is true, the update will be triggered immediately.
   // Otherwise, it will be deferred until the end of the current loop iteration.

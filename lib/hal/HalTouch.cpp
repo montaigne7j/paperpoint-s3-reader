@@ -17,7 +17,10 @@ bool HalTouch::begin(int sda, int scl, int intPin, uint8_t addr) {
   cfg.y_min = 0;
   cfg.y_max = 959;
   cfg.offset_rotation = 1;
-  cfg.bus_shared = false;
+  // BMI270 shares SDA/SCL with GT911 on Paper S3.  Keep the ESP-IDF I2C
+  // controller shareable so M5Unified can access the IMU without taking the
+  // touch controller offline.
+  cfg.bus_shared = true;
   touch.config(cfg);
 
   _initialized = touch.init();

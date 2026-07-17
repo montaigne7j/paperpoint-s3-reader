@@ -31,6 +31,15 @@ inline bool hasPngExtension(const String& fileName) {
 // Check for .bmp extension (case-insensitive)
 bool hasBmpExtension(std::string_view fileName);
 
+// Check for .zip extension (case-insensitive)
+bool hasZipExtension(std::string_view fileName);
+
+// Check for .cbz extension (case-insensitive)
+bool hasCbzExtension(std::string_view fileName);
+
+// Check for either .zip or .cbz extension (case-insensitive)
+bool hasComicZipExtension(std::string_view fileName);
+
 // Check for .gif extension (case-insensitive)
 bool hasGifExtension(std::string_view fileName);
 inline bool hasGifExtension(const String& fileName) {

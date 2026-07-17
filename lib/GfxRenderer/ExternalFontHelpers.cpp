@@ -33,10 +33,8 @@ bool shouldUseCjkSymbolCellMetrics(const uint32_t codepoint) {
 
 bool shouldUseGlyphBoundsForAdvance(const uint32_t codepoint) {
   if (codepoint >= '0' && codepoint <= '9') return true;
-  if ((codepoint >= 0x21 && codepoint <= 0x2F) ||
-      (codepoint >= 0x3A && codepoint <= 0x40) ||
-      (codepoint >= 0x5B && codepoint <= 0x60) ||
-      (codepoint >= 0x7B && codepoint <= 0x7E)) {
+  if ((codepoint >= 0x21 && codepoint <= 0x2F) || (codepoint >= 0x3A && codepoint <= 0x40) ||
+      (codepoint >= 0x5B && codepoint <= 0x60) || (codepoint >= 0x7B && codepoint <= 0x7E)) {
     return true;
   }
   if (codepoint >= 0x2000 && codepoint <= 0x206F) return true;

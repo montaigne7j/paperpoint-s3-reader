@@ -3,20 +3,19 @@
 #include <FontDecompressor.h>
 #include <FontManager.h>
 #include <Logging.h>
+#include <ReaderMemoryDiagnostics.h>
 #include <Utf8.h>
-#include "../../src/fontIds.h"
-#include "../../src/CrossPointSettings.h"
 
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
+#include "../../src/CrossPointSettings.h"
+#include "../../src/fontIds.h"
 #include "ExternalFontHelpers.h"
 #include "FontCacheManager.h"
-#include <ReaderMemoryDiagnostics.h>
-
-#include <cstring>
 
 namespace {
 
@@ -27,8 +26,7 @@ constexpr int UI_FONT_IDS[] = {
     SMALL_FONT_ID,
 };
 
-constexpr int UI_FONT_COUNT =
-    sizeof(UI_FONT_IDS) / sizeof(UI_FONT_IDS[0]);
+constexpr int UI_FONT_COUNT = sizeof(UI_FONT_IDS) / sizeof(UI_FONT_IDS[0]);
 
 bool isUiFontIdForFallbackScaling(const int fontId) {
   for (int i = 0; i < UI_FONT_COUNT; ++i) {
@@ -52,13 +50,9 @@ constexpr int BUILTIN_CJK_SOURCE_CELL_HEIGHT = 39;
 constexpr int BUILTIN_CJK_LOGICAL_CELL_WIDTH = 21;
 constexpr int BUILTIN_CJK_LOGICAL_CELL_HEIGHT = 30;
 
-int scaleMetricPercent(const int value, const int percent) {
-  return (value * percent + 50) / 100;
-}
+int scaleMetricPercent(const int value, const int percent) { return (value * percent + 50) / 100; }
 
-int scaleMetricPercentCeil(const int value, const int percent) {
-  return (value * percent + 99) / 100;
-}
+int scaleMetricPercentCeil(const int value, const int percent) { return (value * percent + 99) / 100; }
 
 int readerBuiltinCjkScalePercent() {
   const int size = SETTINGS.fontSize;
@@ -81,6 +75,21 @@ int readerBuiltinCjkScalePercent() {
          ((READER_CJK_SCALE_MAX_PERCENT - READER_CJK_SCALE_DEFAULT_PERCENT) * pos + span / 2) / span;
 }
 
+int externalReaderBitmapScalePercent(const ExternalFont& font) {
+  if (font.isTtfFormat()) return 100;
+  const int sourceSize = std::max(1, static_cast<int>(font.getFontSize()));
+  const int targetSize = std::max(1, static_cast<int>(SETTINGS.fontSize));
+  return std::max(25, std::min(300, (targetSize * 100 + sourceSize / 2) / sourceSize));
+}
+
+int scaleExternalBitmapMetric(const int value, const ExternalFont& font) {
+  return std::max(1, scaleMetricPercent(value, externalReaderBitmapScalePercent(font)));
+}
+
+int scaleExternalBitmapMetricCeil(const int value, const ExternalFont& font) {
+  return std::max(1, scaleMetricPercentCeil(value, externalReaderBitmapScalePercent(font)));
+}
+
 int fallbackScalePercentForFontId(const int fontId) {
   // UI fonts keep the original CJK fallback size; reader fonts get scalable
   // built-in CJK so font-size changes affect CJK glyphs, layout and cache.
@@ -97,36 +106,55 @@ bool usesScaledReaderCjkFallback(const int fontId) {
 
 uint32_t verticalPresentationForm(const uint32_t codepoint) {
   switch (codepoint) {
-    case 0x300C: return 0xFE41;  // 「 -> ﹁
-    case 0x300D: return 0xFE42;  // 」 -> ﹂
-    case 0x300E: return 0xFE43;  // 『 -> ﹃
-    case 0x300F: return 0xFE44;  // 』 -> ﹄
+    case 0x300C:
+      return 0xFE41;  // 「 -> ﹁
+    case 0x300D:
+      return 0xFE42;  // 」 -> ﹂
+    case 0x300E:
+      return 0xFE43;  // 『 -> ﹃
+    case 0x300F:
+      return 0xFE44;  // 』 -> ﹄
 
     case 0x0028:
-    case 0xFF08: return 0xFE35;  // ( / （ -> ︵
+    case 0xFF08:
+      return 0xFE35;  // ( / （ -> ︵
     case 0x0029:
-    case 0xFF09: return 0xFE36;  // ) / ） -> ︶
+    case 0xFF09:
+      return 0xFE36;  // ) / ） -> ︶
 
     case 0x007B:
-    case 0xFF5B: return 0xFE37;  // { / ｛ -> ︷
+    case 0xFF5B:
+      return 0xFE37;  // { / ｛ -> ︷
     case 0x007D:
-    case 0xFF5D: return 0xFE38;  // } / ｝ -> ︸
+    case 0xFF5D:
+      return 0xFE38;  // } / ｝ -> ︸
 
-    case 0x3014: return 0xFE39;  // 〔 -> ︹
-    case 0x3015: return 0xFE3A;  // 〕 -> ︺
-    case 0x3010: return 0xFE3B;  // 【 -> ︻
-    case 0x3011: return 0xFE3C;  // 】 -> ︼
-    case 0x300A: return 0xFE3D;  // 《 -> ︽
-    case 0x300B: return 0xFE3E;  // 》 -> ︾
-    case 0x3008: return 0xFE3F;  // 〈 -> ︿
-    case 0x3009: return 0xFE40;  // 〉 -> ﹀
+    case 0x3014:
+      return 0xFE39;  // 〔 -> ︹
+    case 0x3015:
+      return 0xFE3A;  // 〕 -> ︺
+    case 0x3010:
+      return 0xFE3B;  // 【 -> ︻
+    case 0x3011:
+      return 0xFE3C;  // 】 -> ︼
+    case 0x300A:
+      return 0xFE3D;  // 《 -> ︽
+    case 0x300B:
+      return 0xFE3E;  // 》 -> ︾
+    case 0x3008:
+      return 0xFE3F;  // 〈 -> ︿
+    case 0x3009:
+      return 0xFE40;  // 〉 -> ﹀
 
     case 0x005B:
-    case 0xFF3B: return 0xFE47;  // [ / ［ -> ﹇
+    case 0xFF3B:
+      return 0xFE47;  // [ / ［ -> ﹇
     case 0x005D:
-    case 0xFF3D: return 0xFE48;  // ] / ］ -> ﹈
+    case 0xFF3D:
+      return 0xFE48;  // ] / ］ -> ﹈
 
-    default: return 0;
+    default:
+      return 0;
   }
 }
 
@@ -163,9 +191,7 @@ bool isCjkCodepoint(const uint32_t cp) {
 }
 
 bool isLatinTrackingCodepoint(const uint32_t cp) {
-  return (cp >= '0' && cp <= '9') ||
-         (cp >= 'A' && cp <= 'Z') ||
-         (cp >= 'a' && cp <= 'z');
+  return (cp >= '0' && cp <= '9') || (cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z');
 }
 
 bool shouldPreferExternalUiGlyph(const uint32_t cp, const EpdGlyph* builtinGlyph) {
@@ -174,9 +200,7 @@ bool shouldPreferExternalUiGlyph(const uint32_t cp, const EpdGlyph* builtinGlyph
   // Ubuntu face. Prefer the active UI font for printable ASCII too; if that
   // font lacks the glyph, drawText()/getTextWidth() will fall back to the
   // built-in path as before.
-  return isCjkCodepoint(cp) ||
-         (cp >= 0x20 && cp <= 0x7E) ||
-         builtinGlyph == nullptr;
+  return isCjkCodepoint(cp) || (cp >= 0x20 && cp <= 0x7E) || builtinGlyph == nullptr;
 }
 
 bool isAdvanceSensitiveCodepoint(const uint32_t cp) {
@@ -186,9 +210,7 @@ bool isAdvanceSensitiveCodepoint(const uint32_t cp) {
   // report an advance that is smaller than the drawn bitmap's right edge.  If
   // the next glyph starts from that too-small advance, the ink overlaps.
   if (cp >= '0' && cp <= '9') return true;
-  if ((cp >= 0x21 && cp <= 0x2F) ||
-      (cp >= 0x3A && cp <= 0x40) ||
-      (cp >= 0x5B && cp <= 0x60) ||
+  if ((cp >= 0x21 && cp <= 0x2F) || (cp >= 0x3A && cp <= 0x40) || (cp >= 0x5B && cp <= 0x60) ||
       (cp >= 0x7B && cp <= 0x7E)) {
     return true;
   }
@@ -225,12 +247,8 @@ int scaleCompactMetricCeil(const int value) {
 
 bool isZeroAdvanceControlCodepoint(const uint32_t cp) {
   return cp == 0x00AD ||  // soft hyphen
-         cp == 0x034F ||
-         cp == 0x061C ||
-         (cp >= 0x200B && cp <= 0x200F) ||
-         (cp >= 0x202A && cp <= 0x202E) ||
-         (cp >= 0x2060 && cp <= 0x206F) ||
-         cp == 0xFEFF;
+         cp == 0x034F || cp == 0x061C || (cp >= 0x200B && cp <= 0x200F) || (cp >= 0x202A && cp <= 0x202E) ||
+         (cp >= 0x2060 && cp <= 0x206F) || cp == 0xFEFF;
 }
 
 bool shouldProtectVisibleAdvance(const uint32_t cp) {
@@ -301,22 +319,26 @@ int scaleBuiltinCjkAxisCeil(const int value, const int percent, const int logica
 
 int fallbackMetricXPixels(const int fontId, const int value) {
   const int percent = fallbackScalePercentForFontId(fontId);
-  return std::max(1, scaleBuiltinCjkAxis(value, percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH, BUILTIN_CJK_SOURCE_CELL_WIDTH));
+  return std::max(1,
+                  scaleBuiltinCjkAxis(value, percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH, BUILTIN_CJK_SOURCE_CELL_WIDTH));
 }
 
 int fallbackMetricYPixels(const int fontId, const int value) {
   const int percent = fallbackScalePercentForFontId(fontId);
-  return std::max(1, scaleBuiltinCjkAxis(value, percent, BUILTIN_CJK_LOGICAL_CELL_HEIGHT, BUILTIN_CJK_SOURCE_CELL_HEIGHT));
+  return std::max(1,
+                  scaleBuiltinCjkAxis(value, percent, BUILTIN_CJK_LOGICAL_CELL_HEIGHT, BUILTIN_CJK_SOURCE_CELL_HEIGHT));
 }
 
 int fallbackMetricXPixelsCeil(const int fontId, const int value) {
   const int percent = fallbackScalePercentForFontId(fontId);
-  return std::max(1, scaleBuiltinCjkAxisCeil(value, percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH, BUILTIN_CJK_SOURCE_CELL_WIDTH));
+  return std::max(
+      1, scaleBuiltinCjkAxisCeil(value, percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH, BUILTIN_CJK_SOURCE_CELL_WIDTH));
 }
 
 int fallbackMetricYPixelsCeil(const int fontId, const int value) {
   const int percent = fallbackScalePercentForFontId(fontId);
-  return std::max(1, scaleBuiltinCjkAxisCeil(value, percent, BUILTIN_CJK_LOGICAL_CELL_HEIGHT, BUILTIN_CJK_SOURCE_CELL_HEIGHT));
+  return std::max(
+      1, scaleBuiltinCjkAxisCeil(value, percent, BUILTIN_CJK_LOGICAL_CELL_HEIGHT, BUILTIN_CJK_SOURCE_CELL_HEIGHT));
 }
 
 int fallbackAdvancePixels(const int fontId, const EpdGlyph* glyph, const uint32_t cp) {
@@ -329,9 +351,7 @@ int fallbackMetricPixels(const int fontId, const int value) {
   return fallbackMetricYPixels(fontId, value);
 }
 
-bool shouldRotateVerticalGlyph(
-    const uint32_t codepoint
-) {
+bool shouldRotateVerticalGlyph(const uint32_t codepoint) {
   switch (codepoint) {
     case 0x300C:  // 「
     case 0x300D:  // 」
@@ -365,20 +385,13 @@ bool shouldRotateVerticalGlyph(
 
 }  // namespace
 
-bool GfxRenderer::shouldUseExternalUiFont(
-    const int fontId
-) {
-  return fontId == UI_10_FONT_ID ||
-         fontId == UI_12_FONT_ID;
+bool GfxRenderer::shouldUseExternalUiFont(const int fontId) {
+  return fontId == UI_10_FONT_ID || fontId == UI_12_FONT_ID;
 }
 
 bool GfxRenderer::isUiFont(const int fontId) {
-  return fontId == UI_10_FONT_ID ||
-         fontId == UI_12_FONT_ID ||
-         fontId == SMALL_FONT_ID;
+  return fontId == UI_10_FONT_ID || fontId == UI_12_FONT_ID || fontId == SMALL_FONT_ID;
 }
-
-
 
 bool GfxRenderer::isReaderFont(const int fontId) {
   for (int i = 0; i < UI_FONT_COUNT; ++i) {
@@ -395,12 +408,8 @@ const EpdFontFamily* GfxRenderer::getBuiltinFallbackForFontId(const int fontId) 
   return builtinFallbackFont_;
 }
 
-bool GfxRenderer::shouldUseBuiltinFallback(
-    const EpdFontFamily& primaryFont,
-    const EpdFontFamily* fallbackFont,
-    const uint32_t codepoint,
-    const EpdFontFamily::Style style
-) const {
+bool GfxRenderer::shouldUseBuiltinFallback(const EpdFontFamily& primaryFont, const EpdFontFamily* fallbackFont,
+                                           const uint32_t codepoint, const EpdFontFamily::Style style) const {
   if (fallbackFont == nullptr) {
     return false;
   }
@@ -412,16 +421,11 @@ bool GfxRenderer::shouldUseBuiltinFallback(
   // Prefer the dedicated fixed-cell CJK design for CJK/full-width codepoints,
   // even if the Latin font would otherwise return U+FFFD. For other scripts,
   // use it only when the primary family truly lacks the requested glyph.
-  return isCjkCodepoint(codepoint) ||
-         primaryFont.getGlyphExact(codepoint, style) == nullptr;
+  return isCjkCodepoint(codepoint) || primaryFont.getGlyphExact(codepoint, style) == nullptr;
 }
 
-int GfxRenderer::getTextWidthBuiltinFallback(
-    const int fontId,
-    const EpdFontFamily& primaryFont,
-    const char* text,
-    const EpdFontFamily::Style style
-) const {
+int GfxRenderer::getTextWidthBuiltinFallback(const int fontId, const EpdFontFamily& primaryFont, const char* text,
+                                             const EpdFontFamily::Style style) const {
   if (text == nullptr || *text == '\0') {
     return 0;
   }
@@ -457,8 +461,7 @@ int GfxRenderer::getTextWidthBuiltinFallback(
 
     cp = primaryFont.applyLigatures(cp, cursor, style);
     if (previousPrimaryCp != 0) {
-      widthPixels += fp4::toPixel(
-          pendingAdvanceFP + primaryFont.getKerning(previousPrimaryCp, cp, style));
+      widthPixels += fp4::toPixel(pendingAdvanceFP + primaryFont.getKerning(previousPrimaryCp, cp, style));
       widthPixels += latinPairTracking(previousPrimaryCp, cp);
     }
 
@@ -682,12 +685,9 @@ static void renderCharImplScaled(const GfxRenderer& renderer, GfxRenderer::Rende
   }
 }
 
-
 static void renderScaledGlyphBitmap(const GfxRenderer& renderer, GfxRenderer::RenderMode renderMode,
-                                    const EpdFontData* fontData, const EpdGlyph* glyph,
-                                    const int drawX, const int drawY,
-                                    const int destWidth, const int destHeight,
-                                    const bool pixelState) {
+                                    const EpdFontData* fontData, const EpdGlyph* glyph, const int drawX,
+                                    const int drawY, const int destWidth, const int destHeight, const bool pixelState) {
   if (fontData == nullptr || glyph == nullptr || destWidth <= 0 || destHeight <= 0) return;
   if (glyph->width == 0 || glyph->height == 0) return;
 
@@ -724,13 +724,11 @@ static void renderScaledGlyphBitmap(const GfxRenderer& renderer, GfxRenderer::Re
 
       int covered = 0;
       for (int sySample = 0; sySample < SAMPLE_GRID; ++sySample) {
-        const int sy = std::min<int>(
-            glyph->height - 1,
-            ((dy * SAMPLE_GRID + sySample) * glyph->height) / (destHeight * SAMPLE_GRID));
+        const int sy = std::min<int>(glyph->height - 1,
+                                     ((dy * SAMPLE_GRID + sySample) * glyph->height) / (destHeight * SAMPLE_GRID));
         for (int sxSample = 0; sxSample < SAMPLE_GRID; ++sxSample) {
-          const int sx = std::min<int>(
-              glyph->width - 1,
-              ((dx * SAMPLE_GRID + sxSample) * glyph->width) / (destWidth * SAMPLE_GRID));
+          const int sx = std::min<int>(glyph->width - 1,
+                                       ((dx * SAMPLE_GRID + sxSample) * glyph->width) / (destWidth * SAMPLE_GRID));
           const int pixelPosition = sy * glyph->width + sx;
           const uint8_t byte = bitmap[pixelPosition >> 3];
           const uint8_t bitIndex = 7 - (pixelPosition & 7);
@@ -741,7 +739,8 @@ static void renderScaledGlyphBitmap(const GfxRenderer& renderer, GfxRenderer::Re
       if (covered == 0) continue;
 
       if (renderMode == GfxRenderer::GRAYSCALE_DIRECT) {
-        const uint8_t gray = static_cast<uint8_t>(std::min(3, std::max(1, (covered * 3 + SAMPLE_COUNT / 2) / SAMPLE_COUNT)));
+        const uint8_t gray =
+            static_cast<uint8_t>(std::min(3, std::max(1, (covered * 3 + SAMPLE_COUNT / 2) / SAMPLE_COUNT)));
         renderer.drawPixelGray(drawX + dx, drawY + dy, gray);
       } else if (renderMode == GfxRenderer::BW) {
         if (covered * 2 >= SAMPLE_COUNT) renderer.drawPixel(drawX + dx, drawY + dy, pixelState);
@@ -754,16 +753,9 @@ static void renderScaledGlyphBitmap(const GfxRenderer& renderer, GfxRenderer::Re
   }
 }
 
-bool GfxRenderer::renderPrimaryGlyphCentered(
-    const int fontId,
-    const int cellX,
-    const int cellY,
-    const int cellWidth,
-    const int cellHeight,
-    const uint32_t codepoint,
-    const bool pixelState,
-    const EpdFontFamily::Style style
-) const {
+bool GfxRenderer::renderPrimaryGlyphCentered(const int fontId, const int cellX, const int cellY, const int cellWidth,
+                                             const int cellHeight, const uint32_t codepoint, const bool pixelState,
+                                             const EpdFontFamily::Style style) const {
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) return false;
 
@@ -777,28 +769,19 @@ bool GfxRenderer::renderPrimaryGlyphCentered(
   const int cursorX = drawX - glyph->left;
   const int baselineY = drawY + glyph->top;
 
-  renderCharImpl<TextRotation::None>(
-      *this, renderMode, primaryFont, codepoint,
-      cursorX, baselineY, pixelState, style);
+  renderCharImpl<TextRotation::None>(*this, renderMode, primaryFont, codepoint, cursorX, baselineY, pixelState, style);
   return true;
 }
 
-bool GfxRenderer::renderBuiltinFallbackGlyphCentered(
-    const int fontId,
-    const int cellX,
-    const int cellY,
-    const int cellWidth,
-    const int cellHeight,
-    const uint32_t codepoint,
-    const bool pixelState,
-    const EpdFontFamily::Style style
-) const {
+bool GfxRenderer::renderBuiltinFallbackGlyphCentered(const int fontId, const int cellX, const int cellY,
+                                                     const int cellWidth, const int cellHeight,
+                                                     const uint32_t codepoint, const bool pixelState,
+                                                     const EpdFontFamily::Style style) const {
   if (builtinFallbackFont_ == nullptr) {
     return false;
   }
 
-  const EpdGlyph* glyph =
-      builtinFallbackFont_->getGlyphExact(codepoint, style);
+  const EpdGlyph* glyph = builtinFallbackFont_->getGlyphExact(codepoint, style);
   if (glyph == nullptr) {
     return false;
   }
@@ -818,21 +801,14 @@ bool GfxRenderer::renderBuiltinFallbackGlyphCentered(
   return true;
 }
 
-bool GfxRenderer::renderBuiltinFallbackGlyphRotated90CW(
-    const int fontId,
-    const int cellX,
-    const int cellY,
-    const int cellSize,
-    const uint32_t codepoint,
-    const bool pixelState,
-    const EpdFontFamily::Style style
-) const {
+bool GfxRenderer::renderBuiltinFallbackGlyphRotated90CW(const int fontId, const int cellX, const int cellY,
+                                                        const int cellSize, const uint32_t codepoint,
+                                                        const bool pixelState, const EpdFontFamily::Style style) const {
   if (builtinFallbackFont_ == nullptr) {
     return false;
   }
 
-  const EpdGlyph* glyph =
-      builtinFallbackFont_->getGlyphExact(codepoint, style);
+  const EpdGlyph* glyph = builtinFallbackFont_->getGlyphExact(codepoint, style);
   if (glyph == nullptr) {
     return false;
   }
@@ -885,15 +861,9 @@ bool GfxRenderer::renderBuiltinFallbackGlyphRotated90CW(
   return true;
 }
 
-
-bool GfxRenderer::renderBuiltinFallbackGlyphScaled(
-    const EpdFontFamily& fallbackFont,
-    const uint32_t codepoint,
-    const int cursorX,
-    const int lineTopY,
-    const bool pixelState,
-    const EpdFontFamily::Style style
-) const {
+bool GfxRenderer::renderBuiltinFallbackGlyphScaled(const EpdFontFamily& fallbackFont, const uint32_t codepoint,
+                                                   const int cursorX, const int lineTopY, const bool pixelState,
+                                                   const EpdFontFamily::Style style) const {
   const EpdGlyph* glyph = fallbackFont.getGlyphExact(codepoint, style);
   const EpdFontData* data = fallbackFont.getData(style);
   if (glyph == nullptr || data == nullptr) return false;
@@ -911,12 +881,12 @@ bool GfxRenderer::renderBuiltinFallbackGlyphScaled(
   // UI path uses a scale below 100%.
   for (int dy = 0; dy < destHeight; ++dy) {
     const int sy0 = dy * COMPACT_CJK_SCALE_DEN / COMPACT_CJK_SCALE_NUM;
-    const int sy1 = std::min<int>(glyph->height,
-        ((dy + 1) * COMPACT_CJK_SCALE_DEN + COMPACT_CJK_SCALE_NUM - 1) / COMPACT_CJK_SCALE_NUM);
+    const int sy1 = std::min<int>(
+        glyph->height, ((dy + 1) * COMPACT_CJK_SCALE_DEN + COMPACT_CJK_SCALE_NUM - 1) / COMPACT_CJK_SCALE_NUM);
     for (int dx = 0; dx < destWidth; ++dx) {
       const int sx0 = dx * COMPACT_CJK_SCALE_DEN / COMPACT_CJK_SCALE_NUM;
-      const int sx1 = std::min<int>(glyph->width,
-          ((dx + 1) * COMPACT_CJK_SCALE_DEN + COMPACT_CJK_SCALE_NUM - 1) / COMPACT_CJK_SCALE_NUM);
+      const int sx1 = std::min<int>(
+          glyph->width, ((dx + 1) * COMPACT_CJK_SCALE_DEN + COMPACT_CJK_SCALE_NUM - 1) / COMPACT_CJK_SCALE_NUM);
       bool set = false;
       for (int sy = sy0; sy < sy1 && !set; ++sy) {
         for (int sx = sx0; sx < sx1; ++sx) {
@@ -933,37 +903,31 @@ bool GfxRenderer::renderBuiltinFallbackGlyphScaled(
   return true;
 }
 
-bool GfxRenderer::renderBuiltinFallbackGlyphScaledPercent(
-    const EpdFontFamily& fallbackFont,
-    const uint32_t codepoint,
-    const int cursorX,
-    const int lineTopY,
-    const int percent,
-    const bool pixelState,
-    const EpdFontFamily::Style style
-) const {
+bool GfxRenderer::renderBuiltinFallbackGlyphScaledPercent(const EpdFontFamily& fallbackFont, const uint32_t codepoint,
+                                                          const int cursorX, const int lineTopY, const int percent,
+                                                          const bool pixelState,
+                                                          const EpdFontFamily::Style style) const {
   const EpdGlyph* glyph = fallbackFont.getGlyphExact(codepoint, style);
   const EpdFontData* data = fallbackFont.getData(style);
   if (glyph == nullptr || data == nullptr) return false;
   if (glyph->width == 0 || glyph->height == 0) return true;
 
-  const int destWidth = std::max(1, scaleBuiltinCjkAxisCeil(glyph->width, percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH, BUILTIN_CJK_SOURCE_CELL_WIDTH));
-  const int destHeight = std::max(1, scaleBuiltinCjkAxisCeil(glyph->height, percent, BUILTIN_CJK_LOGICAL_CELL_HEIGHT, BUILTIN_CJK_SOURCE_CELL_HEIGHT));
-  const int drawX = cursorX + scaleBuiltinCjkAxis(glyph->left, percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH, BUILTIN_CJK_SOURCE_CELL_WIDTH);
-  const int drawY = lineTopY + scaleBuiltinCjkAxis(data->ascender - glyph->top, percent, BUILTIN_CJK_LOGICAL_CELL_HEIGHT, BUILTIN_CJK_SOURCE_CELL_HEIGHT);
+  const int destWidth = std::max(
+      1, scaleBuiltinCjkAxisCeil(glyph->width, percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH, BUILTIN_CJK_SOURCE_CELL_WIDTH));
+  const int destHeight = std::max(1, scaleBuiltinCjkAxisCeil(glyph->height, percent, BUILTIN_CJK_LOGICAL_CELL_HEIGHT,
+                                                             BUILTIN_CJK_SOURCE_CELL_HEIGHT));
+  const int drawX = cursorX + scaleBuiltinCjkAxis(glyph->left, percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH,
+                                                  BUILTIN_CJK_SOURCE_CELL_WIDTH);
+  const int drawY = lineTopY + scaleBuiltinCjkAxis(data->ascender - glyph->top, percent,
+                                                   BUILTIN_CJK_LOGICAL_CELL_HEIGHT, BUILTIN_CJK_SOURCE_CELL_HEIGHT);
   renderScaledGlyphBitmap(*this, renderMode, data, glyph, drawX, drawY, destWidth, destHeight, pixelState);
   return true;
 }
 
-
-bool GfxRenderer::renderBuiltinFallbackGlyphScaledRotated90CW(
-    const EpdFontFamily& fallbackFont,
-    const uint32_t codepoint,
-    const int cursorX,
-    const int cursorY,
-    const bool pixelState,
-    const EpdFontFamily::Style style
-) const {
+bool GfxRenderer::renderBuiltinFallbackGlyphScaledRotated90CW(const EpdFontFamily& fallbackFont,
+                                                              const uint32_t codepoint, const int cursorX,
+                                                              const int cursorY, const bool pixelState,
+                                                              const EpdFontFamily::Style style) const {
   const EpdGlyph* glyph = fallbackFont.getGlyphExact(codepoint, style);
   const EpdFontData* data = fallbackFont.getData(style);
   if (glyph == nullptr || data == nullptr) return false;
@@ -979,12 +943,12 @@ bool GfxRenderer::renderBuiltinFallbackGlyphScaledRotated90CW(
 
   for (int dy = 0; dy < destHeight; ++dy) {
     const int sy0 = dy * COMPACT_CJK_SCALE_DEN / COMPACT_CJK_SCALE_NUM;
-    const int sy1 = std::min<int>(glyph->height,
-        ((dy + 1) * COMPACT_CJK_SCALE_DEN + COMPACT_CJK_SCALE_NUM - 1) / COMPACT_CJK_SCALE_NUM);
+    const int sy1 = std::min<int>(
+        glyph->height, ((dy + 1) * COMPACT_CJK_SCALE_DEN + COMPACT_CJK_SCALE_NUM - 1) / COMPACT_CJK_SCALE_NUM);
     for (int dx = 0; dx < destWidth; ++dx) {
       const int sx0 = dx * COMPACT_CJK_SCALE_DEN / COMPACT_CJK_SCALE_NUM;
-      const int sx1 = std::min<int>(glyph->width,
-          ((dx + 1) * COMPACT_CJK_SCALE_DEN + COMPACT_CJK_SCALE_NUM - 1) / COMPACT_CJK_SCALE_NUM);
+      const int sx1 = std::min<int>(
+          glyph->width, ((dx + 1) * COMPACT_CJK_SCALE_DEN + COMPACT_CJK_SCALE_NUM - 1) / COMPACT_CJK_SCALE_NUM);
       bool set = false;
       for (int sy = sy0; sy < sy1 && !set; ++sy) {
         for (int sx = sx0; sx < sx1; ++sx) {
@@ -1001,60 +965,37 @@ bool GfxRenderer::renderBuiltinFallbackGlyphScaledRotated90CW(
   return true;
 }
 
-void GfxRenderer::renderExternalGlyph(
-    const uint8_t* bitmap,
-    ExternalFont* font,
-    int* x,
-    const int baselineY,
-    const bool pixelState,
-    const ExternalGlyphMetrics& metrics,
-    const int advanceOverride,
-    const int cellClipWidth
-) const {
+void GfxRenderer::renderExternalGlyph(const uint8_t* bitmap, ExternalFont* font, int* x, const int baselineY,
+                                      const bool pixelState, const ExternalGlyphMetrics& metrics,
+                                      const int advanceOverride, const int cellClipWidth) const {
   if (!bitmap || !font || !x) {
     return;
   }
   const ReaderMemoryDiagTrace drawBefore = ReaderMemoryDiagnostics::capture();
   const unsigned long drawStart = millis();
 
-  const uint8_t width =
-      metrics.width > 0 ? metrics.width : font->getCharWidth();
+  const uint8_t width = metrics.width > 0 ? metrics.width : font->getCharWidth();
 
-  const uint8_t height =
-      metrics.height > 0 ? metrics.height : font->getCharHeight();
+  const uint8_t height = metrics.height > 0 ? metrics.height : font->getCharHeight();
 
   const uint8_t bytesPerRow = (width + 7) / 8;
 
-  const ExternalGlyphLayout layout =
-      computeExternalGlyphLayout(
-          *x,
-          baselineY,
-          *font,
-          metrics,
-          advanceOverride
-      );
+  const ExternalGlyphLayout layout = computeExternalGlyphLayout(*x, baselineY, *font, metrics, advanceOverride);
 
   const int cursorX = *x;
   const int screenWidth = getScreenWidth();
   const int screenHeight = getScreenHeight();
 
   int minGlyphX = std::max(0, -layout.drawX);
-  int maxGlyphX =
-      std::min<int>(width, screenWidth - layout.drawX);
+  int maxGlyphX = std::min<int>(width, screenWidth - layout.drawX);
 
   const int minGlyphY = std::max(0, -layout.drawY);
-  const int maxGlyphY =
-      std::min<int>(height, screenHeight - layout.drawY);
+  const int maxGlyphY = std::min<int>(height, screenHeight - layout.drawY);
 
   if (cellClipWidth > 0) {
-    minGlyphX =
-        std::max(minGlyphX, cursorX - layout.drawX);
+    minGlyphX = std::max(minGlyphX, cursorX - layout.drawX);
 
-    maxGlyphX =
-        std::min(
-            maxGlyphX,
-            cursorX + cellClipWidth - layout.drawX
-        );
+    maxGlyphX = std::min(maxGlyphX, cursorX + cellClipWidth - layout.drawX);
   }
 
   if (minGlyphX >= maxGlyphX || minGlyphY >= maxGlyphY) {
@@ -1062,104 +1003,69 @@ void GfxRenderer::renderExternalGlyph(
     return;
   }
 
-  for (int glyphY = minGlyphY;
-       glyphY < maxGlyphY;
-       ++glyphY) {
-
+  for (int glyphY = minGlyphY; glyphY < maxGlyphY; ++glyphY) {
     const int screenY = layout.drawY + glyphY;
 
-    for (int glyphX = minGlyphX;
-         glyphX < maxGlyphX;
-         ++glyphX) {
-
-      const int byteIndex =
-          glyphY * bytesPerRow + glyphX / 8;
+    for (int glyphX = minGlyphX; glyphX < maxGlyphX; ++glyphX) {
+      const int byteIndex = glyphY * bytesPerRow + glyphX / 8;
 
       const int bitIndex = 7 - glyphX % 8;
 
       if ((bitmap[byteIndex] >> bitIndex) & 1) {
-        drawPixel(
-            layout.drawX + glyphX,
-            screenY,
-            pixelState
-        );
+        drawPixel(layout.drawX + glyphX, screenY, pixelState);
       }
     }
   }
 
   *x += layout.advanceX;
-  ReaderMemoryDiagnostics::logDeltaIfChanged(
-      "drawGlyphToCanvas-external",
-      drawBefore,
-      ReaderMemoryDiagnostics::capture(),
-      millis() - drawStart,
-      128,
-      4096,
-      20);
+  ReaderMemoryDiagnostics::logDeltaIfChanged("drawGlyphToCanvas-external", drawBefore,
+                                             ReaderMemoryDiagnostics::capture(), millis() - drawStart, 128, 4096, 20);
 }
 
-bool GfxRenderer::renderExternalReaderGlyphCentered(
-    const int fontId,
-    const int cellX,
-    const int cellY,
-    const int cellWidth,
-    const int cellHeight,
-    const uint32_t codepoint,
-    const bool pixelState
-) const {
+bool GfxRenderer::renderExternalReaderGlyphCentered(const int fontId, const int cellX, const int cellY,
+                                                    const int cellWidth, const int cellHeight, const uint32_t codepoint,
+                                                    const bool pixelState) const {
   if (!isReaderFont(fontId)) {
     return false;
   }
 
-  FontManager& fontManager =
-      FontManager::getInstance();
+  FontManager& fontManager = FontManager::getInstance();
 
   if (!fontManager.isExternalFontEnabled()) {
     return false;
   }
 
-  ExternalFont* font =
-      fontManager.getActiveFont();
+  ExternalFont* font = fontManager.getActiveFont();
 
-  if (font == nullptr ||
-      !font->isLoaded()) {
+  if (font == nullptr || !font->isLoaded()) {
     return false;
   }
 
   const ReaderMemoryDiagTrace lookupBefore = ReaderMemoryDiagnostics::capture();
   const unsigned long lookupStart = millis();
-  const uint8_t* bitmap =
-      font->getGlyph(codepoint);
+  const uint8_t* bitmap = font->getGlyph(codepoint);
   {
     char phase[96];
     std::snprintf(phase, sizeof(phase), "glyph-lookup-centered U+%04lx", static_cast<unsigned long>(codepoint));
-    ReaderMemoryDiagnostics::logDeltaIfChanged(phase, lookupBefore, ReaderMemoryDiagnostics::capture(), millis() - lookupStart, 128, 4096, 20);
+    ReaderMemoryDiagnostics::logDeltaIfChanged(phase, lookupBefore, ReaderMemoryDiagnostics::capture(),
+                                               millis() - lookupStart, 128, 4096, 20);
   }
 
   if (bitmap == nullptr) {
     return false;
   }
 
-  ExternalGlyphMetrics metrics =
-      getDefaultMetrics(*font, codepoint);
+  ExternalGlyphMetrics metrics = getDefaultMetrics(*font, codepoint);
 
-  const int sourceWidth =
-      metrics.width > 0
-          ? metrics.width
-          : font->getCharWidth();
+  const int sourceWidth = metrics.width > 0 ? metrics.width : font->getCharWidth();
 
-  const int sourceHeight =
-      metrics.height > 0
-          ? metrics.height
-          : font->getCharHeight();
+  const int sourceHeight = metrics.height > 0 ? metrics.height : font->getCharHeight();
 
-  if (sourceWidth <= 0 ||
-      sourceHeight <= 0) {
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
     return false;
   }
 
-  const int bytesPerRow =
-      (sourceWidth + 7) / 8;
+  const int bytesPerRow = (sourceWidth + 7) / 8;
 
   /*
    * 找出 glyph 實際黑色像素範圍。
@@ -1173,20 +1079,11 @@ bool GfxRenderer::renderExternalReaderGlyphCentered(
   int maxX = -1;
   int maxY = -1;
 
-  for (int sourceY = 0;
-       sourceY < sourceHeight;
-       ++sourceY) {
-    for (int sourceX = 0;
-         sourceX < sourceWidth;
-         ++sourceX) {
-      const int byteIndex =
-          sourceY * bytesPerRow +
-          sourceX / 8;
+  for (int sourceY = 0; sourceY < sourceHeight; ++sourceY) {
+    for (int sourceX = 0; sourceX < sourceWidth; ++sourceX) {
+      const int byteIndex = sourceY * bytesPerRow + sourceX / 8;
 
-      const uint8_t mask =
-          static_cast<uint8_t>(
-              0x80U >> (sourceX & 7)
-          );
+      const uint8_t mask = static_cast<uint8_t>(0x80U >> (sourceX & 7));
 
       if ((bitmap[byteIndex] & mask) == 0) {
         continue;
@@ -1214,155 +1111,110 @@ bool GfxRenderer::renderExternalReaderGlyphCentered(
    * glyph 存在但沒有任何黑點。
    * 例如空白字元，視為已處理。
    */
-  if (maxX < minX ||
-      maxY < minY) {
+  if (maxX < minX || maxY < minY) {
     return true;
   }
 
-  const int visibleWidth =
-      maxX - minX + 1;
+  const int visibleWidth = maxX - minX + 1;
 
-  const int visibleHeight =
-      maxY - minY + 1;
+  const int visibleHeight = maxY - minY + 1;
+
+  const int scaledVisibleWidth =
+      font->isTtfFormat() ? visibleWidth : scaleExternalBitmapMetricCeil(visibleWidth, *font);
+  const int scaledVisibleHeight =
+      font->isTtfFormat() ? visibleHeight : scaleExternalBitmapMetricCeil(visibleHeight, *font);
 
   /*
-   * 將實際可見筆畫置中於直排 cell。
+   * 將實際可見筆畫置中於直排 cell。外部 legacy .bin 也跟隨
+   * Reader Font Size 做 nearest-neighbour 縮放；這修正舊版只改 layout
+   * 空間、glyph 本身不變大的問題。
    */
-  const int destinationX =
-      cellX +
-      (cellWidth - visibleWidth) / 2;
+  const int destinationX = cellX + (cellWidth - scaledVisibleWidth) / 2;
 
-  const int destinationY =
-      cellY +
-      (cellHeight - visibleHeight) / 2;
+  const int destinationY = cellY + (cellHeight - scaledVisibleHeight) / 2;
 
   const ReaderMemoryDiagTrace drawCenteredBefore = ReaderMemoryDiagnostics::capture();
   const unsigned long drawCenteredStart = millis();
-  for (int sourceY = minY;
-       sourceY <= maxY;
-       ++sourceY) {
-    for (int sourceX = minX;
-         sourceX <= maxX;
-         ++sourceX) {
-      const int byteIndex =
-          sourceY * bytesPerRow +
-          sourceX / 8;
+  for (int destY = 0; destY < scaledVisibleHeight; ++destY) {
+    const int sourceY = minY + (destY * visibleHeight) / scaledVisibleHeight;
+    for (int destX = 0; destX < scaledVisibleWidth; ++destX) {
+      const int sourceX = minX + (destX * visibleWidth) / scaledVisibleWidth;
+      const int byteIndex = sourceY * bytesPerRow + sourceX / 8;
 
-      const uint8_t mask =
-          static_cast<uint8_t>(
-              0x80U >> (sourceX & 7)
-          );
+      const uint8_t mask = static_cast<uint8_t>(0x80U >> (sourceX & 7));
 
       if ((bitmap[byteIndex] & mask) == 0) {
         continue;
       }
 
-      drawPixel(
-          destinationX +
-              sourceX -
-              minX,
-          destinationY +
-              sourceY -
-              minY,
-          pixelState
-      );
+      drawPixel(destinationX + destX, destinationY + destY, pixelState);
     }
   }
 
-  ReaderMemoryDiagnostics::logDeltaIfChanged(
-      "drawGlyphToCanvas-centered",
-      drawCenteredBefore,
-      ReaderMemoryDiagnostics::capture(),
-      millis() - drawCenteredStart,
-      128,
-      4096,
-      20);
+  ReaderMemoryDiagnostics::logDeltaIfChanged("drawGlyphToCanvas-centered", drawCenteredBefore,
+                                             ReaderMemoryDiagnostics::capture(), millis() - drawCenteredStart, 128,
+                                             4096, 20);
   return true;
 }
 
-bool GfxRenderer::renderExternalReaderGlyphRotated90CW(
-    const int fontId,
-    const int cellX,
-    const int cellY,
-    const int cellSize,
-    const uint32_t codepoint,
-    const bool pixelState
-) const {
+bool GfxRenderer::renderExternalReaderGlyphRotated90CW(const int fontId, const int cellX, const int cellY,
+                                                       const int cellSize, const uint32_t codepoint,
+                                                       const bool pixelState) const {
   if (!isReaderFont(fontId)) {
     return false;
   }
 
-  FontManager& fontManager =
-      FontManager::getInstance();
+  FontManager& fontManager = FontManager::getInstance();
 
   if (!fontManager.isExternalFontEnabled()) {
     return false;
   }
 
-  ExternalFont* font =
-      fontManager.getActiveFont();
+  ExternalFont* font = fontManager.getActiveFont();
 
-  if (font == nullptr ||
-      !font->isLoaded()) {
+  if (font == nullptr || !font->isLoaded()) {
     return false;
   }
 
   const ReaderMemoryDiagTrace lookupBefore = ReaderMemoryDiagnostics::capture();
   const unsigned long lookupStart = millis();
-  const uint8_t* bitmap =
-      font->getGlyph(codepoint);
+  const uint8_t* bitmap = font->getGlyph(codepoint);
   {
     char phase[96];
     std::snprintf(phase, sizeof(phase), "glyph-lookup-rotated U+%04lx", static_cast<unsigned long>(codepoint));
-    ReaderMemoryDiagnostics::logDeltaIfChanged(phase, lookupBefore, ReaderMemoryDiagnostics::capture(), millis() - lookupStart, 128, 4096, 20);
+    ReaderMemoryDiagnostics::logDeltaIfChanged(phase, lookupBefore, ReaderMemoryDiagnostics::capture(),
+                                               millis() - lookupStart, 128, 4096, 20);
   }
 
   if (bitmap == nullptr) {
     return false;
   }
 
-  const int sourceWidth =
-      font->getCharWidth();
+  const int sourceWidth = font->getCharWidth();
 
-  const int sourceHeight =
-      font->getCharHeight();
+  const int sourceHeight = font->getCharHeight();
 
-  if (sourceWidth <= 0 ||
-      sourceHeight <= 0) {
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
     return false;
   }
 
-  const int bytesPerRow =
-      (sourceWidth + 7) / 8;
+  const int bytesPerRow = (sourceWidth + 7) / 8;
 
   // 旋轉後寬、高互換。
-  const int rotatedWidth =
-      sourceHeight;
+  const int rotatedWidth = sourceHeight;
 
-  const int rotatedHeight =
-      sourceWidth;
+  const int rotatedHeight = sourceWidth;
 
   // 在直排 cell 中置中。
-  const int offsetX =
-      (cellSize - rotatedWidth) / 2;
+  const int offsetX = (cellSize - rotatedWidth) / 2;
 
-  const int offsetY =
-      (cellSize - rotatedHeight) / 2;
+  const int offsetY = (cellSize - rotatedHeight) / 2;
 
-  for (int sourceY = 0;
-       sourceY < sourceHeight;
-       ++sourceY) {
-    for (int sourceX = 0;
-         sourceX < sourceWidth;
-         ++sourceX) {
-      const int byteIndex =
-          sourceY * bytesPerRow +
-          sourceX / 8;
+  for (int sourceY = 0; sourceY < sourceHeight; ++sourceY) {
+    for (int sourceX = 0; sourceX < sourceWidth; ++sourceX) {
+      const int byteIndex = sourceY * bytesPerRow + sourceX / 8;
 
-      const uint8_t mask =
-          static_cast<uint8_t>(
-              0x80U >> (sourceX & 7)
-          );
+      const uint8_t mask = static_cast<uint8_t>(0x80U >> (sourceX & 7));
 
       if ((bitmap[byteIndex] & mask) == 0) {
         continue;
@@ -1372,35 +1224,24 @@ bool GfxRenderer::renderExternalReaderGlyphRotated90CW(
       //
       // source(x, y)
       // → destination(height - 1 - y, x)
-      const int destinationX =
-          sourceHeight - 1 - sourceY;
+      const int destinationX = sourceHeight - 1 - sourceY;
 
-      const int destinationY =
-          sourceX;
+      const int destinationY = sourceX;
 
-      drawPixel(
-          cellX + offsetX + destinationX,
-          cellY + offsetY + destinationY,
-          pixelState
-      );
+      drawPixel(cellX + offsetX + destinationX, cellY + offsetY + destinationY, pixelState);
     }
   }
 
   return true;
 }
 
-bool GfxRenderer::renderExternalReaderGlyph(
-    const uint32_t cp,
-    int* x,
-    const int baselineY,
-    const bool pixelState
-) const {
+bool GfxRenderer::renderExternalReaderGlyph(const uint32_t cp, int* x, const int baselineY,
+                                            const bool pixelState) const {
   FontManager& fontManager = FontManager::getInstance();
   if (!fontManager.isExternalFontEnabled()) return false;
 
   ExternalFont* externalFont = fontManager.getActiveFont();
-  if (externalFont == nullptr ||
-      (!externalFont->handlesAllCodepoints() && !isCjkCodepoint(cp))) {
+  if (externalFont == nullptr || (!externalFont->handlesAllCodepoints() && !isCjkCodepoint(cp))) {
     return false;
   }
 
@@ -1410,102 +1251,87 @@ bool GfxRenderer::renderExternalReaderGlyph(
   {
     char phase[96];
     std::snprintf(phase, sizeof(phase), "glyph-lookup-horizontal U+%04lx", static_cast<unsigned long>(cp));
-    ReaderMemoryDiagnostics::logDeltaIfChanged(phase, lookupBefore, ReaderMemoryDiagnostics::capture(), millis() - lookupStart, 128, 4096, 20);
+    ReaderMemoryDiagnostics::logDeltaIfChanged(phase, lookupBefore, ReaderMemoryDiagnostics::capture(),
+                                               millis() - lookupStart, 128, 4096, 20);
   }
   if (bitmap == nullptr) return false;
 
   ExternalGlyphMetrics metrics = getDefaultMetrics(*externalFont, cp);
   const bool forceCell = isCjkCodepoint(cp);
   if (forceCell && shouldUseCjkSymbolCellMetrics(cp)) {
-    normalizeCjkSymbolMetricsForRendering(metrics, externalFont->getCharWidth(),
-                                          externalFont->isRichMetricsFormat());
+    normalizeCjkSymbolMetricsForRendering(metrics, externalFont->getCharWidth(), externalFont->isRichMetricsFormat());
   }
 
-  const int advance = getExternalGlyphAdvanceForRendering(
-      metrics, externalFont->getCharWidth(), 0, forceCell,
-      shouldUseGlyphBoundsForAdvance(cp));
+  const int advance = getExternalGlyphAdvanceForRendering(metrics, externalFont->getCharWidth(), 0, forceCell,
+                                                          shouldUseGlyphBoundsForAdvance(cp));
 
-  renderExternalGlyph(bitmap, externalFont, x, baselineY, pixelState, metrics,
-                      advance, forceCell ? externalFont->getCharWidth() : -1);
+  renderExternalGlyph(bitmap, externalFont, x, baselineY, pixelState, metrics, advance,
+                      forceCell ? externalFont->getCharWidth() : -1);
   return true;
 }
 
-bool GfxRenderer::renderExternalUiGlyph(
-    const uint32_t cp,
-    int* x,
-    const int baselineY,
-    const bool pixelState
-) const {
+bool GfxRenderer::renderExternalUiGlyph(const uint32_t cp, int* x, const int baselineY, const bool pixelState) const {
   if (x == nullptr) {
     return false;
   }
 
-  FontManager& fontManager =
-      FontManager::getInstance();
+  FontManager& fontManager = FontManager::getInstance();
 
   if (!fontManager.isUiFontEnabled()) {
     return false;
   }
 
-  ExternalFont* uiFont =
-      fontManager.getActiveUiFont();
+  ExternalFont* uiFont = fontManager.getActiveUiFont();
 
-  if (uiFont == nullptr ||
-      !uiFont->isLoaded()) {
+  if (uiFont == nullptr || !uiFont->isLoaded()) {
     return false;
   }
 
-  const uint8_t* bitmap =
-      uiFont->getGlyph(cp);
+  const uint8_t* bitmap = uiFont->getGlyph(cp);
 
   if (bitmap == nullptr) {
     return false;
   }
 
-  ExternalGlyphMetrics metrics =
-      getDefaultMetrics(*uiFont, cp);
+  ExternalGlyphMetrics metrics = getDefaultMetrics(*uiFont, cp);
 
   int advance = 0;
 
   if (shouldUseCjkSymbolCellMetrics(cp)) {
-    normalizeCjkSymbolMetricsForRendering(
-        metrics,
-        uiFont->getCharWidth(),
-        uiFont->isRichMetricsFormat()
-    );
+    normalizeCjkSymbolMetricsForRendering(metrics, uiFont->getCharWidth(), uiFont->isRichMetricsFormat());
 
-    advance =
-        getExternalGlyphAdvanceForRendering(
-            metrics,
-            uiFont->getCharWidth(),
-            0,
-            true,
-            false
-        );
+    advance = getExternalGlyphAdvanceForRendering(metrics, uiFont->getCharWidth(), 0, true, false);
   } else {
-    advance =
-        adjustNonRichAdvance(
-            metrics,
-            *uiFont
-        );
+    advance = adjustNonRichAdvance(metrics, *uiFont);
   }
 
   if (advance <= 0) {
     advance = uiFont->getCharWidth();
   }
 
-  renderExternalGlyph(
-      bitmap,
-      uiFont,
-      x,
-      baselineY,
-      pixelState,
-      metrics,
-      advance,
-      -1
-  );
+  renderExternalGlyph(bitmap, uiFont, x, baselineY, pixelState, metrics, advance, -1);
 
   return true;
+}
+
+void GfxRenderer::drawIconRotatedLeft90(const uint8_t bitmap[], const int x, const int y, const int width,
+                                        const int height) const {
+  if (bitmap == nullptr || width <= 0 || height <= 0) return;
+
+  const int imageWidthBytes = (width + 7) / 8;
+  for (int row = 0; row < height; ++row) {
+    for (int col = 0; col < width; ++col) {
+      const uint8_t srcByte = bitmap[row * imageWidthBytes + col / 8];
+      const bool sourceWhite = (srcByte & (0x80 >> (col % 8))) != 0;
+      if (sourceWhite) continue;
+
+      // Counter-clockwise 90° around the icon cell.  Home menu icons are square
+      // today, but keep width/height in the mapping for future assets.
+      const int destX = row;
+      const int destY = width - 1 - col;
+      drawPixel(x + destX, y + destY, true);
+    }
+  }
 }
 
 // IMPORTANT: This function is in critical rendering path and is called for every pixel. Please keep it as simple and
@@ -1537,11 +1363,8 @@ void GfxRenderer::drawPixelGray(const int x, const int y, const uint8_t epdValue
   const uint32_t index = phyY * HalDisplay::DISPLAY_WIDTH + phyX;
   frameBuffer[index] = invertDrawing ? (3 - std::min<uint8_t>(epdValue, 3)) : epdValue;
 }
-int GfxRenderer::getTextWidthExternalReader(
-    const int fontId,
-    const char* text,
-    const EpdFontFamily::Style style
-) const {
+int GfxRenderer::getTextWidthExternalReader(const int fontId, const char* text,
+                                            const EpdFontFamily::Style style) const {
   if (text == nullptr || *text == '\0') return 0;
 
   const auto fontIt = fontMap.find(fontId);
@@ -1572,7 +1395,7 @@ int GfxRenderer::getTextWidthExternalReader(
 
       // Legacy .bin is fixed-cell. TTF and EPDF use per-glyph metrics.
       if (!externalFont->isRichMetricsFormat()) {
-        width += externalFont->getCharWidth();
+        width += scaleExternalBitmapMetric(externalFont->getCharWidth(), *externalFont);
         continue;
       }
 
@@ -1586,9 +1409,8 @@ int GfxRenderer::getTextWidthExternalReader(
           normalizeCjkSymbolMetricsForRendering(metrics, externalFont->getCharWidth(),
                                                 externalFont->isRichMetricsFormat());
         }
-        width += getExternalGlyphAdvanceForRendering(
-            metrics, externalFont->getCharWidth(), 0, isCjk,
-            shouldUseGlyphBoundsForAdvance(cp));
+        width += getExternalGlyphAdvanceForRendering(metrics, externalFont->getCharWidth(), 0, isCjk,
+                                                     shouldUseGlyphBoundsForAdvance(cp));
         continue;
       }
 
@@ -1596,8 +1418,7 @@ int GfxRenderer::getTextWidthExternalReader(
       // codepoint. Prefer the embedded Traditional Chinese fallback before
       // displaying a tofu cell or the Latin family's replacement glyph.
       if (shouldUseBuiltinFallback(builtinFont, fallbackFont, cp, style)) {
-        const EpdGlyph* fallbackGlyph =
-            fallbackFont->getGlyphExact(cp, style);
+        const EpdGlyph* fallbackGlyph = fallbackFont->getGlyphExact(cp, style);
         if (fallbackGlyph != nullptr) {
           width += fallbackAdvancePixels(fontId, fallbackGlyph, cp);
           continue;
@@ -1607,15 +1428,14 @@ int GfxRenderer::getTextWidthExternalReader(
       // Preserve legacy fixed-cell measurement when no embedded fallback has
       // the codepoint.
       if (!externalFont->handlesAllCodepoints() || isCjk) {
-        width += externalFont->getCharWidth();
+        width += scaleExternalBitmapMetric(externalFont->getCharWidth(), *externalFont);
         continue;
       }
     }
 
     if (shouldUseBuiltinFallback(builtinFont, fallbackFont, cp, style)) {
       previousBuiltinCp = 0;
-      const EpdGlyph* fallbackGlyph =
-          fallbackFont->getGlyphExact(cp, style);
+      const EpdGlyph* fallbackGlyph = fallbackFont->getGlyphExact(cp, style);
       if (fallbackGlyph != nullptr) {
         width += fallbackAdvancePixels(fontId, fallbackGlyph, cp);
       }
@@ -1634,11 +1454,7 @@ int GfxRenderer::getTextWidthExternalReader(
   return width;
 }
 
-int GfxRenderer::getTextWidthExternalUi(
-    const int fontId,
-    const char* text,
-    const EpdFontFamily::Style style
-) const {
+int GfxRenderer::getTextWidthExternalUi(const int fontId, const char* text, const EpdFontFamily::Style style) const {
   if (text == nullptr || *text == '\0') {
     return 0;
   }
@@ -1650,20 +1466,15 @@ int GfxRenderer::getTextWidthExternalUi(
     return 0;
   }
 
-  FontManager& fontManager =
-      FontManager::getInstance();
+  FontManager& fontManager = FontManager::getInstance();
 
-  ExternalFont* uiFont =
-      fontManager.getActiveUiFont();
+  ExternalFont* uiFont = fontManager.getActiveUiFont();
 
-  if (!fontManager.isUiFontEnabled() ||
-      uiFont == nullptr ||
-      !uiFont->isLoaded()) {
+  if (!fontManager.isUiFontEnabled() || uiFont == nullptr || !uiFont->isLoaded()) {
     return getTextWidthBuiltinFallback(fontId, fontIt->second, text, style);
   }
 
-  const EpdFontFamily& builtinFont =
-      fontIt->second;
+  const EpdFontFamily& builtinFont = fontIt->second;
   const EpdFontFamily* fallbackFont = getBuiltinFallbackForFontId(fontId);
 
   int widthPixels = 0;
@@ -1682,15 +1493,12 @@ int GfxRenderer::getTextWidthExternalUi(
   const char* ptr = text;
   uint32_t cp = 0;
 
-  while ((cp = utf8NextCodepoint(
-              reinterpret_cast<const uint8_t**>(&ptr)))) {
-
+  while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr)))) {
     if (utf8IsCombiningMark(cp)) {
       continue;
     }
 
-    const EpdGlyph* builtinGlyph =
-        builtinFont.getGlyphExact(cp, style);
+    const EpdGlyph* builtinGlyph = builtinFont.getGlyphExact(cp, style);
 
     // 中文、全形符號、ASCII UI 字元，或內建 UI 字型沒有的字，
     // 優先使用外部 UI 字型，讓英數與中文大小和垂直位置一致。
@@ -1706,8 +1514,7 @@ int GfxRenderer::getTextWidthExternalUi(
       // The reader-font width path already has this fixed-cell shortcut. Keep
       // the UI path consistent and reserve per-glyph metric reads for EPDFont
       // rich-metrics fonts (or non-CJK fallback glyphs).
-      if (!uiFont->isRichMetricsFormat() &&
-          isCjkCodepoint(cp)) {
+      if (!uiFont->isRichMetricsFormat() && isCjkCodepoint(cp)) {
         flushBuiltinWidth();
         widthPixels += uiFont->getCharWidth();
         continue;
@@ -1719,35 +1526,17 @@ int GfxRenderer::getTextWidthExternalUi(
       metrics.height = uiFont->getCharHeight();
       metrics.advanceX = uiFont->getCharWidth();
 
-      if (uiFont->getGlyphMetricsForLayout(
-              cp,
-              &metrics)) {
-
+      if (uiFont->getGlyphMetricsForLayout(cp, &metrics)) {
         flushBuiltinWidth();
 
         int advance = 0;
 
         if (shouldUseCjkSymbolCellMetrics(cp)) {
-          normalizeCjkSymbolMetricsForRendering(
-              metrics,
-              uiFont->getCharWidth(),
-              uiFont->isRichMetricsFormat()
-          );
+          normalizeCjkSymbolMetricsForRendering(metrics, uiFont->getCharWidth(), uiFont->isRichMetricsFormat());
 
-          advance =
-              getExternalGlyphAdvanceForRendering(
-                  metrics,
-                  uiFont->getCharWidth(),
-                  0,
-                  true,
-                  false
-              );
+          advance = getExternalGlyphAdvanceForRendering(metrics, uiFont->getCharWidth(), 0, true, false);
         } else {
-          advance =
-              adjustNonRichAdvance(
-                  metrics,
-                  *uiFont
-              );
+          advance = adjustNonRichAdvance(metrics, *uiFont);
         }
 
         widthPixels += std::max(1, advance);
@@ -1757,36 +1546,25 @@ int GfxRenderer::getTextWidthExternalUi(
 
     if (shouldUseBuiltinFallback(builtinFont, fallbackFont, cp, style)) {
       flushBuiltinWidth();
-      const EpdGlyph* fallbackGlyph =
-          fallbackFont->getGlyphExact(cp, style);
+      const EpdGlyph* fallbackGlyph = fallbackFont->getGlyphExact(cp, style);
       if (fallbackGlyph != nullptr) {
         widthPixels += fallbackAdvancePixels(fontId, fallbackGlyph, cp);
       }
       continue;
     }
 
-    cp = builtinFont.applyLigatures(
-        cp,
-        ptr,
-        style
-    );
+    cp = builtinFont.applyLigatures(cp, ptr, style);
 
     if (previousBuiltinCp != 0) {
-      builtinWidthFP += builtinFont.getKerning(
-          previousBuiltinCp,
-          cp,
-          style
-      );
+      builtinWidthFP += builtinFont.getKerning(previousBuiltinCp, cp, style);
       widthPixels += latinPairTracking(previousBuiltinCp, cp);
     }
 
-    builtinGlyph =
-        builtinFont.getGlyph(cp, style);
+    builtinGlyph = builtinFont.getGlyph(cp, style);
 
     // 外部與內建都沒有時，使用 ? 的寬度。
     if (builtinGlyph == nullptr) {
-      builtinGlyph =
-          builtinFont.getGlyph('?', style);
+      builtinGlyph = builtinFont.getGlyph('?', style);
     }
 
     if (builtinGlyph != nullptr) {
@@ -1801,35 +1579,16 @@ int GfxRenderer::getTextWidthExternalUi(
   return widthPixels;
 }
 
-int GfxRenderer::getTextWidth(
-    const int fontId,
-    const char* text,
-    const EpdFontFamily::Style style
-) const {
-  FontManager& fontManager =
-      FontManager::getInstance();
+int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontFamily::Style style) const {
+  FontManager& fontManager = FontManager::getInstance();
 
-   // UI 外部字型
-  if (shouldUseExternalUiFont(fontId) &&
-      fontManager.isUiFontEnabled() &&
-      fontManager.getActiveUiFont() != nullptr) {
-
-    return getTextWidthExternalUi(
-        fontId,
-        text,
-        style
-    );
+  // UI 外部字型
+  if (shouldUseExternalUiFont(fontId) && fontManager.isUiFontEnabled() && fontManager.getActiveUiFont() != nullptr) {
+    return getTextWidthExternalUi(fontId, text, style);
   }
 
-  if (isReaderFont(fontId) &&
-      fontManager.isExternalFontEnabled() &&
-      fontManager.getActiveFont() != nullptr) {
-
-    return getTextWidthExternalReader(
-        fontId,
-        text,
-        style
-    );
+  if (isReaderFont(fontId) && fontManager.isExternalFontEnabled() && fontManager.getActiveFont() != nullptr) {
+    return getTextWidthExternalReader(fontId, text, style);
   }
 
   const auto fontIt = fontMap.find(fontId);
@@ -1891,15 +1650,12 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
   ExternalFont* activeUiFont = nullptr;
 
   if (shouldUseExternalUiFont(fontId)) {
-    FontManager& fontManager =
-        FontManager::getInstance();
+    FontManager& fontManager = FontManager::getInstance();
 
     if (fontManager.isUiFontEnabled()) {
-      activeUiFont =
-          fontManager.getActiveUiFont();
+      activeUiFont = fontManager.getActiveUiFont();
 
-      if (activeUiFont != nullptr &&
-          !activeUiFont->isLoaded()) {
+      if (activeUiFont != nullptr && !activeUiFont->isLoaded()) {
         activeUiFont = nullptr;
       }
     }
@@ -1935,20 +1691,15 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       const int raiseBy = combiningMark::raiseAboveBase(combiningGlyph->top, combiningGlyph->height, lastBaseTop);
       const int combiningX = combiningMark::centerOver(lastBaseX, lastBaseLeft, lastBaseWidth, combiningGlyph->left,
                                                        combiningGlyph->width);
-      renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, combiningX, builtinBaselineY - raiseBy, black, style);
+      renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, combiningX, builtinBaselineY - raiseBy, black,
+                                         style);
       continue;
     }
 
-        const bool useExternalReaderFont =
-        isReaderFont(fontId) &&
-        FontManager::getInstance().isExternalFontEnabled();
+    const bool useExternalReaderFont = isReaderFont(fontId) && FontManager::getInstance().isExternalFontEnabled();
 
-    ExternalFont* activeReaderFont = useExternalReaderFont
-                                         ? FontManager::getInstance().getActiveFont()
-                                         : nullptr;
-    if (activeReaderFont != nullptr &&
-        (activeReaderFont->handlesAllCodepoints() || isCjkCodepoint(cp))) {
-
+    ExternalFont* activeReaderFont = useExternalReaderFont ? FontManager::getInstance().getActiveFont() : nullptr;
+    if (activeReaderFont != nullptr && (activeReaderFont->handlesAllCodepoints() || isCjkCodepoint(cp))) {
       // 先把前一個內建字型 glyph 尚未套用的 advance 補上
       if (prevCp != 0) {
         lastBaseX += fp4::toPixel(prevAdvanceFP);
@@ -1957,12 +1708,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       prevCp = 0;
       prevAdvanceFP = 0;
 
-      if (renderExternalReaderGlyph(
-              cp,
-              &lastBaseX,
-              yPos,
-              black)) {
-
+      if (renderExternalReaderGlyph(cp, &lastBaseX, yPos, black)) {
         // 外部 glyph 已經自行前進 lastBaseX
         lastBaseLeft = 0;
         lastBaseWidth = 0;
@@ -1972,34 +1718,23 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       }
     }
 
-        if (activeUiFont != nullptr) {
-      const EpdGlyph* builtinGlyph =
-          font.getGlyphExact(cp, style);
+    if (activeUiFont != nullptr) {
+      const EpdGlyph* builtinGlyph = font.getGlyphExact(cp, style);
 
       const bool tryExternalUi = shouldPreferExternalUiGlyph(cp, builtinGlyph);
 
       if (tryExternalUi) {
         // 先結算前一個內建 glyph 尚未套用的 advance。
         if (prevCp != 0) {
-          lastBaseX +=
-              fp4::toPixel(prevAdvanceFP);
+          lastBaseX += fp4::toPixel(prevAdvanceFP);
         }
 
         prevCp = 0;
         prevAdvanceFP = 0;
 
-        const int externalBaseline =
-            y +
-            getExternalFontAscenderForRendering(
-                *activeUiFont
-            );
+        const int externalBaseline = y + getExternalFontAscenderForRendering(*activeUiFont);
 
-        if (renderExternalUiGlyph(
-                cp,
-                &lastBaseX,
-                externalBaseline,
-                black)) {
-
+        if (renderExternalUiGlyph(cp, &lastBaseX, externalBaseline, black)) {
           lastBaseLeft = 0;
           lastBaseWidth = 0;
           lastBaseTop = 0;
@@ -2018,29 +1753,27 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       prevCp = 0;
       prevAdvanceFP = 0;
 
-      const EpdGlyph* fallbackGlyph =
-          fallbackFont->getGlyphExact(cp, style);
-      const EpdFontData* fallbackData =
-          fallbackFont->getData(style);
+      const EpdGlyph* fallbackGlyph = fallbackFont->getGlyphExact(cp, style);
+      const EpdFontData* fallbackData = fallbackFont->getData(style);
 
       if (fallbackGlyph != nullptr && fallbackData != nullptr) {
         if (usesScaledReaderCjkFallback(fontId)) {
           const int percent = fallbackScalePercentForFontId(fontId);
-          renderBuiltinFallbackGlyphScaledPercent(
-              *fallbackFont, cp, lastBaseX, y, percent, black, style);
-          lastBaseLeft = scaleBuiltinCjkAxis(fallbackGlyph->left, percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH, BUILTIN_CJK_SOURCE_CELL_WIDTH);
-          lastBaseWidth = scaleBuiltinCjkAxisCeil(fallbackGlyph->width, percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH, BUILTIN_CJK_SOURCE_CELL_WIDTH);
-          lastBaseTop = scaleBuiltinCjkAxis(fallbackGlyph->top, percent, BUILTIN_CJK_LOGICAL_CELL_HEIGHT, BUILTIN_CJK_SOURCE_CELL_HEIGHT);
+          renderBuiltinFallbackGlyphScaledPercent(*fallbackFont, cp, lastBaseX, y, percent, black, style);
+          lastBaseLeft = scaleBuiltinCjkAxis(fallbackGlyph->left, percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH,
+                                             BUILTIN_CJK_SOURCE_CELL_WIDTH);
+          lastBaseWidth = scaleBuiltinCjkAxisCeil(fallbackGlyph->width, percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH,
+                                                  BUILTIN_CJK_SOURCE_CELL_WIDTH);
+          lastBaseTop = scaleBuiltinCjkAxis(fallbackGlyph->top, percent, BUILTIN_CJK_LOGICAL_CELL_HEIGHT,
+                                            BUILTIN_CJK_SOURCE_CELL_HEIGHT);
         } else if (usesCompactScaledCjkFallback(fontId)) {
-          renderBuiltinFallbackGlyphScaled(
-              *fallbackFont, cp, lastBaseX, y, black, style);
+          renderBuiltinFallbackGlyphScaled(*fallbackFont, cp, lastBaseX, y, black, style);
           lastBaseLeft = scaleCompactMetric(fallbackGlyph->left);
           lastBaseWidth = scaleCompactMetricCeil(fallbackGlyph->width);
           lastBaseTop = scaleCompactMetric(fallbackGlyph->top);
         } else {
-          renderCharImpl<TextRotation::None>(
-              *this, renderMode, *fallbackFont, cp,
-              lastBaseX, y + fallbackData->ascender, black, style);
+          renderCharImpl<TextRotation::None>(*this, renderMode, *fallbackFont, cp, lastBaseX,
+                                             y + fallbackData->ascender, black, style);
           lastBaseLeft = fallbackGlyph->left;
           lastBaseWidth = fallbackGlyph->width;
           lastBaseTop = fallbackGlyph->top;
@@ -2099,9 +1832,8 @@ void GfxRenderer::drawTextScaled(const int fontId, const int x, const int y, con
   const EpdFontFamily& font = fontIt->second;
   const EpdFontFamily* fallbackFont = getBuiltinFallbackForFontId(fontId);
   const EpdFontData* primaryData = font.getData(style);
-  const int primaryBaselineY =
-      y + (primaryData != nullptr ? static_cast<int>(primaryData->ascender) * safeScale
-                                  : getFontAscenderSize(fontId) * safeScale);
+  const int primaryBaselineY = y + (primaryData != nullptr ? static_cast<int>(primaryData->ascender) * safeScale
+                                                           : getFontAscenderSize(fontId) * safeScale);
 
   int cursorX = x;
   int32_t prevAdvanceFP = 0;
@@ -2126,10 +1858,12 @@ void GfxRenderer::drawTextScaled(const int fontId, const int x, const int y, con
         if (usesScaledReaderCjkFallback(fontId)) {
           const int percent = fallbackScalePercentForFontId(fontId) * safeScale;
           renderBuiltinFallbackGlyphScaledPercent(*fallbackFont, cp, cursorX, y, percent, black, style);
-          cursorX += std::max(1, scaleBuiltinCjkAxis(glyphAdvancePixels(fallbackGlyph, cp), percent, BUILTIN_CJK_LOGICAL_CELL_WIDTH, BUILTIN_CJK_SOURCE_CELL_WIDTH));
+          cursorX += std::max(1, scaleBuiltinCjkAxis(glyphAdvancePixels(fallbackGlyph, cp), percent,
+                                                     BUILTIN_CJK_LOGICAL_CELL_WIDTH, BUILTIN_CJK_SOURCE_CELL_WIDTH));
         } else {
           const int fallbackBaselineY = y + static_cast<int>(fallbackData->ascender) * safeScale;
-          renderCharImplScaled(*this, renderMode, *fallbackFont, cp, cursorX, fallbackBaselineY, safeScale, black, style);
+          renderCharImplScaled(*this, renderMode, *fallbackFont, cp, cursorX, fallbackBaselineY, safeScale, black,
+                               style);
           cursorX += fallbackAdvancePixels(fontId, fallbackGlyph, cp) * safeScale;
         }
         continue;
@@ -2149,14 +1883,8 @@ void GfxRenderer::drawTextScaled(const int fontId, const int x, const int y, con
   }
 }
 
-void GfxRenderer::drawVerticalText(
-    const int fontId,
-    const int rightX,
-    const int topY,
-    const char* text,
-    const bool black,
-    const EpdFontFamily::Style style
-) const {
+void GfxRenderer::drawVerticalText(const int fontId, const int rightX, const int topY, const char* text,
+                                   const bool black, const EpdFontFamily::Style style) const {
   if (text == nullptr || *text == '\0') {
     return;
   }
@@ -2175,16 +1903,14 @@ void GfxRenderer::drawVerticalText(
   const uint8_t* cursor = reinterpret_cast<const uint8_t*>(text);
 
   auto renderCenteredAnyFont = [&](const uint32_t renderCp) -> bool {
-    bool ok = renderExternalReaderGlyphCentered(
-        fontId, columnX, cursorY, glyphAdvance, glyphAdvance, renderCp, black);
+    bool ok = renderExternalReaderGlyphCentered(fontId, columnX, cursorY, glyphAdvance, glyphAdvance, renderCp, black);
     if (ok) return true;
 
-    ok = renderPrimaryGlyphCentered(
-        fontId, columnX, cursorY, glyphAdvance, glyphAdvance, renderCp, black, style);
+    ok = renderPrimaryGlyphCentered(fontId, columnX, cursorY, glyphAdvance, glyphAdvance, renderCp, black, style);
     if (ok) return true;
 
-    return renderBuiltinFallbackGlyphCentered(
-        fontId, columnX, cursorY, glyphAdvance, glyphAdvance, renderCp, black, style);
+    return renderBuiltinFallbackGlyphCentered(fontId, columnX, cursorY, glyphAdvance, glyphAdvance, renderCp, black,
+                                              style);
   };
 
   while (*cursor != 0) {
@@ -2225,11 +1951,9 @@ void GfxRenderer::drawVerticalText(
     // fall back to the old rotation path for known punctuation.  CJK ideographs
     // are never intentionally rotated here.
     if (!rendered && shouldRotateVerticalGlyph(cp)) {
-      rendered = renderExternalReaderGlyphRotated90CW(
-          fontId, columnX, cursorY, glyphAdvance, cp, black);
+      rendered = renderExternalReaderGlyphRotated90CW(fontId, columnX, cursorY, glyphAdvance, cp, black);
       if (!rendered) {
-        rendered = renderBuiltinFallbackGlyphRotated90CW(
-            fontId, columnX, cursorY, glyphAdvance, cp, black, style);
+        rendered = renderBuiltinFallbackGlyphRotated90CW(fontId, columnX, cursorY, glyphAdvance, cp, black, style);
       }
     }
 
@@ -2246,14 +1970,9 @@ void GfxRenderer::drawVerticalText(
 
     cursorY += glyphAdvance;
   }
-  ReaderMemoryDiagnostics::logDeltaIfChanged(
-      "drawVerticalText-total",
-      verticalBefore,
-      ReaderMemoryDiagnostics::capture(),
-      millis() - verticalStart,
-      128,
-      4096,
-      120);
+  ReaderMemoryDiagnostics::logDeltaIfChanged("drawVerticalText-total", verticalBefore,
+                                             ReaderMemoryDiagnostics::capture(), millis() - verticalStart, 128, 4096,
+                                             120);
 }
 
 void GfxRenderer::drawLine(int x1, int y1, int x2, int y2, const bool state) const {
@@ -2893,18 +2612,9 @@ void GfxRenderer::invertScreen() const {
   }
 }
 
-bool GfxRenderer::displayGc16Bitmap(
-    const Bitmap& bitmap,
-    const bool clearFirst,
-    const HalDisplay::Gc16DitherMode ditherMode,
-    const bool rotate180
-) const {
-  return display.showGc16Bitmap(
-      bitmap,
-      clearFirst,
-      ditherMode,
-      rotate180
-  );
+bool GfxRenderer::displayGc16Bitmap(const Bitmap& bitmap, const bool clearFirst,
+                                    const HalDisplay::Gc16DitherMode ditherMode, const bool rotate180) const {
+  return display.showGc16Bitmap(bitmap, clearFirst, ditherMode, rotate180);
 }
 
 void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const {
@@ -2916,13 +2626,8 @@ void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const
     mode = HalDisplay::FULL_REFRESH;
     forceNextFullRefresh = false;
   }
-  LOG_DBG(
-      "GFX",
-      "Time = %lu ms from clearScreen to displayBuffer mode=%d forcedFull=%d",
-      elapsed,
-      static_cast<int>(mode),
-      forcedFull ? 1 : 0
-  );
+  LOG_DBG("GFX", "Time = %lu ms from clearScreen to displayBuffer mode=%d forcedFull=%d", elapsed,
+          static_cast<int>(mode), forcedFull ? 1 : 0);
   display.displayBuffer(mode, fadingFix);
 }
 
@@ -2935,18 +2640,10 @@ void GfxRenderer::displayPhysicalRows(int rowStart, int rowEnd) const {
   display.displayBufferRows(rowStart, rowEnd, fadingFix);
 }
 
-void GfxRenderer::waitDisplayIdle() const {
-  display.waitUntilIdle();
-}
+void GfxRenderer::waitDisplayIdle() const { display.waitUntilIdle(); }
 
-void GfxRenderer::logicalRectToPhysicalRows(
-    const int x,
-    const int y,
-    const int width,
-    const int height,
-    int* rowStart,
-    int* rowEnd
-) const {
+void GfxRenderer::logicalRectToPhysicalRows(const int x, const int y, const int width, const int height, int* rowStart,
+                                            int* rowEnd) const {
   if (!rowStart || !rowEnd) return;
   const int x0 = x;
   const int y0 = y;
@@ -2989,14 +2686,12 @@ std::string GfxRenderer::truncatedText(const int fontId, const char* text, const
   boundaries.reserve(item.size() / 2 + 1);
   boundaries.push_back(0);
 
-  const auto* begin =
-      reinterpret_cast<const unsigned char*>(item.c_str());
+  const auto* begin = reinterpret_cast<const unsigned char*>(item.c_str());
   const unsigned char* cursor = begin;
 
   while (*cursor != '\0') {
     utf8NextCodepoint(&cursor);
-    boundaries.push_back(
-        static_cast<size_t>(cursor - begin));
+    boundaries.push_back(static_cast<size_t>(cursor - begin));
   }
 
   size_t low = 0;
@@ -3157,11 +2852,7 @@ int GfxRenderer::getKerning(const int fontId, const uint32_t leftCp, const uint3
   return fp4::toPixel(kernFP);                                           // snap 4.4 fixed-point to nearest pixel
 }
 
-int GfxRenderer::getTextAdvanceX(
-    const int fontId,
-    const char* text,
-    EpdFontFamily::Style style
-) const {
+int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFamily::Style style) const {
   if (text == nullptr || *text == '\0') {
     return 0;
   }
@@ -3170,14 +2861,8 @@ int GfxRenderer::getTextAdvanceX(
 
   // EPUB 排版使用 getTextAdvanceX()，因此這裡也必須使用
   // 與 drawText() 相同的外部中文字型 metrics。
-  if (isReaderFont(fontId) &&
-      fontManager.isExternalFontEnabled() &&
-      fontManager.getActiveFont() != nullptr) {
-    return getTextWidthExternalReader(
-        fontId,
-        text,
-        style
-    );
+  if (isReaderFont(fontId) && fontManager.isExternalFontEnabled() && fontManager.getActiveFont() != nullptr) {
+    return getTextWidthExternalReader(fontId, text, style);
   }
 
   // 以下保留原本程式
@@ -3194,24 +2879,16 @@ int GfxRenderer::getTextAdvanceX(
 int GfxRenderer::getFontAscenderSize(const int fontId) const {
   const EpdFontFamily* fallbackFont = getBuiltinFallbackForFontId(fontId);
 
-   // UI 字型優先使用外部 Noto 字型的 ascender。
-  FontManager& fontManager =
-      FontManager::getInstance();
+  // UI 字型優先使用外部 Noto 字型的 ascender。
+  FontManager& fontManager = FontManager::getInstance();
 
-  if (shouldUseExternalUiFont(fontId) &&
-    fontManager.isUiFontEnabled()) {
+  if (shouldUseExternalUiFont(fontId) && fontManager.isUiFontEnabled()) {
+    ExternalFont* uiFont = fontManager.getActiveUiFont();
 
-    ExternalFont* uiFont =
-        fontManager.getActiveUiFont();
-
-    if (uiFont != nullptr &&
-        uiFont->isLoaded()) {
-      const int externalAscender =
-          getExternalFontAscenderForRendering(*uiFont);
+    if (uiFont != nullptr && uiFont->isLoaded()) {
+      const int externalAscender = getExternalFontAscenderForRendering(*uiFont);
       const EpdFontData* fallbackData =
-          fallbackFont != nullptr
-              ? fallbackFont->getData(EpdFontFamily::REGULAR)
-              : nullptr;
+          fallbackFont != nullptr ? fallbackFont->getData(EpdFontFamily::REGULAR) : nullptr;
       return fallbackData != nullptr
                  ? std::max(externalAscender, fallbackMetricPixels(fontId, static_cast<int>(fallbackData->ascender)))
                  : externalAscender;
@@ -3220,13 +2897,13 @@ int GfxRenderer::getFontAscenderSize(const int fontId) const {
 
   if (isReaderFont(fontId) && fontManager.isExternalFontEnabled()) {
     ExternalFont* readerFont = fontManager.getActiveFont();
-    if (readerFont != nullptr && readerFont->isLoaded() && readerFont->isTtfFormat()) {
+    if (readerFont != nullptr && readerFont->isLoaded()) {
       const int externalAscender =
-          getExternalFontAscenderForRendering(*readerFont);
+          readerFont->isTtfFormat()
+              ? getExternalFontAscenderForRendering(*readerFont)
+              : scaleExternalBitmapMetric(getExternalFontAscenderForRendering(*readerFont), *readerFont);
       const EpdFontData* fallbackData =
-          fallbackFont != nullptr
-              ? fallbackFont->getData(EpdFontFamily::REGULAR)
-              : nullptr;
+          fallbackFont != nullptr ? fallbackFont->getData(EpdFontFamily::REGULAR) : nullptr;
       return fallbackData != nullptr
                  ? std::max(externalAscender, fallbackMetricPixels(fontId, static_cast<int>(fallbackData->ascender)))
                  : externalAscender;
@@ -3239,12 +2916,8 @@ int GfxRenderer::getFontAscenderSize(const int fontId) const {
     return 0;
   }
 
-  const int primaryAscender =
-      fontIt->second.getData(EpdFontFamily::REGULAR)->ascender;
-  const EpdFontData* fallbackData =
-      fallbackFont != nullptr
-          ? fallbackFont->getData(EpdFontFamily::REGULAR)
-          : nullptr;
+  const int primaryAscender = fontIt->second.getData(EpdFontFamily::REGULAR)->ascender;
+  const EpdFontData* fallbackData = fallbackFont != nullptr ? fallbackFont->getData(EpdFontFamily::REGULAR) : nullptr;
   return fallbackData != nullptr
              ? std::max(primaryAscender, fallbackMetricPixels(fontId, static_cast<int>(fallbackData->ascender)))
              : primaryAscender;
@@ -3253,24 +2926,16 @@ int GfxRenderer::getFontAscenderSize(const int fontId) const {
 int GfxRenderer::getLineHeight(const int fontId) const {
   const EpdFontFamily* fallbackFont = getBuiltinFallbackForFontId(fontId);
 
-   // UI 選單行距使用外部 UI 字型高度。
-  FontManager& fontManager =
-      FontManager::getInstance();
+  // UI 選單行距使用外部 UI 字型高度。
+  FontManager& fontManager = FontManager::getInstance();
 
-  if (shouldUseExternalUiFont(fontId) &&
-    fontManager.isUiFontEnabled()) {
+  if (shouldUseExternalUiFont(fontId) && fontManager.isUiFontEnabled()) {
+    ExternalFont* uiFont = fontManager.getActiveUiFont();
 
-    ExternalFont* uiFont =
-        fontManager.getActiveUiFont();
-
-    if (uiFont != nullptr &&
-        uiFont->isLoaded()) {
-      const int externalHeight =
-          getExternalFontLineHeightForRendering(*uiFont);
+    if (uiFont != nullptr && uiFont->isLoaded()) {
+      const int externalHeight = getExternalFontLineHeightForRendering(*uiFont);
       const EpdFontData* fallbackData =
-          fallbackFont != nullptr
-              ? fallbackFont->getData(EpdFontFamily::REGULAR)
-              : nullptr;
+          fallbackFont != nullptr ? fallbackFont->getData(EpdFontFamily::REGULAR) : nullptr;
       return fallbackData != nullptr
                  ? std::max(externalHeight, fallbackMetricPixels(fontId, static_cast<int>(fallbackData->advanceY)))
                  : externalHeight;
@@ -3279,13 +2944,13 @@ int GfxRenderer::getLineHeight(const int fontId) const {
 
   if (isReaderFont(fontId) && fontManager.isExternalFontEnabled()) {
     ExternalFont* readerFont = fontManager.getActiveFont();
-    if (readerFont != nullptr && readerFont->isLoaded() && readerFont->isTtfFormat()) {
+    if (readerFont != nullptr && readerFont->isLoaded()) {
       const int externalHeight =
-          getExternalFontLineHeightForRendering(*readerFont);
+          readerFont->isTtfFormat()
+              ? getExternalFontLineHeightForRendering(*readerFont)
+              : scaleExternalBitmapMetric(getExternalFontLineHeightForRendering(*readerFont), *readerFont);
       const EpdFontData* fallbackData =
-          fallbackFont != nullptr
-              ? fallbackFont->getData(EpdFontFamily::REGULAR)
-              : nullptr;
+          fallbackFont != nullptr ? fallbackFont->getData(EpdFontFamily::REGULAR) : nullptr;
       return fallbackData != nullptr
                  ? std::max(externalHeight, fallbackMetricPixels(fontId, static_cast<int>(fallbackData->advanceY)))
                  : externalHeight;
@@ -3298,12 +2963,8 @@ int GfxRenderer::getLineHeight(const int fontId) const {
     return 0;
   }
 
-  const int primaryHeight =
-      fontIt->second.getData(EpdFontFamily::REGULAR)->advanceY;
-  const EpdFontData* fallbackData =
-      fallbackFont != nullptr
-          ? fallbackFont->getData(EpdFontFamily::REGULAR)
-          : nullptr;
+  const int primaryHeight = fontIt->second.getData(EpdFontFamily::REGULAR)->advanceY;
+  const EpdFontData* fallbackData = fallbackFont != nullptr ? fallbackFont->getData(EpdFontFamily::REGULAR) : nullptr;
   return fallbackData != nullptr
              ? std::max(primaryHeight, fallbackMetricPixels(fontId, static_cast<int>(fallbackData->advanceY)))
              : primaryHeight;
@@ -3328,22 +2989,15 @@ int GfxRenderer::getLineHeightScaled(const int fontId, const int scale) const {
 
 int GfxRenderer::getTextHeight(const int fontId) const {
   const EpdFontFamily* fallbackFont = getBuiltinFallbackForFontId(fontId);
-  FontManager& fontManager =
-      FontManager::getInstance();
+  FontManager& fontManager = FontManager::getInstance();
 
-  if (shouldUseExternalUiFont(fontId) &&
-    fontManager.isUiFontEnabled()) {
+  if (shouldUseExternalUiFont(fontId) && fontManager.isUiFontEnabled()) {
+    ExternalFont* uiFont = fontManager.getActiveUiFont();
 
-    ExternalFont* uiFont =
-        fontManager.getActiveUiFont();
-
-    if (uiFont != nullptr &&
-        uiFont->isLoaded()) {
+    if (uiFont != nullptr && uiFont->isLoaded()) {
       const int externalHeight = uiFont->getCharHeight();
       const EpdFontData* fallbackData =
-          fallbackFont != nullptr
-              ? fallbackFont->getData(EpdFontFamily::REGULAR)
-              : nullptr;
+          fallbackFont != nullptr ? fallbackFont->getData(EpdFontFamily::REGULAR) : nullptr;
       return fallbackData != nullptr
                  ? std::max(externalHeight, fallbackMetricPixels(fontId, static_cast<int>(fallbackData->ascender)))
                  : externalHeight;
@@ -3352,12 +3006,12 @@ int GfxRenderer::getTextHeight(const int fontId) const {
 
   if (isReaderFont(fontId) && fontManager.isExternalFontEnabled()) {
     ExternalFont* readerFont = fontManager.getActiveFont();
-    if (readerFont != nullptr && readerFont->isLoaded() && readerFont->isTtfFormat()) {
-      const int externalHeight = readerFont->getCharHeight();
+    if (readerFont != nullptr && readerFont->isLoaded()) {
+      const int externalHeight = readerFont->isTtfFormat()
+                                     ? readerFont->getCharHeight()
+                                     : scaleExternalBitmapMetric(readerFont->getCharHeight(), *readerFont);
       const EpdFontData* fallbackData =
-          fallbackFont != nullptr
-              ? fallbackFont->getData(EpdFontFamily::REGULAR)
-              : nullptr;
+          fallbackFont != nullptr ? fallbackFont->getData(EpdFontFamily::REGULAR) : nullptr;
       return fallbackData != nullptr
                  ? std::max(externalHeight, fallbackMetricPixels(fontId, static_cast<int>(fallbackData->ascender)))
                  : externalHeight;
@@ -3369,12 +3023,8 @@ int GfxRenderer::getTextHeight(const int fontId) const {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
-  const int primaryHeight =
-      fontIt->second.getData(EpdFontFamily::REGULAR)->ascender;
-  const EpdFontData* fallbackData =
-      fallbackFont != nullptr
-          ? fallbackFont->getData(EpdFontFamily::REGULAR)
-          : nullptr;
+  const int primaryHeight = fontIt->second.getData(EpdFontFamily::REGULAR)->ascender;
+  const EpdFontData* fallbackData = fallbackFont != nullptr ? fallbackFont->getData(EpdFontFamily::REGULAR) : nullptr;
   return fallbackData != nullptr
              ? std::max(primaryHeight, fallbackMetricPixels(fontId, static_cast<int>(fallbackData->ascender)))
              : primaryHeight;
@@ -3423,19 +3073,15 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
       prevCp = 0;
       prevAdvanceFP = 0;
 
-      const EpdGlyph* fallbackGlyph =
-          fallbackFont->getGlyphExact(cp, style);
+      const EpdGlyph* fallbackGlyph = fallbackFont->getGlyphExact(cp, style);
       if (fallbackGlyph != nullptr) {
         if (usesCompactScaledCjkFallback(fontId)) {
-          renderBuiltinFallbackGlyphScaledRotated90CW(
-              *fallbackFont, cp, x, lastBaseY, black, style);
+          renderBuiltinFallbackGlyphScaledRotated90CW(*fallbackFont, cp, x, lastBaseY, black, style);
           lastBaseLeft = scaleCompactMetric(fallbackGlyph->left);
           lastBaseWidth = scaleCompactMetricCeil(fallbackGlyph->width);
           lastBaseTop = scaleCompactMetric(fallbackGlyph->top);
         } else {
-          renderCharImpl<TextRotation::Rotated90CW>(
-              *this, renderMode, *fallbackFont, cp,
-              x, lastBaseY, black, style);
+          renderCharImpl<TextRotation::Rotated90CW>(*this, renderMode, *fallbackFont, cp, x, lastBaseY, black, style);
           lastBaseLeft = fallbackGlyph->left;
           lastBaseWidth = fallbackGlyph->width;
           lastBaseTop = fallbackGlyph->top;

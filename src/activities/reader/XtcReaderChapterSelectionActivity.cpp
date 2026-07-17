@@ -168,12 +168,12 @@ void XtcReaderChapterSelectionActivity::render(RenderLock&&) {
 
   // Skip button hints in landscape CW mode (they overlap content)
   if (renderer.getOrientation() != GfxRenderer::LandscapeClockwise) {
-    const char* prevPageLabel = ButtonNavigator::hasPreviousPage(selectorIndex, static_cast<int>(chapters.size()), pageItems)
-                                    ? tr(STR_DIR_UP)
-                                    : "";
-    const char* nextPageLabel = ButtonNavigator::hasNextPage(selectorIndex, static_cast<int>(chapters.size()), pageItems)
-                                    ? tr(STR_DIR_DOWN)
-                                    : "";
+    const char* prevPageLabel =
+        ButtonNavigator::hasPreviousPage(selectorIndex, static_cast<int>(chapters.size()), pageItems) ? tr(STR_DIR_UP)
+                                                                                                      : "";
+    const char* nextPageLabel =
+        ButtonNavigator::hasNextPage(selectorIndex, static_cast<int>(chapters.size()), pageItems) ? tr(STR_DIR_DOWN)
+                                                                                                  : "";
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), prevPageLabel, nextPageLabel);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }

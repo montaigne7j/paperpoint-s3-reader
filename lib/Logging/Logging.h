@@ -29,23 +29,39 @@ won't trigger deprecation warnings.
 
 static HWCDC& logSerial = Serial;
 
+bool logShouldFormat(const char* level);
 void logPrintf(const char* level, const char* origin, const char* format, ...);
 
 #ifdef ENABLE_SERIAL_LOG
 #if LOG_LEVEL >= 0
-#define LOG_ERR(origin, format, ...) logPrintf("ERR", origin, format "\n", ##__VA_ARGS__)
+#define LOG_ERR(origin, format, ...)                        \
+  do {                                                      \
+    if (logShouldFormat("ERR")) {                           \
+      logPrintf("ERR", origin, format "\n", ##__VA_ARGS__); \
+    }                                                       \
+  } while (0)
 #else
 #define LOG_ERR(origin, format, ...)
 #endif
 
 #if LOG_LEVEL >= 1
-#define LOG_INF(origin, format, ...) logPrintf("INF", origin, format "\n", ##__VA_ARGS__)
+#define LOG_INF(origin, format, ...)                        \
+  do {                                                      \
+    if (logShouldFormat("INF")) {                           \
+      logPrintf("INF", origin, format "\n", ##__VA_ARGS__); \
+    }                                                       \
+  } while (0)
 #else
 #define LOG_INF(origin, format, ...)
 #endif
 
 #if LOG_LEVEL >= 2
-#define LOG_DBG(origin, format, ...) logPrintf("DBG", origin, format "\n", ##__VA_ARGS__)
+#define LOG_DBG(origin, format, ...)                        \
+  do {                                                      \
+    if (logShouldFormat("DBG")) {                           \
+      logPrintf("DBG", origin, format "\n", ##__VA_ARGS__); \
+    }                                                       \
+  } while (0)
 #else
 #define LOG_DBG(origin, format, ...)
 #endif

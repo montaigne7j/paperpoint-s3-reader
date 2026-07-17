@@ -1,7 +1,7 @@
 #include "ActivityManager.h"
 
-#include <HalPowerManager.h>
 #include <HalDisplay.h>
+#include <HalPowerManager.h>
 #include <SleepImageManager.h>
 #if CROSSPOINT_PAPERS3
 #include "CrossPointSettings.h"
@@ -20,6 +20,9 @@
 #include "reader/ReaderActivity.h"
 #include "settings/SettingsActivity.h"
 #include "util/FullScreenMessageActivity.h"
+#if CROSSPOINT_PAPERS3
+#include "../util/PocketLock.h"
+#endif
 
 void ActivityManager::begin() {
   xTaskCreate(&renderTaskTrampoline, "ActivityManagerRender",
@@ -60,8 +63,15 @@ void ActivityManager::renderTaskLoop() {
 
 void ActivityManager::loop() {
   if (currentActivity) {
-    // Note: do not hold a lock here, the loop() method must be responsible for acquire one if needed
-    currentActivity->loop();
+#if CROSSPOINT_PAPERS3
+    // Pocket lock: when a reader is physically upside down, ignore reader
+    // input/gestures.  Rendering and auto-sleep still continue normally.
+    if (!(currentActivity->isReaderActivity() && PocketLock::isLocked()))
+#endif
+    {
+      // Note: do not hold a lock here, the loop() method must be responsible for acquire one if needed
+      currentActivity->loop();
+    }
   }
 
   while (pendingAction != PendingAction::None) {
@@ -192,7 +202,11 @@ void ActivityManager::goToFileTransfer() {
 void ActivityManager::goToSettings() { replaceActivity(std::make_unique<SettingsActivity>(renderer, mappedInput)); }
 
 void ActivityManager::goToFileBrowser(std::string path) {
-  replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(path)));
+  replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(path), false));
+}
+
+void ActivityManager::goToComicFileBrowser(std::string path) {
+  replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(path), true));
 }
 
 void ActivityManager::goToRecentBooks() {
@@ -260,9 +274,7 @@ void ActivityManager::pushActivity(std::unique_ptr<Activity>&& activity) {
   // than with the menu UI.
   if (currentActivity && currentActivity->isReaderActivity()) {
     RenderLock snapshotLock;
-    SleepImages.captureReaderFrame(
-        display.getFrameBuffer(),
-        static_cast<uint8_t>(renderer.getOrientation()));
+    SleepImages.captureReaderFrame(display.getFrameBuffer(), static_cast<uint8_t>(renderer.getOrientation()));
   }
 #endif
 
@@ -305,6 +317,10 @@ bool ActivityManager::isReaderContextActive() const {
 }
 
 bool ActivityManager::skipLoopDelay() const { return currentActivity && currentActivity->skipLoopDelay(); }
+
+bool ActivityManager::allowIdlePowerSaving() const {
+  return !currentActivity || currentActivity->allowIdlePowerSaving();
+}
 
 void ActivityManager::requestUpdate(bool immediate) {
   if (immediate) {

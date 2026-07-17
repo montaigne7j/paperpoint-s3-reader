@@ -10,10 +10,11 @@
 #include "parsers/ChapterHtmlSlimParser.h"
 
 namespace {
-constexpr uint8_t SECTION_FILE_VERSION = 38;
-constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(uint8_t) +
-                                 sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) + sizeof(bool) +
-                                 sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint32_t) + sizeof(uint32_t);
+constexpr uint8_t SECTION_FILE_VERSION = 40;
+constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(int16_t) + sizeof(bool) +
+                                 sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) +
+                                 sizeof(bool) + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint16_t) +
+                                 sizeof(uint32_t) + sizeof(uint32_t);
 }  // namespace
 
 uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
@@ -33,8 +34,8 @@ uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
   return position;
 }
 
-void Section::writeSectionFileHeader(const int fontId, const float lineCompression, const uint8_t characterSpacing,
-                                     const bool extraParagraphSpacing,
+void Section::writeSectionFileHeader(const int fontId, const float lineCompression, const int16_t characterSpacing,
+                                     const bool extraParagraphSpacing, const bool paragraphFirstLineIndent,
                                      const uint8_t paragraphAlignment, const uint16_t viewportWidth,
                                      const uint16_t viewportHeight, const bool hyphenationEnabled,
                                      const bool embeddedStyle, const uint8_t imageRendering,
@@ -44,16 +45,18 @@ void Section::writeSectionFileHeader(const int fontId, const float lineCompressi
     return;
   }
   static_assert(HEADER_SIZE == sizeof(SECTION_FILE_VERSION) + sizeof(fontId) + sizeof(lineCompression) +
-                                   sizeof(characterSpacing) + sizeof(extraParagraphSpacing) + sizeof(paragraphAlignment) + sizeof(viewportWidth) +
-                                   sizeof(viewportHeight) + sizeof(pageCount) + sizeof(hyphenationEnabled) +
-                                   sizeof(embeddedStyle) + sizeof(imageRendering) + sizeof(readingLayout) +
-                                   sizeof(uint32_t) + sizeof(uint32_t),
+                                   sizeof(characterSpacing) + sizeof(extraParagraphSpacing) +
+                                   sizeof(paragraphFirstLineIndent) + sizeof(paragraphAlignment) +
+                                   sizeof(viewportWidth) + sizeof(viewportHeight) + sizeof(pageCount) +
+                                   sizeof(hyphenationEnabled) + sizeof(embeddedStyle) + sizeof(imageRendering) +
+                                   sizeof(readingLayout) + sizeof(uint32_t) + sizeof(uint32_t),
                 "Header size mismatch");
   serialization::writePod(file, SECTION_FILE_VERSION);
   serialization::writePod(file, fontId);
   serialization::writePod(file, lineCompression);
   serialization::writePod(file, characterSpacing);
   serialization::writePod(file, extraParagraphSpacing);
+  serialization::writePod(file, paragraphFirstLineIndent);
   serialization::writePod(file, paragraphAlignment);
   serialization::writePod(file, viewportWidth);
   serialization::writePod(file, viewportHeight);
@@ -66,8 +69,8 @@ void Section::writeSectionFileHeader(const int fontId, const float lineCompressi
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for anchor map offset (patched later)
 }
 
-bool Section::loadSectionFile(const int fontId, const float lineCompression, const uint8_t characterSpacing,
-                              const bool extraParagraphSpacing,
+bool Section::loadSectionFile(const int fontId, const float lineCompression, const int16_t characterSpacing,
+                              const bool extraParagraphSpacing, const bool paragraphFirstLineIndent,
                               const uint8_t paragraphAlignment, const uint16_t viewportWidth,
                               const uint16_t viewportHeight, const bool hyphenationEnabled, const bool embeddedStyle,
                               const uint8_t imageRendering, const uint8_t readingLayout) {
@@ -90,8 +93,9 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
     int fileFontId;
     uint16_t fileViewportWidth, fileViewportHeight;
     float fileLineCompression;
-    uint8_t fileCharacterSpacing;
+    int16_t fileCharacterSpacing;
     bool fileExtraParagraphSpacing;
+    bool fileParagraphFirstLineIndent;
     uint8_t fileParagraphAlignment;
     bool fileHyphenationEnabled;
     bool fileEmbeddedStyle;
@@ -101,6 +105,7 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
     serialization::readPod(file, fileLineCompression);
     serialization::readPod(file, fileCharacterSpacing);
     serialization::readPod(file, fileExtraParagraphSpacing);
+    serialization::readPod(file, fileParagraphFirstLineIndent);
     serialization::readPod(file, fileParagraphAlignment);
     serialization::readPod(file, fileViewportWidth);
     serialization::readPod(file, fileViewportHeight);
@@ -115,18 +120,22 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
       parametersMatch = false;
     }
     if (lineCompression != fileLineCompression) {
-      LOG_ERR("SCT", "Cache mismatch: lineCompression cached=%.3f current=%.3f", fileLineCompression,
-              lineCompression);
+      LOG_ERR("SCT", "Cache mismatch: lineCompression cached=%.3f current=%.3f", fileLineCompression, lineCompression);
       parametersMatch = false;
     }
     if (characterSpacing != fileCharacterSpacing) {
-      LOG_ERR("SCT", "Cache mismatch: characterSpacing cached=%u current=%u",
-              static_cast<unsigned>(fileCharacterSpacing), static_cast<unsigned>(characterSpacing));
+      LOG_ERR("SCT", "Cache mismatch: characterSpacing cached=%d current=%d", static_cast<int>(fileCharacterSpacing),
+              static_cast<int>(characterSpacing));
       parametersMatch = false;
     }
     if (extraParagraphSpacing != fileExtraParagraphSpacing) {
-      LOG_ERR("SCT", "Cache mismatch: extraParagraphSpacing cached=%d current=%d",
-              fileExtraParagraphSpacing ? 1 : 0, extraParagraphSpacing ? 1 : 0);
+      LOG_ERR("SCT", "Cache mismatch: extraParagraphSpacing cached=%d current=%d", fileExtraParagraphSpacing ? 1 : 0,
+              extraParagraphSpacing ? 1 : 0);
+      parametersMatch = false;
+    }
+    if (paragraphFirstLineIndent != fileParagraphFirstLineIndent) {
+      LOG_ERR("SCT", "Cache mismatch: paragraphFirstLineIndent cached=%d current=%d",
+              fileParagraphFirstLineIndent ? 1 : 0, paragraphFirstLineIndent ? 1 : 0);
       parametersMatch = false;
     }
     if (paragraphAlignment != fileParagraphAlignment) {
@@ -135,29 +144,29 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
       parametersMatch = false;
     }
     if (viewportWidth != fileViewportWidth || viewportHeight != fileViewportHeight) {
-      LOG_ERR("SCT", "Cache mismatch: viewport cached=%ux%u current=%ux%u",
-              static_cast<unsigned>(fileViewportWidth), static_cast<unsigned>(fileViewportHeight),
-              static_cast<unsigned>(viewportWidth), static_cast<unsigned>(viewportHeight));
+      LOG_ERR("SCT", "Cache mismatch: viewport cached=%ux%u current=%ux%u", static_cast<unsigned>(fileViewportWidth),
+              static_cast<unsigned>(fileViewportHeight), static_cast<unsigned>(viewportWidth),
+              static_cast<unsigned>(viewportHeight));
       parametersMatch = false;
     }
     if (hyphenationEnabled != fileHyphenationEnabled) {
-      LOG_ERR("SCT", "Cache mismatch: hyphenation cached=%d current=%d",
-              fileHyphenationEnabled ? 1 : 0, hyphenationEnabled ? 1 : 0);
+      LOG_ERR("SCT", "Cache mismatch: hyphenation cached=%d current=%d", fileHyphenationEnabled ? 1 : 0,
+              hyphenationEnabled ? 1 : 0);
       parametersMatch = false;
     }
     if (embeddedStyle != fileEmbeddedStyle) {
-      LOG_ERR("SCT", "Cache mismatch: embeddedStyle cached=%d current=%d",
-              fileEmbeddedStyle ? 1 : 0, embeddedStyle ? 1 : 0);
+      LOG_ERR("SCT", "Cache mismatch: embeddedStyle cached=%d current=%d", fileEmbeddedStyle ? 1 : 0,
+              embeddedStyle ? 1 : 0);
       parametersMatch = false;
     }
     if (imageRendering != fileImageRendering) {
-      LOG_ERR("SCT", "Cache mismatch: imageRendering cached=%u current=%u",
-              static_cast<unsigned>(fileImageRendering), static_cast<unsigned>(imageRendering));
+      LOG_ERR("SCT", "Cache mismatch: imageRendering cached=%u current=%u", static_cast<unsigned>(fileImageRendering),
+              static_cast<unsigned>(imageRendering));
       parametersMatch = false;
     }
     if (readingLayout != fileReadingLayout) {
-      LOG_ERR("SCT", "Cache mismatch: readingLayout cached=%u current=%u",
-              static_cast<unsigned>(fileReadingLayout), static_cast<unsigned>(readingLayout));
+      LOG_ERR("SCT", "Cache mismatch: readingLayout cached=%u current=%u", static_cast<unsigned>(fileReadingLayout),
+              static_cast<unsigned>(readingLayout));
       parametersMatch = false;
     }
 
@@ -193,13 +202,12 @@ bool Section::clearCache() const {
   return true;
 }
 
-bool Section::createSectionFile(const int fontId, const float lineCompression, const uint8_t characterSpacing,
-                                const bool extraParagraphSpacing,
+bool Section::createSectionFile(const int fontId, const float lineCompression, const int16_t characterSpacing,
+                                const bool extraParagraphSpacing, const bool paragraphFirstLineIndent,
                                 const uint8_t paragraphAlignment, const uint16_t viewportWidth,
                                 const uint16_t viewportHeight, const bool hyphenationEnabled, const bool embeddedStyle,
                                 const uint8_t imageRendering, const uint8_t readingLayout,
-                                const std::function<void()>& popupFn,
-                                const std::function<void(int)>& popupProgressFn,
+                                const std::function<void()>& popupFn, const std::function<void(int)>& popupProgressFn,
                                 const bool rejectImageFallback) {
   const auto localPath = epub->getSpineItem(spineIndex).href;
   const auto tmpHtmlPath = epub->getCachePath() + "/.tmp_" + std::to_string(spineIndex) + ".html";
@@ -250,8 +258,9 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   if (!Storage.openFileForWrite("SCT", filePath, file)) {
     return false;
   }
-  writeSectionFileHeader(fontId, lineCompression, characterSpacing, extraParagraphSpacing, paragraphAlignment, viewportWidth,
-                         viewportHeight, hyphenationEnabled, embeddedStyle, imageRendering, readingLayout);
+  writeSectionFileHeader(fontId, lineCompression, characterSpacing, extraParagraphSpacing, paragraphFirstLineIndent,
+                         paragraphAlignment, viewportWidth, viewportHeight, hyphenationEnabled, embeddedStyle,
+                         imageRendering, readingLayout);
   std::vector<uint32_t> lut = {};
 
   // Derive the content base directory and image cache path prefix for the parser
@@ -270,8 +279,8 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   }
 
   ChapterHtmlSlimParser visitor(
-      epub, tmpHtmlPath, renderer, fontId, lineCompression, characterSpacing, extraParagraphSpacing, paragraphAlignment, viewportWidth,
-      viewportHeight, hyphenationEnabled,
+      epub, tmpHtmlPath, renderer, fontId, lineCompression, characterSpacing, extraParagraphSpacing,
+      paragraphFirstLineIndent, paragraphAlignment, viewportWidth, viewportHeight, hyphenationEnabled,
       [this, &lut](std::unique_ptr<Page> page) { lut.emplace_back(this->onPageComplete(std::move(page))); },
       embeddedStyle, contentBase, imageBasePath, imageRendering, popupFn, popupProgressFn, cssParser);
   Hyphenator::setPreferredLanguage(epub->getLanguage());

@@ -3,8 +3,8 @@
 #include <FontManager.h>
 #include <HalStorage.h>
 #include <Logging.h>
-#include <TtfFontEngine.h>
 #include <ReaderMemoryDiagnostics.h>
+#include <TtfFontEngine.h>
 #include <esp_heap_caps.h>
 
 #include <algorithm>
@@ -186,13 +186,9 @@ bool ExternalFont::setRuntimeTtfRasterizeAllowed(const bool allowed, const char*
   return previous;
 }
 
-bool ExternalFont::isRuntimeTtfRasterizeAllowed() {
-  return gRuntimeTtfRasterizeAllowed;
-}
+bool ExternalFont::isRuntimeTtfRasterizeAllowed() { return gRuntimeTtfRasterizeAllowed; }
 
-void ExternalFont::resetRuntimeTtfMissSuppressed() {
-  gRuntimeTtfMissSuppressed = false;
-}
+void ExternalFont::resetRuntimeTtfMissSuppressed() { gRuntimeTtfMissSuppressed = false; }
 
 bool ExternalFont::consumeRuntimeTtfMissSuppressed() {
   const bool value = gRuntimeTtfMissSuppressed;
@@ -531,8 +527,10 @@ bool ExternalFont::ensureGlyphCache() {
 
   const ReaderMemoryDiagTrace cacheBefore = ReaderMemoryDiagnostics::capture();
   const unsigned long cacheStart = millis();
-  _cache = static_cast<CacheEntry*>(heap_caps_calloc(CACHE_SIZE, sizeof(CacheEntry), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-  _hashTable = static_cast<int16_t*>(heap_caps_malloc(CACHE_SIZE * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  _cache =
+      static_cast<CacheEntry*>(heap_caps_calloc(CACHE_SIZE, sizeof(CacheEntry), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  _hashTable =
+      static_cast<int16_t*>(heap_caps_malloc(CACHE_SIZE * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   const ReaderMemoryDiagTrace cacheAfter = ReaderMemoryDiagnostics::capture();
   ReaderMemoryDiagnostics::logDelta("glyph-cache-allocate", cacheBefore, cacheAfter, millis() - cacheStart);
   ReaderMemoryDiagnostics::logLargeBuffer("glyph-cache-entries", _cache, CACHE_SIZE * sizeof(CacheEntry));
@@ -659,7 +657,8 @@ const uint8_t* ExternalFont::getGlyph(uint32_t codepoint) {
     {
       char phase[96];
       std::snprintf(phase, sizeof(phase), "glyph-lookup-hit U+%04lx", static_cast<unsigned long>(codepoint));
-      ReaderMemoryDiagnostics::logDeltaIfChanged(phase, glyphLookupBefore, ReaderMemoryDiagnostics::capture(), millis() - glyphLookupStart, 512, 4096, 120);
+      ReaderMemoryDiagnostics::logDeltaIfChanged(phase, glyphLookupBefore, ReaderMemoryDiagnostics::capture(),
+                                                 millis() - glyphLookupStart, 512, 4096, 120);
     }
     return _cache[cacheIndex].bitmap;
   }
@@ -679,8 +678,7 @@ const uint8_t* ExternalFont::getGlyph(uint32_t codepoint) {
     return chosenSlot;
   };
 
-  auto publishSlot = [&](const int chosenSlot, const uint32_t cp, const bool ok,
-                         const ExternalGlyphMetrics& metrics) {
+  auto publishSlot = [&](const int chosenSlot, const uint32_t cp, const bool ok, const ExternalGlyphMetrics& metrics) {
     _cache[chosenSlot].codepoint = cp;
     _cache[chosenSlot].lastUsed = ++_accessCounter;
     _cache[chosenSlot].notFound = !ok;
@@ -711,7 +709,8 @@ const uint8_t* ExternalFont::getGlyph(uint32_t codepoint) {
       const ReaderMemoryDiagTrace missAfter = ReaderMemoryDiagnostics::capture();
       {
         char phase[96];
-        std::snprintf(phase, sizeof(phase), "glyph-cache-disk-hit-background U+%04lx", static_cast<unsigned long>(codepoint));
+        std::snprintf(phase, sizeof(phase), "glyph-cache-disk-hit-background U+%04lx",
+                      static_cast<unsigned long>(codepoint));
         ReaderMemoryDiagnostics::logDeltaIfChanged(phase, missBefore, missAfter, millis() - missStart, 128, 4096, 20);
       }
       publishSlot(cachedSlot, codepoint, ok, metrics);
@@ -721,18 +720,16 @@ const uint8_t* ExternalFont::getGlyph(uint32_t codepoint) {
     gRuntimeTtfMissSuppressed = true;
     const unsigned long now = millis();
     if ((now - gLastRuntimeTtfSuppressLogAt) >= kRuntimeTtfSuppressLogIntervalMs) {
-      LOG_DBG(
-          "TTF",
-          "TTF glyph miss rasterize suppressed: U+%04lx reason=%s",
-          static_cast<unsigned long>(codepoint),
-          gRuntimeTtfRasterizeReason ? gRuntimeTtfRasterizeReason : "runtime-guard"
-      );
+      LOG_DBG("TTF", "TTF glyph miss rasterize suppressed: U+%04lx reason=%s", static_cast<unsigned long>(codepoint),
+              gRuntimeTtfRasterizeReason ? gRuntimeTtfRasterizeReason : "runtime-guard");
       gLastRuntimeTtfSuppressLogAt = now;
     }
     {
       char phase[96];
-      std::snprintf(phase, sizeof(phase), "glyph-cache-miss-ttf-suppressed U+%04lx", static_cast<unsigned long>(codepoint));
-      ReaderMemoryDiagnostics::logDeltaIfChanged(phase, glyphLookupBefore, ReaderMemoryDiagnostics::capture(), millis() - glyphLookupStart, 128, 4096, 20);
+      std::snprintf(phase, sizeof(phase), "glyph-cache-miss-ttf-suppressed U+%04lx",
+                    static_cast<unsigned long>(codepoint));
+      ReaderMemoryDiagnostics::logDeltaIfChanged(phase, glyphLookupBefore, ReaderMemoryDiagnostics::capture(),
+                                                 millis() - glyphLookupStart, 128, 4096, 20);
     }
     return nullptr;
   }
@@ -745,8 +742,8 @@ const uint8_t* ExternalFont::getGlyph(uint32_t codepoint) {
     std::memset(_cache[slot].bitmap, 0, MAX_GLYPH_BYTES);
     const ReaderMemoryDiagTrace missBefore = ReaderMemoryDiagnostics::capture();
     const unsigned long missStart = millis();
-    const bool ok = _ttfEngine != nullptr &&
-                    _ttfEngine->loadGlyph(codepoint, _cache[slot].bitmap, MAX_GLYPH_BYTES, &metrics);
+    const bool ok =
+        _ttfEngine != nullptr && _ttfEngine->loadGlyph(codepoint, _cache[slot].bitmap, MAX_GLYPH_BYTES, &metrics);
     const ReaderMemoryDiagTrace missAfter = ReaderMemoryDiagnostics::capture();
     {
       char phase[96];
@@ -756,8 +753,10 @@ const uint8_t* ExternalFont::getGlyph(uint32_t codepoint) {
     publishSlot(slot, codepoint, ok, metrics);
     {
       char phase[96];
-      std::snprintf(phase, sizeof(phase), "glyph-bitmap-store-cache-ttf U+%04lx", static_cast<unsigned long>(codepoint));
-      ReaderMemoryDiagnostics::logDeltaIfChanged(phase, glyphLookupBefore, ReaderMemoryDiagnostics::capture(), millis() - glyphLookupStart, 256, 4096, 40);
+      std::snprintf(phase, sizeof(phase), "glyph-bitmap-store-cache-ttf U+%04lx",
+                    static_cast<unsigned long>(codepoint));
+      ReaderMemoryDiagnostics::logDeltaIfChanged(phase, glyphLookupBefore, ReaderMemoryDiagnostics::capture(),
+                                                 millis() - glyphLookupStart, 256, 4096, 40);
     }
     return ok ? _cache[slot].bitmap : nullptr;
   }
@@ -956,7 +955,8 @@ const uint8_t* ExternalFont::getGlyph(uint32_t codepoint) {
   {
     char phase[96];
     std::snprintf(phase, sizeof(phase), "glyph-cache-miss-load-bitmap U+%04lx", static_cast<unsigned long>(codepoint));
-    ReaderMemoryDiagnostics::logDeltaIfChanged(phase, glyphLookupBefore, ReaderMemoryDiagnostics::capture(), millis() - glyphLookupStart, 256, 4096, 40);
+    ReaderMemoryDiagnostics::logDeltaIfChanged(phase, glyphLookupBefore, ReaderMemoryDiagnostics::capture(),
+                                               millis() - glyphLookupStart, 256, 4096, 40);
   }
   if (_cache[slot].notFound) {
     return nullptr;
@@ -1167,7 +1167,8 @@ void ExternalFont::preloadGlyphs(const uint32_t* codepoints, size_t count) {
   std::sort(sorted.begin(), sorted.end());
   sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
   const ReaderMemoryDiagTrace sortAfter = ReaderMemoryDiagnostics::capture();
-  ReaderMemoryDiagnostics::logDeltaIfChanged("temporary-vector-preloadGlyphs-sorted", sortBefore, sortAfter, millis() - sortStart, 256, 4096, 20);
+  ReaderMemoryDiagnostics::logDeltaIfChanged("temporary-vector-preloadGlyphs-sorted", sortBefore, sortAfter,
+                                             millis() - sortStart, 256, 4096, 20);
 
   if (_isTtfFormat) {
     const unsigned long startTime = millis();

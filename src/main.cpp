@@ -25,10 +25,14 @@
 #include "RecentBooksStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
+#if CROSSPOINT_PAPERS3
+#include "util/PocketLock.h"
+#endif
 
 #include <Bitmap.h>
 #if defined(ESP32)
@@ -46,21 +50,17 @@ namespace {
  * false：
  *   正常啟動 CrossPoint。
  */
-constexpr bool ENABLE_GC16_BOOT_TEST =
-    false;
+constexpr bool ENABLE_GC16_BOOT_TEST = false;
 
-constexpr bool GC16_TEST_BITMAP =
-    false;
+constexpr bool GC16_TEST_BITMAP = false;
 
-constexpr const char*
-    GC16_TEST_BITMAP_PATH =
-        "/.sleep/"
-        "papers3_sleep_540x960.bmp";
+constexpr const char* GC16_TEST_BITMAP_PATH =
+    "/.sleep/"
+    "papers3_sleep_540x960.bmp";
 
 }  // namespace
 
-constexpr bool GC16_ENABLE_FLOYD_STEINBERG =
-    false;
+constexpr bool GC16_ENABLE_FLOYD_STEINBERG = false;
 
 HalDisplay display;
 HalGPIO gpio;
@@ -163,9 +163,7 @@ void enterDeepSleep() {
   // the current page here as well.
   if (activityManager.isReaderActivity()) {
     RenderLock snapshotLock;
-    SleepImages.captureReaderFrame(
-        display.getFrameBuffer(),
-        static_cast<uint8_t>(renderer.getOrientation()));
+    SleepImages.captureReaderFrame(display.getFrameBuffer(), static_cast<uint8_t>(renderer.getOrientation()));
   }
 #endif
   APP_STATE.lastSleepFromReader = activityManager.isReaderContextActive();
@@ -196,17 +194,10 @@ void setupExternalFonts() {
 
   const int fontCount = fontManager.getFontCount();
 
-  LOG_INF(
-      "MAIN",
-      "External font scan complete: %d font(s)",
-      fontCount
-  );
+  LOG_INF("MAIN", "External font scan complete: %d font(s)", fontCount);
 
   if (fontCount <= 0) {
-    LOG_INF(
-        "MAIN",
-        "No external fonts found in /fonts; using built-in fonts"
-    );
+    LOG_INF("MAIN", "No external fonts found in /fonts; using built-in fonts");
     return;
   }
 
@@ -216,13 +207,12 @@ void setupExternalFonts() {
   // The embedded PaperPoint Sans TC font is now the default Chinese UI
   // fallback. loadSettings() may still restore an explicitly selected external
   // UI font, but no SD-card font is auto-forced on every boot.
-  if (fontManager.isUiFontEnabled() &&
-      fontManager.getActiveUiFont() != nullptr) {
+  if (fontManager.isUiFontEnabled() && fontManager.getActiveUiFont() != nullptr) {
     const int uiIndex = fontManager.getUiSelectedIndex();
     const FontInfo* uiInfo = fontManager.getFontInfo(uiIndex);
     if (uiInfo != nullptr) {
-      LOG_INF("MAIN", "Saved external UI font active: %s (%dpt, %dx%d)",
-              uiInfo->filename, uiInfo->size, uiInfo->width, uiInfo->height);
+      LOG_INF("MAIN", "Saved external UI font active: %s (%dpt, %dx%d)", uiInfo->filename, uiInfo->size, uiInfo->width,
+              uiInfo->height);
     }
   } else {
     LOG_INF("MAIN", "Using embedded Traditional Chinese UI fallback");
@@ -251,22 +241,13 @@ void setupExternalFonts() {
   }
 
   const int selectedIndex = fontManager.getSelectedIndex();
-  const FontInfo* selectedFont =
-      fontManager.getFontInfo(selectedIndex);
+  const FontInfo* selectedFont = fontManager.getFontInfo(selectedIndex);
 
-  if (selectedFont != nullptr &&
-      fontManager.isExternalFontEnabled()) {
-
-    LOG_INF(
-        "MAIN",
-        "External reader font active: %s "
-        "(file=%s, size=%u, cell=%ux%u)",
-        selectedFont->name,
-        selectedFont->filename,
-        selectedFont->size,
-        selectedFont->width,
-        selectedFont->height
-    );
+  if (selectedFont != nullptr && fontManager.isExternalFontEnabled()) {
+    LOG_INF("MAIN",
+            "External reader font active: %s "
+            "(file=%s, size=%u, cell=%ux%u)",
+            selectedFont->name, selectedFont->filename, selectedFont->size, selectedFont->width, selectedFont->height);
   } else {
     LOG_INF("MAIN", "Built-in reader font active");
   }
@@ -290,7 +271,9 @@ void setupDisplayAndFonts() {
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
   renderer.setBuiltinFallbackFont(&paperpointSansTcFallbackFamily);
-  LOG_INF("MAIN", "Built-in Traditional Chinese fallback active: PaperPoint Sans TC Medium (21x30); status text bottom-aligned");
+  LOG_INF(
+      "MAIN",
+      "Built-in Traditional Chinese fallback active: PaperPoint Sans TC Medium (21x30); status text bottom-aligned");
   LOG_DBG("MAIN", "Fonts setup");
 }
 
@@ -313,6 +296,11 @@ void setup() {
 #endif
 
   HalSystem::begin();
+#if CROSSPOINT_PAPERS3
+  // Initialize the shared Paper S3 I2C bus/BMI270 before attaching GT911.
+  // HalTouch uses bus_shared=true and then joins the same controller.
+  PocketLock::begin();
+#endif
   gpio.begin();
   powerManager.begin();
   halClock.begin();
@@ -366,111 +354,71 @@ void setup() {
 
   setupDisplayAndFonts();
 
-  #if CROSSPOINT_PAPERS3
+#if CROSSPOINT_PAPERS3
   if (ENABLE_GC16_BOOT_TEST) {
-    LOG_INF(
-        "GC16",
-        "Boot GC16 test mode enabled"
-    );
+    LOG_INF("GC16", "Boot GC16 test mode enabled");
 
     /*
-    * display.begin() 已經完成面板初始化。
-    * 稍微等待，讓 Serial log 與先前白畫面刷新穩定。
-    */
+     * display.begin() 已經完成面板初始化。
+     * 稍微等待，讓 Serial log 與先前白畫面刷新穩定。
+     */
     delay(250);
 
-    const uint32_t gc16Start =
-        millis();
+    const uint32_t gc16Start = millis();
 
     bool gc16Success = false;
 
     if (GC16_TEST_BITMAP) {
       FsFile gc16File;
 
-      if (!Storage.openFileForRead(
-              "GC16",
-              GC16_TEST_BITMAP_PATH,
-              gc16File)) {
-        LOG_ERR(
-            "GC16",
-            "Failed to open test BMP: %s",
-            GC16_TEST_BITMAP_PATH
-        );
+      if (!Storage.openFileForRead("GC16", GC16_TEST_BITMAP_PATH, gc16File)) {
+        LOG_ERR("GC16", "Failed to open test BMP: %s", GC16_TEST_BITMAP_PATH);
       } else {
-        Bitmap bitmap(
-            gc16File,
-            false
-        );
+        Bitmap bitmap(gc16File, false);
 
-        const BmpReaderError parseResult =
-            bitmap.parseHeaders();
+        const BmpReaderError parseResult = bitmap.parseHeaders();
 
-        if (parseResult !=
-            BmpReaderError::Ok) {
-          LOG_ERR(
-              "GC16",
-              "BMP parse failed: %s",
-              Bitmap::errorToString(
-                  parseResult
-              )
-          );
+        if (parseResult != BmpReaderError::Ok) {
+          LOG_ERR("GC16", "BMP parse failed: %s", Bitmap::errorToString(parseResult));
         } else {
-          gc16Success =
-            display.showGc16Bitmap(
-                bitmap,
-                true,
-                GC16_ENABLE_FLOYD_STEINBERG
-                    ? HalDisplay::
-                          Gc16DitherMode::
-                              FloydSteinberg
-                    : HalDisplay::
-                          Gc16DitherMode::
-                              None
-            );
+          gc16Success = display.showGc16Bitmap(bitmap, true,
+                                               GC16_ENABLE_FLOYD_STEINBERG ? HalDisplay::Gc16DitherMode::FloydSteinberg
+                                                                           : HalDisplay::Gc16DitherMode::None);
         }
 
         gc16File.close();
       }
     } else {
-      gc16Success =
-          display.showGc16TestBars(
-              true
-          );
+      gc16Success = display.showGc16TestBars(true);
     }
 
-    LOG_INF(
-        "GC16",
-        "Boot test finished: success=%d, "
-        "time=%lu ms",
-        gc16Success ? 1 : 0,
-        millis() - gc16Start
-    );
+    LOG_INF("GC16",
+            "Boot test finished: success=%d, "
+            "time=%lu ms",
+            gc16Success ? 1 : 0, millis() - gc16Start);
 
     /*
-    * 絕對不要繼續執行：
-    *
-    *   activityManager.goToBoot();
-    *   activityManager.goHome();
-    *   renderer.displayBuffer();
-    *
-    * 因為現有 2bpp screenbuffer 不知道面板目前
-    * 顯示的是 GC16 圖片。
-    */
-    LOG_INF(
-        "GC16",
-        "System halted on GC16 test screen"
-    );
+     * 絕對不要繼續執行：
+     *
+     *   activityManager.goToBoot();
+     *   activityManager.goHome();
+     *   renderer.displayBuffer();
+     *
+     * 因為現有 2bpp screenbuffer 不知道面板目前
+     * 顯示的是 GC16 圖片。
+     */
+    LOG_INF("GC16", "System halted on GC16 test screen");
 
     for (;;) {
       /*
-      * 不進 deep sleep，也不再更新面板。
-      * delay() 會讓 FreeRTOS idle task 運作，
-      * 避免 watchdog reset。
-      */
+       * 不進 deep sleep，也不再更新面板。
+       * delay() 會讓 FreeRTOS idle task 運作，
+       * 避免 watchdog reset。
+       */
       delay(1000);
     }
   }
-  #endif
+#endif
 
   // Skip the Boot activity. Loading these small state files before selecting
   // the initial activity avoids a redundant boot-logo EPD refresh and lets the
@@ -511,6 +459,24 @@ void loop() {
   static unsigned long lastMemPrint = 0;
 
   gpio.update();
+#if CROSSPOINT_PAPERS3
+  PocketLock::update();
+  if (activityManager.isReaderContextActive() && PocketLock::consumeOrientationChanged()) {
+    const uint8_t sensedOrientation = PocketLock::desiredOrientation();
+    SETTINGS.orientation = sensedOrientation;
+    ReaderUtils::applyOrientation(renderer, sensedOrientation);
+    mappedInputManager.setTouchOrientation(sensedOrientation);
+    renderer.requestFullRefresh();
+    activityManager.requestUpdate();
+  }
+  const bool readerInputLocked = activityManager.isReaderContextActive() && PocketLock::isLocked();
+  static bool previousReaderInputLocked = false;
+  if (readerInputLocked != previousReaderInputLocked) {
+    mappedInputManager.clearState();
+    previousReaderInputLocked = readerInputLocked;
+    LOG_INF("LOCK", "Reader input %s by upside-down pocket lock", readerInputLocked ? "locked" : "unlocked");
+  }
+#endif
 
   renderer.setFadingFix(SETTINGS.fadingFix);
 
@@ -521,16 +487,12 @@ void loop() {
     const uint32_t internalMinFree = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     const uint32_t psramFree = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     const uint32_t psramMaxAlloc = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    LOG_INF(
-        "MEM",
-        "Internal Free: %lu bytes, Total: %d bytes, Min Free: %lu bytes, MaxAlloc: %lu bytes; PSRAM Free: %lu bytes, MaxAlloc: %lu bytes",
-        static_cast<unsigned long>(internalFree),
-        ESP.getHeapSize(),
-        static_cast<unsigned long>(internalMinFree),
-        static_cast<unsigned long>(internalMaxAlloc),
-        static_cast<unsigned long>(psramFree),
-        static_cast<unsigned long>(psramMaxAlloc)
-    );
+    LOG_INF("MEM",
+            "Internal Free: %lu bytes, Total: %d bytes, Min Free: %lu bytes, MaxAlloc: %lu bytes; PSRAM Free: %lu "
+            "bytes, MaxAlloc: %lu bytes",
+            static_cast<unsigned long>(internalFree), ESP.getHeapSize(), static_cast<unsigned long>(internalMinFree),
+            static_cast<unsigned long>(internalMaxAlloc), static_cast<unsigned long>(psramFree),
+            static_cast<unsigned long>(psramMaxAlloc));
 #else
     LOG_INF("MEM", "Free: %d bytes, Total: %d bytes, Min Free: %d bytes, MaxAlloc: %d bytes", ESP.getFreeHeap(),
             ESP.getHeapSize(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
@@ -556,7 +518,12 @@ void loop() {
 
   // Check for any user activity (button press or release) or active background work
   static unsigned long lastActivityTime = millis();
-  if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || activityManager.preventAutoSleep()) {
+  if (((gpio.wasAnyPressed() || gpio.wasAnyReleased())
+#if CROSSPOINT_PAPERS3
+       && !readerInputLocked
+#endif
+       ) ||
+      activityManager.preventAutoSleep()) {
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
 #if CROSSPOINT_PAPERS3
@@ -583,7 +550,7 @@ void loop() {
   // on-screen power button is therefore mapped to BTN_POWER. On release,
   // reuse the normal deep-sleep path so the configured sleep picture is
   // rendered completely before panel and system power are shut down.
-  if (mappedInputManager.wasReleased(MappedInputManager::Button::Power)) {
+  if (!readerInputLocked && mappedInputManager.wasReleased(MappedInputManager::Button::Power)) {
     LOG_DBG("SLP", "On-screen power button tapped");
     enterDeepSleep();
     return;
@@ -620,7 +587,11 @@ void loop() {
 #endif
 
   const unsigned long activityStartTime = millis();
+#if CROSSPOINT_PAPERS3
+  if (!readerInputLocked) activityManager.loop();
+#else
   activityManager.loop();
+#endif
   if (activityManager.consumeDeepSleepRequest()) {
     LOG_DBG("SLP", "Deep sleep requested by UI");
     enterDeepSleep();
@@ -631,9 +602,7 @@ void loop() {
   if (renderBusy) {
     SleepImages.noteUserActivity();
   }
-  SleepImages.loop(
-      millis() - lastActivityTime,
-      activityManager.preventAutoSleep() || renderBusy);
+  SleepImages.loop(millis() - lastActivityTime, activityManager.preventAutoSleep() || renderBusy);
 #endif
   const unsigned long activityDuration = millis() - activityStartTime;
 
@@ -653,8 +622,12 @@ void loop() {
     yield();                             // Give FreeRTOS a chance to run tasks, but return immediately
   } else {
 #if CROSSPOINT_PAPERS3
-    // PaperS3: minimal delay for fast touch response (~500Hz polling).
-    // Power management is handled by the PMIC, not CPU throttling.
+    // r33 stability policy: keep Paper S3 at the normal CPU frequency.
+    // The previous 80 MHz idle transition intermittently caused freezes in
+    // touch, SD, image decoding, and reader background tasks. Retain only a
+    // short cooperative delay; deep sleep remains the supported power-saving
+    // mechanism.
+    powerManager.setPowerSaving(false);
     delay(2);
 #else
     if (millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS) {

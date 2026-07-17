@@ -8,17 +8,17 @@
 #include <XmlParserUtils.h>
 #include <expat.h>
 
+#include <algorithm>
+#include <cctype>
+#include <cstdint>
+#include <cstdio>
+
+#include "../../../../src/CrossPointSettings.h"
 #include "../../Epub.h"
 #include "../Page.h"
 #include "../converters/ImageDecoderFactory.h"
 #include "../converters/ImageToFramebufferDecoder.h"
 #include "../htmlEntities.h"
-#include <algorithm>
-#include <cctype>
-#include <cstdio>
-#include <cstdint>
-
-#include "../../../../src/CrossPointSettings.h"
 
 const char* HEADER_TAGS[] = {"h1", "h2", "h3", "h4", "h5", "h6"};
 constexpr int NUM_HEADER_TAGS = sizeof(HEADER_TAGS) / sizeof(HEADER_TAGS[0]);
@@ -45,10 +45,7 @@ constexpr int NUM_IMAGE_TAGS = sizeof(IMAGE_TAGS) / sizeof(IMAGE_TAGS[0]);
 const char* SKIP_TAGS[] = {"head"};
 constexpr int NUM_SKIP_TAGS = sizeof(SKIP_TAGS) / sizeof(SKIP_TAGS[0]);
 
-static bool isVerticalLayoutEnabled() {
-  return SETTINGS.readingLayout ==
-         CrossPointSettings::VERTICAL_LAYOUT;
-}
+static bool isVerticalLayoutEnabled() { return SETTINGS.readingLayout == CrossPointSettings::VERTICAL_LAYOUT; }
 
 bool isWhitespace(const char c) { return c == ' ' || c == '\r' || c == '\n' || c == '\t'; }
 
@@ -99,9 +96,8 @@ std::string getImageSource(const XML_Char** atts) {
   // Prefer the standard XHTML/SVG source attributes. Lazy-load metadata is
   // only a fallback because some EPUB generators leave stale or web-only
   // values in data-src while the packaged PNG/JPEG path in src is correct.
-  static const char* ATTRIBUTES[] = {"src", "href", "xlink:href", "data-src",
-                                     "data-original", "data-original-src",
-                                     "data-lazy-src", "data-echo"};
+  static const char* ATTRIBUTES[] = {
+      "src", "href", "xlink:href", "data-src", "data-original", "data-original-src", "data-lazy-src", "data-echo"};
   for (const char* attribute : ATTRIBUTES) {
     const char* value = getAttribute(atts, attribute);
     if (value != nullptr && value[0] != '\0') return value;
@@ -162,13 +158,11 @@ std::string sniffRasterExtension(const std::string& path) {
   const int bytesRead = file.read(header, sizeof(header));
   file.close();
 
-  if (bytesRead >= 8 && header[0] == 0x89 && header[1] == 0x50 &&
-      header[2] == 0x4e && header[3] == 0x47 && header[4] == 0x0d &&
-      header[5] == 0x0a && header[6] == 0x1a && header[7] == 0x0a) {
+  if (bytesRead >= 8 && header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4e && header[3] == 0x47 &&
+      header[4] == 0x0d && header[5] == 0x0a && header[6] == 0x1a && header[7] == 0x0a) {
     return ".png";
   }
-  if (bytesRead >= 3 && header[0] == 0xff && header[1] == 0xd8 &&
-      header[2] == 0xff) {
+  if (bytesRead >= 3 && header[0] == 0xff && header[1] == 0xd8 && header[2] == 0xff) {
     return ".jpg";
   }
   return {};
@@ -206,9 +200,8 @@ bool useExistingRasterCache(const std::string& path, std::string* cachedImagePat
   return true;
 }
 
-bool extractSupportedRasterImage(Epub* epub, const std::string& resolvedPath,
-                                  const std::string& cacheBasePath,
-                                  std::string* cachedImagePath) {
+bool extractSupportedRasterImage(Epub* epub, const std::string& resolvedPath, const std::string& cacheBasePath,
+                                 std::string* cachedImagePath) {
   if (epub == nullptr || cachedImagePath == nullptr || resolvedPath.empty()) return false;
 
   std::string extension = lowerExtension(resolvedPath);
@@ -356,13 +349,7 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
 
   // flush the buffer
   partWordBuffer[partWordBufferIndex] = '\0';
-  currentTextBlock->addWord(
-    partWordBuffer,
-    fontStyle,
-    false,
-    nextWordContinues,
-    nextWordNoSpace
-  );
+  currentTextBlock->addWord(partWordBuffer, fontStyle, false, nextWordContinues, nextWordNoSpace);
 
   partWordBufferIndex = 0;
   nextWordContinues = false;
@@ -395,7 +382,8 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
     anchorData.push_back({std::move(pendingAnchorId), static_cast<uint16_t>(completedPageCount)});
     pendingAnchorId.clear();
   }
-  currentTextBlock.reset(new ParsedText(extraParagraphSpacing, hyphenationEnabled, blockStyle));
+  currentTextBlock.reset(
+      new ParsedText(extraParagraphSpacing, paragraphFirstLineIndent, hyphenationEnabled, blockStyle));
   wordsExtractedInBlock = 0;
 }
 
@@ -517,8 +505,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
             // Extract first, then inspect the bytes when the EPUB uses no file
             // extension or a misleading extension. This covers many generator-
             // produced EPUBs whose JPEG/PNG resources are named as generic items.
-            const std::string cacheBasePath =
-                sharedImageCacheBasePath(self->epub.get(), resolvedPath);
+            const std::string cacheBasePath = sharedImageCacheBasePath(self->epub.get(), resolvedPath);
             self->imageCounter++;
             std::string cachedImagePath;
             bool extractSuccess = false;
@@ -532,8 +519,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 LOG_DBG("EHP", "Retrying image extraction (%d/3): %s", attempt + 1, resolvedPath.c_str());
                 delay(40 * attempt);
               }
-              extractSuccess = extractSupportedRasterImage(
-                  self->epub.get(), resolvedPath, cacheBasePath, &cachedImagePath);
+              extractSuccess =
+                  extractSupportedRasterImage(self->epub.get(), resolvedPath, cacheBasePath, &cachedImagePath);
             }
 
             // Keep compatibility with the original parser's simple path join.
@@ -541,16 +528,14 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
             // normalization; retry the historical resolution before falling
             // back to alt text.
             if (!extractSuccess) {
-              const std::string legacyPath =
-                  FsHelpers::normalisePath(self->contentBase + src);
+              const std::string legacyPath = FsHelpers::normalisePath(self->contentBase + src);
               if (!legacyPath.empty() && legacyPath != resolvedPath) {
                 LOG_DBG("EHP", "Retrying legacy image path: %s", legacyPath.c_str());
-                const std::string legacyCacheBasePath =
-                    sharedImageCacheBasePath(self->epub.get(), legacyPath);
+                const std::string legacyCacheBasePath = sharedImageCacheBasePath(self->epub.get(), legacyPath);
                 for (int attempt = 0; attempt < 3 && !extractSuccess; ++attempt) {
                   if (attempt > 0) delay(40 * attempt);
-                  extractSuccess = extractSupportedRasterImage(
-                      self->epub.get(), legacyPath, legacyCacheBasePath, &cachedImagePath);
+                  extractSuccess =
+                      extractSupportedRasterImage(self->epub.get(), legacyPath, legacyCacheBasePath, &cachedImagePath);
                 }
               }
             }
@@ -664,15 +649,12 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                     self->flushPartWordBuffer();
                   }
 
-                  if (self->currentTextBlock &&
-                      !self->currentTextBlock->isEmpty()) {
+                  if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
                     self->makePages();
                   }
 
-                  if (self->currentPage &&
-                      !self->currentPage->elements.empty()) {
-                    self->completePageFn(
-                        std::move(self->currentPage));
+                  if (self->currentPage && !self->currentPage->elements.empty()) {
+                    self->completePageFn(std::move(self->currentPage));
                     ++self->completedPageCount;
                     self->currentPage.reset();
                   }
@@ -683,30 +665,17 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                     return;
                   }
 
-                  auto imageBlock =
-                      std::make_shared<ImageBlock>(
-                          cachedImagePath,
-                          displayWidth,
-                          displayHeight);
+                  auto imageBlock = std::make_shared<ImageBlock>(cachedImagePath, displayWidth, displayHeight);
                   if (!imageBlock) {
                     LOG_ERR("EHP", "Failed to create vertical ImageBlock");
                     return;
                   }
 
-                  const int imageX =
-                      std::max(
-                          0,
-                          (self->viewportWidth - displayWidth) / 2);
-                  const int imageY =
-                      std::max(
-                          0,
-                          (self->viewportHeight - displayHeight) / 2);
+                  const int imageX = std::max(0, (self->viewportWidth - displayWidth) / 2);
+                  const int imageY = std::max(0, (self->viewportHeight - displayHeight) / 2);
 
-                  auto pageImage =
-                      std::make_shared<PageImage>(
-                          imageBlock,
-                          static_cast<int16_t>(imageX),
-                          static_cast<int16_t>(imageY));
+                  auto pageImage = std::make_shared<PageImage>(imageBlock, static_cast<int16_t>(imageX),
+                                                               static_cast<int16_t>(imageY));
                   if (!pageImage) {
                     LOG_ERR("EHP", "Failed to create vertical PageImage");
                     return;
@@ -788,8 +757,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       // This log is deliberately emitted at the point where [Image: ...] is
       // created, so regressions can be distinguished from stale page rendering.
       if (!alt.empty()) {
-        LOG_ERR("EHP", "Using image alt fallback: src=%s mode=%u alt=%s",
-                src.c_str(), static_cast<unsigned>(self->imageRendering), alt.c_str());
+        LOG_ERR("EHP", "Using image alt fallback: src=%s mode=%u alt=%s", src.c_str(),
+                static_cast<unsigned>(self->imageRendering), alt.c_str());
         alt = "[Image: " + alt + "]";
         self->startNewTextBlock(centeredBlockStyle);
         self->italicUntilDepth = std::min(self->italicUntilDepth, self->depth);
@@ -1137,23 +1106,15 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
     // otherwise the trailing bytes become orphaned continuation bytes that the
     // decoder can't interpret.
     if (self->partWordBufferIndex >= MAX_WORD_SIZE) {
-      int safeLen =
-          utf8SafeTruncateBuffer(
-              self->partWordBuffer,
-              self->partWordBufferIndex
-          );
+      int safeLen = utf8SafeTruncateBuffer(self->partWordBuffer, self->partWordBufferIndex);
 
-      if (safeLen < self->partWordBufferIndex &&
-          safeLen > 0) {
-
-        const int overflow =
-            self->partWordBufferIndex - safeLen;
+      if (safeLen < self->partWordBufferIndex && safeLen > 0) {
+        const int overflow = self->partWordBufferIndex - safeLen;
 
         char saved[4];
 
         for (int j = 0; j < overflow; ++j) {
-          saved[j] =
-              self->partWordBuffer[safeLen + j];
+          saved[j] = self->partWordBuffer[safeLen + j];
         }
 
         self->partWordBufferIndex = safeLen;
@@ -1190,94 +1151,37 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
   // memory.
   // Spotted when reading Intermezzo, there are some really long text blocks in there.
   if (self->currentTextBlock->size() > 750) {
-    LOG_DBG(
-        "EHP",
-        "Text block too long, "
-        "splitting into multiple pages"
-    );
+    LOG_DBG("EHP",
+            "Text block too long, "
+            "splitting into multiple pages");
 
     if (isVerticalLayoutEnabled()) {
-      const BlockStyle& blockStyle =
-          self->currentTextBlock
-              ->getBlockStyle();
+      const BlockStyle& blockStyle = self->currentTextBlock->getBlockStyle();
 
-      const int topInset =
-          std::max<int>(
-              0,
-              blockStyle.marginTop
-          ) +
-          std::max<int>(
-              0,
-              blockStyle.paddingTop
-          );
+      const int topInset = std::max<int>(0, blockStyle.marginTop) + std::max<int>(0, blockStyle.paddingTop);
 
-      const int bottomInset =
-          std::max<int>(
-              0,
-              blockStyle.marginBottom
-          ) +
-          std::max<int>(
-              0,
-              blockStyle.paddingBottom
-          );
+      const int bottomInset = std::max<int>(0, blockStyle.marginBottom) + std::max<int>(0, blockStyle.paddingBottom);
 
-      const int totalVerticalInset =
-          topInset + bottomInset;
+      const int totalVerticalInset = topInset + bottomInset;
 
-      const uint16_t effectiveHeight =
-          totalVerticalInset <
-                  static_cast<int>(
-                      self->viewportHeight)
-              ? static_cast<uint16_t>(
-                    self->viewportHeight -
-                    totalVerticalInset)
-              : self->viewportHeight;
+      const uint16_t effectiveHeight = totalVerticalInset < static_cast<int>(self->viewportHeight)
+                                           ? static_cast<uint16_t>(self->viewportHeight - totalVerticalInset)
+                                           : self->viewportHeight;
 
-      self->currentTextBlock
-          ->layoutAndExtractColumns(
-              self->renderer,
-              self->fontId,
-              effectiveHeight,
-              self->lineCompression,
-              self->characterSpacing,
-              [self](
-                  const std::shared_ptr<
-                      TextBlock>& textBlock) {
-                self->addColumnToPage(
-                    textBlock
-                );
-              }
-          );
+      self->currentTextBlock->layoutAndExtractColumns(
+          self->renderer, self->fontId, effectiveHeight, self->lineCompression, self->characterSpacing,
+          [self](const std::shared_ptr<TextBlock>& textBlock) { self->addColumnToPage(textBlock); });
     } else {
-      const int horizontalInset =
-          self->currentTextBlock
-              ->getBlockStyle()
-              .totalHorizontalInset();
+      const int horizontalInset = self->currentTextBlock->getBlockStyle().totalHorizontalInset();
 
-      const uint16_t effectiveWidth =
-          horizontalInset <
-                  static_cast<int>(
-                      self->viewportWidth)
-              ? static_cast<uint16_t>(
-                    self->viewportWidth -
-                    horizontalInset)
-              : self->viewportWidth;
+      const uint16_t effectiveWidth = horizontalInset < static_cast<int>(self->viewportWidth)
+                                          ? static_cast<uint16_t>(self->viewportWidth - horizontalInset)
+                                          : self->viewportWidth;
 
-      self->currentTextBlock
-          ->layoutAndExtractLines(
-              self->renderer,
-              self->fontId,
-              effectiveWidth,
-              [self](
-                  const std::shared_ptr<
-                      TextBlock>& textBlock) {
-                self->addLineToPage(
-                    textBlock
-                );
-              },
-              self->characterSpacing,
-              false
-          );
+      self->currentTextBlock->layoutAndExtractLines(
+          self->renderer, self->fontId, effectiveWidth,
+          [self](const std::shared_ptr<TextBlock>& textBlock) { self->addLineToPage(textBlock); },
+          self->characterSpacing, false);
     }
   }
 }
@@ -1459,8 +1363,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
     if (showProgress) {
       popupProgressFn(0);
     } else {
-      LOG_DBG("EHP", "Small chapter indexing: static popup only (%u bytes)",
-              static_cast<unsigned>(totalFileSize));
+      LOG_DBG("EHP", "Small chapter indexing: static popup only (%u bytes)", static_cast<unsigned>(totalFileSize));
     }
   }
 
@@ -1536,9 +1439,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   return true;
 }
 
-void ChapterHtmlSlimParser::addLineToPage(
-  std::shared_ptr<TextBlock> line
-) {
+void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
   const int lineHeight = std::max(1, static_cast<int>(renderer.getLineHeight(fontId) * lineCompression));
 
   if (!currentPage) {
@@ -1568,18 +1469,12 @@ void ChapterHtmlSlimParser::addLineToPage(
   currentPageNextY += lineHeight;
 }
 
-void ChapterHtmlSlimParser::addColumnToPage(
-    std::shared_ptr<TextBlock> column
-) {
+void ChapterHtmlSlimParser::addColumnToPage(std::shared_ptr<TextBlock> column) {
   if (!column) {
     return;
   }
 
-  const int columnAdvance =
-      std::max(
-          1,
-          static_cast<int>(renderer.getLineHeight(fontId) * lineCompression)
-      );
+  const int columnAdvance = std::max(1, static_cast<int>(renderer.getLineHeight(fontId) * lineCompression));
 
   /*
    * 沒有目前頁面時，建立新頁。
@@ -1593,10 +1488,7 @@ void ChapterHtmlSlimParser::addColumnToPage(
     currentPage.reset(new Page());
 
     currentPageNextY = 0;
-    currentPageNextX =
-        static_cast<int16_t>(
-            viewportWidth - columnAdvance
-        );
+    currentPageNextX = static_cast<int16_t>(viewportWidth - columnAdvance);
   }
 
   /*
@@ -1607,98 +1499,58 @@ void ChapterHtmlSlimParser::addColumnToPage(
    * MVP 會讓後續直排文字從下一頁開始。
    */
   if (currentPageNextX < 0) {
-    completePageFn(
-        std::move(currentPage)
-    );
+    completePageFn(std::move(currentPage));
 
     ++completedPageCount;
 
     currentPage.reset(new Page());
 
     currentPageNextY = 0;
-    currentPageNextX =
-        static_cast<int16_t>(
-            viewportWidth - columnAdvance
-        );
+    currentPageNextX = static_cast<int16_t>(viewportWidth - columnAdvance);
   }
 
   /*
    * Footnote tracking 仍使用 parser 的 logical word count，
    * 不能使用拆成 Unicode glyph 後的 glyph 數量。
    */
-  wordsExtractedInBlock +=
-      static_cast<int>(
-          column->wordCount()
-      );
+  wordsExtractedInBlock += static_cast<int>(column->wordCount());
 
-  auto footnoteIt =
-      pendingFootnotes.begin();
+  auto footnoteIt = pendingFootnotes.begin();
 
-  while (footnoteIt !=
-             pendingFootnotes.end() &&
-         footnoteIt->first <=
-             wordsExtractedInBlock) {
-    currentPage->addFootnote(
-        footnoteIt->second.number,
-        footnoteIt->second.href
-    );
+  while (footnoteIt != pendingFootnotes.end() && footnoteIt->first <= wordsExtractedInBlock) {
+    currentPage->addFootnote(footnoteIt->second.number, footnoteIt->second.href);
 
     ++footnoteIt;
   }
 
-  pendingFootnotes.erase(
-      pendingFootnotes.begin(),
-      footnoteIt
-  );
+  pendingFootnotes.erase(pendingFootnotes.begin(), footnoteIt);
 
   /*
    * 直排欄頂端仍保留 CSS 的 top margin / padding。
    * 負值先忽略，避免欄位跑出畫面。
    */
-  const BlockStyle& blockStyle =
-      column->getBlockStyle();
+  const BlockStyle& blockStyle = column->getBlockStyle();
 
-  const int topOffset =
-      std::max<int>(0, blockStyle.marginTop) +
-      std::max<int>(0, blockStyle.paddingTop) +
-      std::max<int>(0, currentPageNextY);
+  const int topOffset = std::max<int>(0, blockStyle.marginTop) + std::max<int>(0, blockStyle.paddingTop) +
+                        std::max<int>(0, currentPageNextY);
 
   currentPage->elements.push_back(
-      std::make_shared<PageLine>(
-          column,
-          currentPageNextX,
-          static_cast<int16_t>(topOffset)
-      )
-  );
+      std::make_shared<PageLine>(column, currentPageNextX, static_cast<int16_t>(topOffset)));
 
   // 下一欄移到左側。
-  currentPageNextX -=
-      static_cast<int16_t>(
-          columnAdvance
-      );
+  currentPageNextX -= static_cast<int16_t>(columnAdvance);
 }
 
 void ChapterHtmlSlimParser::makePages() {
   if (!currentTextBlock) {
-    LOG_ERR(
-        "EHP",
-        "!! No text block to make pages for !!"
-    );
+    LOG_ERR("EHP", "!! No text block to make pages for !!");
     return;
   }
 
-  const int baseLineAdvance =
-      std::max(
-          1,
-          static_cast<int>(
-              renderer.getLineHeight(fontId) *
-              lineCompression
-          )
-      );
+  const int baseLineAdvance = std::max(1, static_cast<int>(renderer.getLineHeight(fontId) * lineCompression));
   const int lineOrColumnAdvance = baseLineAdvance;
 
-  const BlockStyle& blockStyle =
-      currentTextBlock->getBlockStyle();
+  const BlockStyle& blockStyle = currentTextBlock->getBlockStyle();
 
   /*
    * 建立初始頁面。
@@ -1708,11 +1560,7 @@ void ChapterHtmlSlimParser::makePages() {
     currentPageNextY = 0;
 
     if (isVerticalLayoutEnabled()) {
-      currentPageNextX =
-          static_cast<int16_t>(
-              viewportWidth -
-              lineOrColumnAdvance
-          );
+      currentPageNextX = static_cast<int16_t>(viewportWidth - lineOrColumnAdvance);
     } else {
       currentPageNextX = -1;
     }
@@ -1724,75 +1572,41 @@ void ChapterHtmlSlimParser::makePages() {
    * =========================
    */
   if (isVerticalLayoutEnabled()) {
-    const int topInset =
-        std::max<int>(0, blockStyle.marginTop) +
-        std::max<int>(0, blockStyle.paddingTop);
+    const int topInset = std::max<int>(0, blockStyle.marginTop) + std::max<int>(0, blockStyle.paddingTop);
 
-    const int bottomInset =
-        std::max<int>(0, blockStyle.marginBottom) +
-        std::max<int>(0, blockStyle.paddingBottom);
+    const int bottomInset = std::max<int>(0, blockStyle.marginBottom) + std::max<int>(0, blockStyle.paddingBottom);
 
-    int reservedTop = currentPage
-        ? std::max<int>(0, currentPageNextY)
-        : 0;
-    const int minColumnHeight =
-        std::max(
-            renderer.getLineHeight(fontId),
-            lineOrColumnAdvance);
+    int reservedTop = currentPage ? std::max<int>(0, currentPageNextY) : 0;
+    const int minColumnHeight = std::max(renderer.getLineHeight(fontId), lineOrColumnAdvance);
 
-    if (currentPage &&
-        !currentPage->elements.empty() &&
-        reservedTop > 0 &&
+    if (currentPage && !currentPage->elements.empty() && reservedTop > 0 &&
         reservedTop + minColumnHeight > static_cast<int>(viewportHeight)) {
       completePageFn(std::move(currentPage));
       ++completedPageCount;
       currentPage.reset(new Page());
       currentPageNextY = 0;
-      currentPageNextX =
-          static_cast<int16_t>(
-              viewportWidth - lineOrColumnAdvance);
+      currentPageNextX = static_cast<int16_t>(viewportWidth - lineOrColumnAdvance);
       reservedTop = 0;
     }
 
-    const int totalVerticalInset =
-        topInset + bottomInset + reservedTop;
+    const int totalVerticalInset = topInset + bottomInset + reservedTop;
 
-    const uint16_t effectiveHeight =
-        totalVerticalInset <
-                static_cast<int>(
-                    viewportHeight)
-            ? static_cast<uint16_t>(
-                  viewportHeight -
-                  totalVerticalInset)
-            : viewportHeight;
+    const uint16_t effectiveHeight = totalVerticalInset < static_cast<int>(viewportHeight)
+                                         ? static_cast<uint16_t>(viewportHeight - totalVerticalInset)
+                                         : viewportHeight;
 
-    currentTextBlock
-        ->layoutAndExtractColumns(
-            renderer,
-            fontId,
-            effectiveHeight,
-            lineCompression,
-            characterSpacing,
-            [this](
-                const std::shared_ptr<
-                    TextBlock>& textBlock) {
-              addColumnToPage(textBlock);
-            }
-        );
+    currentTextBlock->layoutAndExtractColumns(
+        renderer, fontId, effectiveHeight, lineCompression, characterSpacing,
+        [this](const std::shared_ptr<TextBlock>& textBlock) { addColumnToPage(textBlock); });
 
     /*
      * 正常情況由 addColumnToPage()
      * 依 word index 分配 footnote。
      * 此處保留原本 fallback。
      */
-    if (!pendingFootnotes.empty() &&
-        currentPage) {
-      for (const auto& [idx, fn] :
-           pendingFootnotes) {
-        currentPage->addFootnote(
-            fn.number,
-            fn.href
-        );
+    if (!pendingFootnotes.empty() && currentPage) {
+      for (const auto& [idx, fn] : pendingFootnotes) {
+        currentPage->addFootnote(fn.number, fn.href);
       }
 
       pendingFootnotes.clear();
@@ -1805,13 +1619,7 @@ void ChapterHtmlSlimParser::makePages() {
      * 之後再做直排首行縮排。
      */
     if (extraParagraphSpacing) {
-      currentPageNextX -=
-          static_cast<int16_t>(
-              std::max(
-                  1,
-                  lineOrColumnAdvance / 2
-              )
-          );
+      currentPageNextX -= static_cast<int16_t>(std::max(1, lineOrColumnAdvance / 2));
     }
 
     return;
@@ -1825,64 +1633,40 @@ void ChapterHtmlSlimParser::makePages() {
 
   // Apply top spacing before the paragraph.
   if (blockStyle.marginTop > 0) {
-    currentPageNextY +=
-        blockStyle.marginTop;
+    currentPageNextY += blockStyle.marginTop;
   }
 
   if (blockStyle.paddingTop > 0) {
-    currentPageNextY +=
-        blockStyle.paddingTop;
+    currentPageNextY += blockStyle.paddingTop;
   }
 
-  const int horizontalInset =
-      blockStyle.totalHorizontalInset();
+  const int horizontalInset = blockStyle.totalHorizontalInset();
 
-  const uint16_t effectiveWidth =
-      horizontalInset <
-              static_cast<int>(
-                  viewportWidth)
-          ? static_cast<uint16_t>(
-                viewportWidth -
-                horizontalInset)
-          : viewportWidth;
+  const uint16_t effectiveWidth = horizontalInset < static_cast<int>(viewportWidth)
+                                      ? static_cast<uint16_t>(viewportWidth - horizontalInset)
+                                      : viewportWidth;
 
   currentTextBlock->layoutAndExtractLines(
-      renderer,
-      fontId,
-      effectiveWidth,
-      [this](
-          const std::shared_ptr<
-              TextBlock>& textBlock) {
-        addLineToPage(textBlock);
-      },
-      characterSpacing
-  );
+      renderer, fontId, effectiveWidth,
+      [this](const std::shared_ptr<TextBlock>& textBlock) { addLineToPage(textBlock); }, characterSpacing);
 
-  if (!pendingFootnotes.empty() &&
-      currentPage) {
-    for (const auto& [idx, fn] :
-         pendingFootnotes) {
-      currentPage->addFootnote(
-          fn.number,
-          fn.href
-      );
+  if (!pendingFootnotes.empty() && currentPage) {
+    for (const auto& [idx, fn] : pendingFootnotes) {
+      currentPage->addFootnote(fn.number, fn.href);
     }
 
     pendingFootnotes.clear();
   }
 
   if (blockStyle.marginBottom > 0) {
-    currentPageNextY +=
-        blockStyle.marginBottom;
+    currentPageNextY += blockStyle.marginBottom;
   }
 
   if (blockStyle.paddingBottom > 0) {
-    currentPageNextY +=
-        blockStyle.paddingBottom;
+    currentPageNextY += blockStyle.paddingBottom;
   }
 
   if (extraParagraphSpacing) {
-    currentPageNextY +=
-        lineOrColumnAdvance / 2;
+    currentPageNextY += lineOrColumnAdvance / 2;
   }
 }

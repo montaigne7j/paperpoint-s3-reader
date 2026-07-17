@@ -71,18 +71,26 @@ class CrossPointSettings {
     ORIENTATION_COUNT
   };
 
+  // Paper S3 reader direction control. Only 0° and 180° are supported.
+  // Keep this declaration before the settings data members because this
+  // header is included directly by several libraries during compilation.
+  enum READER_ORIENTATION_MODE {
+    READER_ORIENTATION_FIXED_NORMAL = 0,
+    READER_ORIENTATION_FIXED_180 = 1,
+    READER_ORIENTATION_AUTO = 2,
+    READER_ORIENTATION_MODE_COUNT
+  };
+
 #if CROSSPOINT_PAPERS3
   static bool isPaperS3OrientationSupported(uint8_t orientation) {
-    return orientation == PORTRAIT || orientation == LANDSCAPE_CCW;
+    return orientation == PORTRAIT || orientation == INVERTED;
   }
 
   static uint8_t normalizePaperS3Orientation(uint8_t orientation) {
-    return orientation == LANDSCAPE_CCW ? LANDSCAPE_CCW : PORTRAIT;
+    return orientation == INVERTED ? INVERTED : PORTRAIT;
   }
 
-  static uint8_t nextPaperS3Orientation(uint8_t orientation) {
-    return orientation == LANDSCAPE_CCW ? PORTRAIT : LANDSCAPE_CCW;
-  }
+  static uint8_t nextPaperS3Orientation(uint8_t orientation) { return orientation == INVERTED ? PORTRAIT : INVERTED; }
 #endif
 
   // Front button layout options (legacy)
@@ -122,27 +130,21 @@ class CrossPointSettings {
   static constexpr uint8_t READER_FONT_SIZE_MAX = 60;
   static constexpr uint8_t READER_FONT_SIZE_DEFAULT = 36;
   enum LEGACY_FONT_SIZE { SMALL = 0, MEDIUM = 1, LARGE = 2, EXTRA_LARGE = 3, FONT_SIZE_COUNT };
-  enum LINE_COMPRESSION {
-    TIGHT = 0,
-    NORMAL = 1,
-    WIDE = 2,
-    LINE_COMPRESSION_COUNT
-  };
+  enum LINE_COMPRESSION { TIGHT = 0, NORMAL = 1, WIDE = 2, LINE_COMPRESSION_COUNT };
   // Numeric reader spacing.  lineSpacing is a percentage; legacy enum values
   // 0/1/2 are migrated to 90/100/115.  characterSpacing is pixel spacing
-  // between adjacent glyphs / vertical characters.
-  static constexpr uint8_t READER_LINE_SPACING_MIN = 80;
-  static constexpr uint8_t READER_LINE_SPACING_MAX = 140;
+  // between adjacent glyphs / vertical characters.  characterSpacing is stored
+  // as a signed int8 encoded in uint8_t so older settings remain compatible
+  // while the reader can allow negative spacing for experimental external BIN fonts.
+  static constexpr uint8_t READER_LINE_SPACING_MIN = 70;
+  static constexpr uint8_t READER_LINE_SPACING_MAX = 180;
   static constexpr uint8_t READER_LINE_SPACING_DEFAULT = 100;
-  static constexpr uint8_t READER_CHARACTER_SPACING_MIN = 0;
-  static constexpr uint8_t READER_CHARACTER_SPACING_MAX = 12;
+  static constexpr int8_t READER_CHARACTER_SPACING_MIN = -20;
+  static constexpr int8_t READER_CHARACTER_SPACING_MAX = 30;
+  static constexpr int8_t READER_CHARACTER_SPACING_DEFAULT_SIGNED = 0;
   static constexpr uint8_t READER_CHARACTER_SPACING_DEFAULT = 0;
   // Reader text layout direction.
-  enum READING_LAYOUT {
-    HORIZONTAL_LAYOUT = 0,
-    VERTICAL_LAYOUT = 1,
-    READING_LAYOUT_COUNT
-  };
+  enum READING_LAYOUT { HORIZONTAL_LAYOUT = 0, VERTICAL_LAYOUT = 1, READING_LAYOUT_COUNT };
   enum PARAGRAPH_ALIGNMENT {
     JUSTIFIED = 0,
     LEFT_ALIGN = 1,
@@ -192,8 +194,26 @@ class CrossPointSettings {
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
 
+  // Reader decorative background and guide lines.
+  enum READER_BACKGROUND_PNG {
+    READER_BG_OFF = 0,
+    READER_BG_FIRST_PNG_IN_BG = 1,  // legacy fallback
+    READER_BG_SELECTED_FILE = 2,
+    READER_BACKGROUND_PNG_COUNT
+  };
+  enum READER_GUIDE_LINES {
+    READER_GUIDE_OFF = 0,
+    READER_GUIDE_SOLID = 1,
+    READER_GUIDE_DASHED = 2,
+    READER_GUIDE_DOTTED = 3,
+    READER_GUIDE_LINES_COUNT
+  };
+
   // Sleep screen settings
   uint8_t sleepScreen = DARK;
+  // Empty = choose randomly from /.sleep, /cover and legacy /sleep.
+  // Non-empty = always use the selected custom sleep image.
+  char sleepCustomImagePath[192] = "";
   // Sleep screen cover mode settings
   uint8_t sleepScreenCoverMode = FIT;
   // Sleep screen cover filter
@@ -203,8 +223,7 @@ class CrossPointSettings {
   // Background used for transparent PNG sleep overlays. Reader pages are
   // available only when sleeping from a reader context; other activities
   // always fall back to white.
-  uint8_t transparentSleepPngBackground =
-      TRANSPARENT_SLEEP_CURRENT_READING_PAGE;
+  uint8_t transparentSleepPngBackground = TRANSPARENT_SLEEP_CURRENT_READING_PAGE;
   // Status bar settings (statusBar retained for migration only)
   uint8_t statusBar = FULL;
   uint8_t statusBarChapterPageCount = 1;
@@ -227,12 +246,18 @@ class CrossPointSettings {
   uint8_t clockHasBeenSynced = 0;
   // Text rendering settings
   uint8_t extraParagraphSpacing = 1;
+  // Force each normal paragraph to start with two ideographic spaces.
+  uint8_t paragraphFirstLineIndent = 0;
   uint8_t textAntiAliasing = 1;
   // Short power button click behaviour
   uint8_t shortPwrBtn = IGNORE;
   // EPUB reading orientation settings
   // 0 = portrait (default), 1 = landscape clockwise, 2 = inverted, 3 = landscape counter-clockwise
   uint8_t orientation = PORTRAIT;
+  // Paper S3 reader direction control: fixed normal, fixed 180, or automatic 0/180.
+  uint8_t readerOrientationMode = READER_ORIENTATION_FIXED_NORMAL;
+  // Inversion input lock is available only in fixed direction modes.
+  uint8_t readerInversionLock = 0;
   // Button layouts (front layout retained for migration only)
   uint8_t frontButtonLayout = BACK_CONFIRM_LEFT_RIGHT;
   uint8_t sideButtonLayout = PREV_NEXT;
@@ -295,6 +320,24 @@ class CrossPointSettings {
   uint8_t showHiddenFiles = 0;
   // Image rendering mode in EPUB reader
   uint8_t imageRendering = IMAGES_DISPLAY;
+  // Reader decorative background.  When enabled, a selected PNG under /bg
+  // is rendered behind EPUB text before the page content is drawn.  The legacy
+  // enum value READER_BG_FIRST_PNG_IN_BG is kept for older settings files.
+  uint8_t readerBackgroundPng = READER_BG_OFF;
+  char readerBackgroundPngPath[160] = "";
+  // Fade reader background PNG toward white before dithering (0..90%).
+  uint8_t readerBackgroundFadePercent = 0;
+  // Reader guide lines drawn behind text: horizontal layout draws baselines;
+  // vertical layout draws column guide lines to the left of text columns.
+  uint8_t readerGuideLines = READER_GUIDE_OFF;
+  // Comic reader image tuning. comicGrayEnhanceEncoded stores -50..+50
+  // as 0..100, where 50 means neutral. Four-level comic mode was removed;
+  // converted comics always use the smoother grayscale/dither path.
+  uint8_t comicGrayEnhanceEncoded = 50;
+  uint8_t comicGrayLevels = 1;  // retained for older settings files; forced to 1 on load.
+  // Comic full refresh frequency: 0=every page, 1=every 2 pages,
+  // 2=every 5 pages, 3=every 10 pages, 4=never.
+  uint8_t comicFullRefreshFrequency = 4;
 
   ~CrossPointSettings() = default;
 
@@ -321,7 +364,7 @@ class CrossPointSettings {
 
  public:
   float getReaderLineCompression() const;
-  uint8_t getReaderCharacterSpacing() const;
+  int16_t getReaderCharacterSpacing() const;
   unsigned long getSleepTimeoutMs() const;
   int getRefreshFrequency() const;
 };

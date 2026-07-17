@@ -56,11 +56,11 @@ class EpubReaderChapterSelectionActivity final : public Activity {
 
   // Short Back moves the selection to the nearest visible parent. It returns
   // false when the current item is already at the top level.
+  bool selectedHasVisibleParent() const;
   bool moveSelectionToParent();
   void finishToReader();
 
-  void drawDisclosureTriangle(int x, int centerY, bool expanded, bool black, int halfSize = 7,
-                              int fullSize = 12) const;
+  void drawDisclosureTriangle(int x, int centerY, bool expanded, bool black, int halfSize = 7, int fullSize = 12) const;
 
  public:
   explicit EpubReaderChapterSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,

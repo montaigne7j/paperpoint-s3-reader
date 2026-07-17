@@ -1,13 +1,14 @@
 #include "LyraTheme.h"
 
 #include <GfxRenderer.h>
+#include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
 
 #include <algorithm>
-#include <cstdint>
 #include <cmath>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -116,8 +117,7 @@ const uint8_t* iconForName(UIIcon icon, int size) {
 }
 
 int lyraListRowHeight(const std::function<std::string(int index)>& rowSubtitle) {
-  return rowSubtitle != nullptr ? LyraMetrics::values.listWithSubtitleRowHeight
-                                : LyraMetrics::values.listRowHeight;
+  return rowSubtitle != nullptr ? LyraMetrics::values.listWithSubtitleRowHeight : LyraMetrics::values.listRowHeight;
 }
 
 int lyraListContentWidth(const Rect rect, const int totalPages) {
@@ -138,8 +138,8 @@ void drawLyraListScrollBar(const GfxRenderer& renderer, const Rect rect, const i
   const int scrollBarY = rect.y + ((scrollAreaHeight - scrollBarHeight) * currentPage) / (totalPages - 1);
   const int scrollBarX = rect.x + rect.width - LyraMetrics::values.scrollBarRightOffset;
   renderer.drawLine(scrollBarX, rect.y, scrollBarX, rect.y + scrollAreaHeight, true);
-  renderer.fillRect(scrollBarX - LyraMetrics::values.scrollBarWidth, scrollBarY,
-                    LyraMetrics::values.scrollBarWidth, scrollBarHeight, true);
+  renderer.fillRect(scrollBarX - LyraMetrics::values.scrollBarWidth, scrollBarY, LyraMetrics::values.scrollBarWidth,
+                    scrollBarHeight, true);
 }
 
 void clearLyraListRow(const GfxRenderer& renderer, const Rect rect, const int rowHeight, const int pageItems,
@@ -152,8 +152,7 @@ void clearLyraListRow(const GfxRenderer& renderer, const Rect rect, const int ro
 }
 
 void drawLyraListRow(const GfxRenderer& renderer, const Rect rect, const int itemCount, const int pageItems,
-                     const int index, const int selectedIndex,
-                     const std::function<std::string(int index)>& rowTitle,
+                     const int index, const int selectedIndex, const std::function<std::string(int index)>& rowTitle,
                      const std::function<std::string(int index)>& rowSubtitle,
                      const std::function<UIIcon(int index)>& rowIcon,
                      const std::function<std::string(int index)>& rowValue, const bool highlightValue) {
@@ -247,7 +246,7 @@ void drawLyraBatteryIcon(const GfxRenderer& renderer, int x, int y, int battWidt
                          uint16_t percentage) {
   BaseTheme::drawBatteryOutline(renderer, x, y, battWidth, rectHeight);
 
-  const bool charging = static_cast<bool>(Serial);  // USB CDC connected
+  const bool charging = gpio.isUsbConnected();  // Real Paper S3 VBUS detection
 
   if (charging) {
     // Draw solid fill when charging so lightning bolt is visible
@@ -375,8 +374,8 @@ void LyraTheme::drawTabBar(const GfxRenderer& renderer, Rect rect, const std::ve
     const int nextCellX = rect.x + (rect.width * (i + 1)) / tabCount;
     const int cellW = nextCellX - cellX;
 
-    auto label = renderer.truncatedText(UI_10_FONT_ID, tab.label, std::max(1, cellW - cellPadding * 2),
-                                        EpdFontFamily::REGULAR);
+    auto label =
+        renderer.truncatedText(UI_10_FONT_ID, tab.label, std::max(1, cellW - cellPadding * 2), EpdFontFamily::REGULAR);
     const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, label.c_str(), EpdFontFamily::REGULAR);
     const int textX = cellX + std::max(0, (cellW - textWidth) / 2);
 
@@ -420,12 +419,10 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
 }
 
 void LyraTheme::redrawListSelection(const GfxRenderer& renderer, Rect rect, int itemCount, int oldSelectedIndex,
-                                    int newSelectedIndex,
-                                    const std::function<std::string(int index)>& rowTitle,
+                                    int newSelectedIndex, const std::function<std::string(int index)>& rowTitle,
                                     const std::function<std::string(int index)>& rowSubtitle,
                                     const std::function<UIIcon(int index)>& rowIcon,
-                                    const std::function<std::string(int index)>& rowValue,
-                                    bool highlightValue) const {
+                                    const std::function<std::string(int index)>& rowValue, bool highlightValue) const {
   const int rowHeight = lyraListRowHeight(rowSubtitle);
   const int pageItems = rowHeight > 0 ? rect.height / rowHeight : 0;
   if (pageItems <= 0 || itemCount <= 0 || oldSelectedIndex < 0 || newSelectedIndex < 0 ||
@@ -452,7 +449,9 @@ void LyraTheme::redrawListSelection(const GfxRenderer& renderer, Rect rect, int 
 void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                                 const char* btn4) const {
   const GfxRenderer::Orientation orig_orientation = renderer.getOrientation();
+#if !CROSSPOINT_PAPERS3
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+#endif
 
   const int pageHeight = renderer.getScreenHeight();
 #if CROSSPOINT_PAPERS3
@@ -680,7 +679,13 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
       UIIcon icon = rowIcon(i);
       const uint8_t* iconBitmap = iconForName(icon, mainMenuIconSize);
       if (iconBitmap != nullptr) {
-        renderer.drawIcon(iconBitmap, textX, textY + 3, mainMenuIconSize, mainMenuIconSize);
+        const bool rotateHomeIconLeft =
+            icon == UIIcon::Folder || icon == UIIcon::Recent || icon == UIIcon::Transfer || icon == UIIcon::Settings;
+        if (rotateHomeIconLeft) {
+          renderer.drawIconRotatedLeft90(iconBitmap, textX, textY + 3, mainMenuIconSize, mainMenuIconSize);
+        } else {
+          renderer.drawIcon(iconBitmap, textX, textY + 3, mainMenuIconSize, mainMenuIconSize);
+        }
         textX += mainMenuIconSize + hPaddingInSelection + 2;
       }
     }

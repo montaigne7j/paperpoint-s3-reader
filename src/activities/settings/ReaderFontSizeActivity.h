@@ -8,8 +8,7 @@
 
 class ReaderFontSizeActivity final : public Activity {
  public:
-  ReaderFontSizeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                         uint8_t initialSize)
+  ReaderFontSizeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, uint8_t initialSize)
       : Activity("ReaderFontSize", renderer, mappedInput), value(initialSize) {}
 
   void onEnter() override;

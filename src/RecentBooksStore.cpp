@@ -82,6 +82,12 @@ RecentBook RecentBooksStore::getDataFromBook(std::string path) const {
     }
   } else if (FsHelpers::hasTxtExtension(lastBookFileName) || FsHelpers::hasMarkdownExtension(lastBookFileName)) {
     return RecentBook{path, lastBookFileName, "", ""};
+  } else if (FsHelpers::hasComicZipExtension(lastBookFileName)) {
+    std::string title = lastBookFileName;
+    if (FsHelpers::hasCbzExtension(title) || FsHelpers::hasZipExtension(title)) {
+      title.resize(title.length() - 4);
+    }
+    return RecentBook{path, title, "CBZ", ""};
   }
   return RecentBook{path, "", "", ""};
 }

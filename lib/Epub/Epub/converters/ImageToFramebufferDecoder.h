@@ -1,6 +1,7 @@
 #pragma once
 #include <HalStorage.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -18,7 +19,10 @@ struct RenderConfig {
   bool useDithering = true;
   bool performanceMode = false;
   bool useExactDimensions = false;  // If true, use maxWidth/maxHeight as exact output size (no recalculation)
-  std::string cachePath;            // If non-empty, decoder will write pixel cache to this path
+  // Optional post-process fade for decorative reader backgrounds.
+  // 0 keeps the decoded image unchanged. 100 blends every pixel fully to white.
+  uint8_t fadeToWhitePercent = 0;
+  std::string cachePath;  // If non-empty, decoder will write pixel cache to this path
 };
 
 class ImageToFramebufferDecoder {

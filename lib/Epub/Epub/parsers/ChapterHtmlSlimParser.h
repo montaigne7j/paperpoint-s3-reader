@@ -26,7 +26,7 @@ class ChapterHtmlSlimParser {
   const std::string& filepath;
   GfxRenderer& renderer;
   std::function<void(std::unique_ptr<Page>)> completePageFn;
-  std::function<void()> popupFn;  // Popup callback
+  std::function<void()> popupFn;             // Popup callback
   std::function<void(int)> popupProgressFn;  // Popup progress callback (0-100)
   int depth = 0;
   int skipUntilDepth = INT_MAX;
@@ -43,7 +43,6 @@ class ChapterHtmlSlimParser {
   // 但仍允許換行。
   bool nextWordNoSpace = false;
 
-
   std::unique_ptr<ParsedText> currentTextBlock = nullptr;
   std::unique_ptr<Page> currentPage = nullptr;
 
@@ -56,8 +55,9 @@ class ChapterHtmlSlimParser {
 
   int fontId;
   float lineCompression;
-  uint8_t characterSpacing;
+  int16_t characterSpacing;
   bool extraParagraphSpacing;
+  bool paragraphFirstLineIndent;
   uint8_t paragraphAlignment;
   uint16_t viewportWidth;
   uint16_t viewportHeight;
@@ -114,7 +114,8 @@ class ChapterHtmlSlimParser {
 
  public:
   explicit ChapterHtmlSlimParser(std::shared_ptr<Epub> epub, const std::string& filepath, GfxRenderer& renderer,
-                                 const int fontId, const float lineCompression, const uint8_t characterSpacing, const bool extraParagraphSpacing,
+                                 const int fontId, const float lineCompression, const int16_t characterSpacing,
+                                 const bool extraParagraphSpacing, const bool paragraphFirstLineIndent,
                                  const uint8_t paragraphAlignment, const uint16_t viewportWidth,
                                  const uint16_t viewportHeight, const bool hyphenationEnabled,
                                  const std::function<void(std::unique_ptr<Page>)>& completePageFn,
@@ -131,6 +132,7 @@ class ChapterHtmlSlimParser {
         lineCompression(lineCompression),
         characterSpacing(characterSpacing),
         extraParagraphSpacing(extraParagraphSpacing),
+        paragraphFirstLineIndent(paragraphFirstLineIndent),
         paragraphAlignment(paragraphAlignment),
         viewportWidth(viewportWidth),
         viewportHeight(viewportHeight),
@@ -147,9 +149,7 @@ class ChapterHtmlSlimParser {
   ~ChapterHtmlSlimParser() = default;
   bool parseAndBuildPages();
   void addLineToPage(std::shared_ptr<TextBlock> line);
-  void addColumnToPage(
-      std::shared_ptr<TextBlock> column
-  );
+  void addColumnToPage(std::shared_ptr<TextBlock> column);
   const std::vector<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
   bool hadImageLoadFailure() const { return imageLoadFailure; }
 };

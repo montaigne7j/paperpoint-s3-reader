@@ -1,12 +1,13 @@
 #pragma once
-#include <array>
-#include <cstdint>
-#include <memory>
-#include <vector>
 #include <Epub.h>
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Page.h>
 #include <Epub/Section.h>
+
+#include <array>
+#include <cstdint>
+#include <memory>
+#include <vector>
 
 #include "EpubReaderMenuActivity.h"
 #include "activities/Activity.h"
@@ -47,6 +48,7 @@ class EpubReaderActivity final : public Activity {
     int pageNumber = -1;
     int width = 0;
     int height = 0;
+    uint8_t orientation = 0;
     bool hasImages = false;
     std::vector<FootnoteEntry> footnotes;
   };
@@ -58,6 +60,17 @@ class EpubReaderActivity final : public Activity {
   bool pendingPageTurnActive = false;
   bool pendingPageTurnForward = true;
   unsigned long pendingPageTurnAt = 0;
+  int pendingPageTurnTargetPage = -1;
+  uint8_t pendingPageTurnTapCount = 0;
+  bool pendingPageTurnTargetKnown = false;
+  bool pendingPageTurnBoundary = false;
+  unsigned long pendingPageTurnLastInputAt = 0;
+  bool pendingTentativeStatusDrawn = false;
+  bool tentativePageStatusActive = false;
+  int tentativePageStatusSpine = -1;
+  int tentativePageStatusPage = -1;
+  int tentativePageStatusPageCount = -1;
+  bool chapterBoundaryTurnInProgress = false;
   bool lastVisiblePageHadImages = false;
   bool restoredPageFrameHadImages = false;
 
@@ -70,6 +83,7 @@ class EpubReaderActivity final : public Activity {
     int orientedMarginRight = 0;
     int orientedMarginBottom = 0;
     int orientedMarginLeft = 0;
+    uint8_t orientation = 0;
     size_t nextElementIndex = 0;
     unsigned long startedAt = 0;
     unsigned long lastChunkAt = 0;
@@ -99,6 +113,20 @@ class EpubReaderActivity final : public Activity {
   unsigned long lastIdleGlyphPrewarmAt = 0;
   unsigned long idleGlyphPrewarmPausedUntil = 0;
 
+  struct ReaderInputDiagnostics {
+    uint32_t touchDetected = 0;
+    uint32_t inputQueued = 0;
+    uint32_t inputIgnoredBusy = 0;
+    uint32_t inputIgnoredPending = 0;
+    uint32_t inputExecuted = 0;
+  };
+  ReaderInputDiagnostics inputDiagnostics{};
+  unsigned long renderBusyStartedAt = 0;
+  bool renderBusyWarn500Logged = false;
+  bool renderBusyWarn1000Logged = false;
+  bool pendingPageTurnWarn500Logged = false;
+  bool pendingPageTurnWarn1000Logged = false;
+
   bool ensurePageFrameCacheAllocated();
   bool ensurePageFrameCacheEntryBuffer(PageFrameCacheEntry& entry);
   void clearPageFrameCache(bool freeBuffers = false);
@@ -112,22 +140,34 @@ class EpubReaderActivity final : public Activity {
   bool isFrameCacheTargetAllowedForMemoryState(int pageNumber, ReaderMemoryState state) const;
   bool readerMemoryAllowsSilentIndexing(const char* phase);
   bool readerMemoryAllowsVisibleFrameStore(const char* phase);
-  bool readerMemoryAllowsFrameCacheStart(const ReaderMemorySnapshot& snapshot, bool pendingTurnTarget, const char* phase);
+  bool readerMemoryAllowsFrameCacheStart(const ReaderMemorySnapshot& snapshot, bool pendingTurnTarget,
+                                         const char* phase);
   bool isPageFrameCacheLowMemoryCooldownActive(int spineIndex, int pageNumber) const;
   void markPageFrameCacheLowMemoryCooldown(int spineIndex, int pageNumber, const char* reason);
   bool shouldSkipPageFrameCacheForCooldown(int spineIndex, int pageNumber);
   void prunePageFrameCacheForMemoryState(ReaderMemoryState state, const char* reason);
   bool copyCurrentFrameToPageFrameCache(int spineIndex, int pageNumber, const std::vector<FootnoteEntry>& footnotes,
-                                       bool hasImages);
+                                        bool hasImages);
   bool restorePageFrameCacheToRenderer(int spineIndex, int pageNumber, bool restoreFootnotes);
-  bool renderPageToFrameCache(int pageNumber, int orientedMarginTop, int orientedMarginRight,
-                              int orientedMarginBottom, int orientedMarginLeft);
+  bool renderPageToFrameCache(int pageNumber, int orientedMarginTop, int orientedMarginRight, int orientedMarginBottom,
+                              int orientedMarginLeft);
   bool collectPageTtfPrewarmCodepoints(int pageNumber, std::vector<uint32_t>& out, size_t maxCodepoints);
   bool idleGlyphPrewarmIfReady();
   bool hasReaderInputPending() const;
   bool capturePageTurnInput(bool& isForwardTurn) const;
+  void logReaderInputCounters(const char* event, const char* source) const;
+  void recordReaderInputDetected(const char* source);
+  void recordReaderInputIgnoredBusy(const char* source);
+  void recordReaderInputExecuted(const char* source, bool isForwardTurn);
+  void updateReaderBusyWarnings(const char* source);
+  void resetReaderBusyWarningWindow();
+  void updatePendingPageTurnWarnings(const char* source);
   bool queuePendingPageTurn(bool isForwardTurn, const char* source);
   void clearPendingPageTurn();
+  void clearTentativePageStatus();
+  bool computePendingPageTurnTarget(bool isForwardTurn, int& targetPage, bool& crossesChapter) const;
+  bool updateTentativePageStatusFromPending(const char* source);
+  bool drawTentativePageStatus(const char* source);
   bool executePendingPageTurnIfReady(const char* source);
   bool sameSectionPageTurnTarget(bool isForwardTurn, int& targetPage) const;
   bool pageFrameCacheReadyForTurn(bool isForwardTurn);

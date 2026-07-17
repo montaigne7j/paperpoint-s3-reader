@@ -6,7 +6,6 @@ class Bitmap;
 
 class HalDisplay {
  public:
-
   enum class Gc16DitherMode : uint8_t {
     None = 0,
     FloydSteinberg,
@@ -19,26 +18,26 @@ class HalDisplay {
 
   // Refresh modes
   enum RefreshMode {
-    FULL_REFRESH,                  // Full refresh with complete waveform
-    HALF_REFRESH,                  // Half refresh - balanced quality and speed
-    FAST_REFRESH,                  // Fast refresh for UI paths
-    PAGE_TURN_REFRESH_ORIGINAL,    // Reader page-turn refresh: original normal paint path
-    PAGE_TURN_REFRESH,             // Reader page-turn refresh: band-scan normal band order
-    PAGE_TURN_REFRESH_REVERSE      // Reader page-turn refresh: band-scan reverse band order
+    FULL_REFRESH,                // Full refresh with complete waveform
+    HALF_REFRESH,                // Half refresh - balanced quality and speed
+    FAST_REFRESH,                // Fast refresh for UI paths
+    PAGE_TURN_REFRESH_ORIGINAL,  // Reader page-turn refresh: original normal paint path
+    PAGE_TURN_REFRESH,           // Reader page-turn refresh: band-scan normal band order
+    PAGE_TURN_REFRESH_REVERSE    // Reader page-turn refresh: band-scan reverse band order
   };
 
   // Initialize the display hardware and driver
   void begin();
 
   /*
-  * 將實體面板與 EPD_Painter 的
-  * 2bpp internal screenbuffer 全部同步為白色。
-  *
-  * 用於：
-  *   GC16 睡眠畫面喚醒後
-  *   韌體更新後
-  *   driver state 不確定時
-  */
+   * 將實體面板與 EPD_Painter 的
+   * 2bpp internal screenbuffer 全部同步為白色。
+   *
+   * 用於：
+   *   GC16 睡眠畫面喚醒後
+   *   韌體更新後
+   *   driver state 不確定時
+   */
   bool force2bppWhiteResync();
 
   // Display dimensions (M5PaperS3: 960x540 physical landscape)
@@ -84,40 +83,29 @@ class HalDisplay {
   void cleanupGrayscaleBuffers(const uint8_t* bwBuffer);
 
   void displayGrayBuffer(bool turnOffScreen = false);
-    /*
-  * 臨時 GC16 實機測試入口。
-  *
-  * 顯示 16 階測試條後，不應再呼叫一般
-  * displayBuffer()，否則現有 2bpp 畫面狀態
-  * 會覆蓋 GC16 畫面。
-  */
-  bool showGc16TestBars(
-      bool clearFirst = true
-  );
+  /*
+   * 臨時 GC16 實機測試入口。
+   *
+   * 顯示 16 階測試條後，不應再呼叫一般
+   * displayBuffer()，否則現有 2bpp 畫面狀態
+   * 會覆蓋 GC16 畫面。
+   */
+  bool showGc16TestBars(bool clearFirst = true);
 
   /*
-  * 將 540×960 的 24/32-bit BMP
-  * 轉換為實體 960×540 的 4bpp GC16 buffer。
-  *
-  * 第一階段只接受與 Paper S3 直式畫面完全相同尺寸，
-  * 暫不處理縮放或裁切。
-  */
-  bool showGc16Bitmap(
-      const Bitmap& bitmap,
-      bool clearFirst = true,
-      Gc16DitherMode ditherMode =
-          Gc16DitherMode::FloydSteinberg,
-      bool rotate180 = false
-  );
+   * 將 540×960 的 24/32-bit BMP
+   * 轉換為實體 960×540 的 4bpp GC16 buffer。
+   *
+   * 第一階段只接受與 Paper S3 直式畫面完全相同尺寸，
+   * 暫不處理縮放或裁切。
+   */
+  bool showGc16Bitmap(const Bitmap& bitmap, bool clearFirst = true,
+                      Gc16DitherMode ditherMode = Gc16DitherMode::FloydSteinberg, bool rotate180 = false);
 
   // Display a logical portrait 540x960 packed 4bpp buffer. Each byte stores
   // two pixels, high nibble first, with 0=black and 15=white.
-  bool showGc16LogicalBuffer(
-      const uint8_t* logicalBuffer,
-      size_t logicalBufferSize,
-      bool clearFirst = true,
-      bool rotate180 = false
-  );
+  bool showGc16LogicalBuffer(const uint8_t* logicalBuffer, size_t logicalBufferSize, bool clearFirst = true,
+                             bool rotate180 = false);
 
  private:
   // 8bpp framebuffer in PSRAM — EPD_Painter native format (0=white, 3=black)

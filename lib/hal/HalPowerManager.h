@@ -20,7 +20,11 @@ class HalPowerManager {
   SemaphoreHandle_t modeMutex = nullptr;  // Protect access to currentLockMode
 
  public:
-  static constexpr int LOW_POWER_FREQ = 10;                    // MHz
+#if CROSSPOINT_PAPERS3
+  static constexpr int LOW_POWER_FREQ = 80;  // MHz, conservative Paper S3 first-stage idle
+#else
+  static constexpr int LOW_POWER_FREQ = 10;  // MHz
+#endif
   static constexpr unsigned long IDLE_POWER_SAVING_MS = 3000;  // ms
 
   void begin();

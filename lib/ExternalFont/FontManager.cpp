@@ -16,6 +16,7 @@
 // in C++14)
 constexpr int FontManager::MAX_FONTS;
 constexpr const char* FontManager::FONTS_DIR;
+constexpr const char* FontManager::FONT_DIR;
 constexpr const char* FontManager::SETTINGS_FILE;
 constexpr uint8_t FontManager::SETTINGS_VERSION;
 
@@ -27,8 +28,7 @@ bool endsWithNoCase(const char* text, const char* suffix) {
   if (suffixLength > textLength) return false;
   const char* start = text + textLength - suffixLength;
   for (size_t i = 0; i < suffixLength; ++i) {
-    if (std::tolower(static_cast<unsigned char>(start[i])) !=
-        std::tolower(static_cast<unsigned char>(suffix[i]))) {
+    if (std::tolower(static_cast<unsigned char>(start[i])) != std::tolower(static_cast<unsigned char>(suffix[i]))) {
       return false;
     }
   }
@@ -59,6 +59,22 @@ const char* fontTypeLabel(const FontFileType type) {
       return "BIN";
   }
 }
+
+bool sameFilenameNoCase(const char* a, const char* b) {
+  if (a == nullptr || b == nullptr) return false;
+  while (*a != '\0' && *b != '\0') {
+    if (std::tolower(static_cast<unsigned char>(*a)) != std::tolower(static_cast<unsigned char>(*b))) {
+      return false;
+    }
+    ++a;
+    ++b;
+  }
+  return *a == '\0' && *b == '\0';
+}
+
+bool isPrimaryFontDirectory(const char* directory) {
+  return directory != nullptr && std::strcmp(directory, "/font") == 0;
+}
 }  // namespace
 
 FontManager& FontManager::getInstance() {
@@ -68,85 +84,121 @@ FontManager& FontManager::getInstance() {
 
 uint8_t FontManager::getTtfPixelSize() {
   return std::min<uint8_t>(CrossPointSettings::READER_FONT_SIZE_MAX,
-                           std::max<uint8_t>(CrossPointSettings::READER_FONT_SIZE_MIN,
-                                             SETTINGS.fontSize));
+                           std::max<uint8_t>(CrossPointSettings::READER_FONT_SIZE_MIN, SETTINGS.fontSize));
 }
 
 void FontManager::scanFonts() {
   // Directory iteration order is not stable across SD cards or after files are
   // copied. Preserve the active choices by filename, then remap their indices
-  // after the refreshed list is sorted.
+  // after the refreshed list is sorted.  r18 scans both /font and /fonts; if
+  // the same filename exists in both locations, /font wins so users can
+  // override bundled/shared fonts without deleting the older /fonts copy.
   char selectedReaderFilename[sizeof(_fonts[0].filename)] = {};
   char selectedUiFilename[sizeof(_fonts[0].filename)] = {};
   const bool hadReaderSelection = _selectedIndex >= 0 && _selectedIndex < _fontCount;
   const bool hadUiSelection = _selectedUiIndex >= 0 && _selectedUiIndex < _fontCount;
   if (hadReaderSelection) {
-    std::strncpy(selectedReaderFilename, _fonts[_selectedIndex].filename,
-                 sizeof(selectedReaderFilename) - 1);
+    std::strncpy(selectedReaderFilename, _fonts[_selectedIndex].filename, sizeof(selectedReaderFilename) - 1);
   }
   if (hadUiSelection) {
-    std::strncpy(selectedUiFilename, _fonts[_selectedUiIndex].filename,
-                 sizeof(selectedUiFilename) - 1);
-  }
-
-  HalFile dir = Storage.open(FONTS_DIR, O_RDONLY);
-  if (!dir) {
-    LOG_ERR("FONT_MGR", "Cannot open fonts directory: %s", FONTS_DIR);
-    return;
-  }
-
-  if (!dir.isDirectory()) {
-    LOG_ERR("FONT_MGR", "%s is not a directory", FONTS_DIR);
-    dir.close();
-    return;
+    std::strncpy(selectedUiFilename, _fonts[_selectedUiIndex].filename, sizeof(selectedUiFilename) - 1);
   }
 
   _fontCount = 0;
-  HalFile entry;
-  while (_fontCount < MAX_FONTS && (entry = dir.openNextFile())) {
-    if (entry.isDirectory()) {
-      entry.close();
-      continue;
+
+  auto existingIndexForFilename = [this](const char* filename) -> int {
+    if (filename == nullptr || filename[0] == '\0') return -1;
+    for (int i = 0; i < _fontCount; ++i) {
+      if (sameFilenameNoCase(_fonts[i].filename, filename)) return i;
+    }
+    return -1;
+  };
+
+  auto scanDirectory = [&](const char* directory) {
+    HalFile dir = Storage.open(directory, O_RDONLY);
+    if (!dir) {
+      LOG_INF("FONT_MGR", "Font directory not present: %s", directory);
+      return;
     }
 
-    char filename[128];
-    entry.getName(filename, sizeof(filename));
-    entry.close();
+    if (!dir.isDirectory()) {
+      LOG_ERR("FONT_MGR", "%s is not a directory", directory);
+      dir.close();
+      return;
+    }
 
-    FontInfo& info = _fonts[_fontCount];
-    info = FontInfo{};
-    std::strncpy(info.filename, filename, sizeof(info.filename) - 1);
-    info.filename[sizeof(info.filename) - 1] = '\0';
-
-    if (endsWithNoCase(filename, ".ttf")) {
-      const uint8_t pixelSize = getTtfPixelSize();
-      deriveTtfDisplayName(filename, info.name, sizeof(info.name));
-      info.size = pixelSize;
-      info.width = pixelSize;
-      info.height = static_cast<uint8_t>(pixelSize + 6);
-      info.type = FontFileType::TrueType;
-    } else {
-      ParsedFontFilename parsed;
-      if (!parseFontFilename(filename, parsed)) {
+    HalFile entry;
+    while ((entry = dir.openNextFile())) {
+      if (entry.isDirectory()) {
+        entry.close();
         continue;
       }
-      std::strncpy(info.name, parsed.name, sizeof(info.name) - 1);
-      info.name[sizeof(info.name) - 1] = '\0';
-      info.size = parsed.size;
-      info.width = parsed.width;
-      info.height = parsed.height;
-      info.type = endsWithNoCase(filename, ".epdf") ? FontFileType::EpdFont : FontFileType::BitmapBin;
+
+      char filename[128];
+      entry.getName(filename, sizeof(filename));
+      entry.close();
+
+      FontInfo candidate{};
+      std::strncpy(candidate.filename, filename, sizeof(candidate.filename) - 1);
+      candidate.filename[sizeof(candidate.filename) - 1] = '\0';
+      std::strncpy(candidate.directory, directory, sizeof(candidate.directory) - 1);
+      candidate.directory[sizeof(candidate.directory) - 1] = '\0';
+
+      if (endsWithNoCase(filename, ".ttf")) {
+        const uint8_t pixelSize = getTtfPixelSize();
+        deriveTtfDisplayName(filename, candidate.name, sizeof(candidate.name));
+        candidate.size = pixelSize;
+        candidate.width = pixelSize;
+        candidate.height = static_cast<uint8_t>(pixelSize + 6);
+        candidate.type = FontFileType::TrueType;
+      } else {
+        ParsedFontFilename parsed;
+        if (!parseFontFilename(filename, parsed)) {
+          LOG_INF("FONT_MGR", "Skipping unrecognized font filename: %s/%s", directory, filename);
+          continue;
+        }
+        std::strncpy(candidate.name, parsed.name, sizeof(candidate.name) - 1);
+        candidate.name[sizeof(candidate.name) - 1] = '\0';
+        candidate.size = parsed.size;
+        candidate.width = parsed.width;
+        candidate.height = parsed.height;
+        candidate.type = endsWithNoCase(filename, ".epdf") ? FontFileType::EpdFont : FontFileType::BitmapBin;
+      }
+
+      const int existing = existingIndexForFilename(filename);
+      if (existing >= 0) {
+        if (isPrimaryFontDirectory(directory) && !isPrimaryFontDirectory(_fonts[existing].directory)) {
+          LOG_INF("FONT_MGR", "Font override: /font/%s replaces %s/%s", filename, _fonts[existing].directory,
+                  _fonts[existing].filename);
+          _fonts[existing] = candidate;
+        } else {
+          LOG_INF("FONT_MGR", "Duplicate font ignored: %s/%s", directory, filename);
+        }
+        continue;
+      }
+
+      if (_fontCount >= MAX_FONTS) {
+        LOG_ERR("FONT_MGR", "Font list full; skipping %s/%s", directory, filename);
+        continue;
+      }
+
+      _fonts[_fontCount] = candidate;
+      LOG_INF("FONT_MGR", "Found %s font: %s (%d, %dx%d) path=%s/%s", fontTypeLabel(candidate.type), candidate.name,
+              candidate.size, candidate.width, candidate.height, candidate.directory, candidate.filename);
+      ++_fontCount;
     }
 
-    LOG_DBG("FONT_MGR", "Found %s font: %s (%d, %dx%d)", fontTypeLabel(info.type), info.name, info.size,
-            info.width, info.height);
-    ++_fontCount;
-  }
+    dir.close();
+  };
 
-  dir.close();
+  // Scan /fonts first, then /font so duplicate filenames in /font override.
+  scanDirectory(FONTS_DIR);
+  scanDirectory(FONT_DIR);
 
   std::sort(_fonts, _fonts + _fontCount, [](const FontInfo& lhs, const FontInfo& rhs) {
-    return std::strcmp(lhs.filename, rhs.filename) < 0;
+    const int nameCmp = std::strcmp(lhs.filename, rhs.filename);
+    if (nameCmp != 0) return nameCmp < 0;
+    return std::strcmp(lhs.directory, rhs.directory) < 0;
   });
 
   auto findFilename = [this](const char* filename) -> int {
@@ -187,7 +239,7 @@ bool FontManager::loadSelectedFont() {
 
   const FontInfo& info = _fonts[_selectedIndex];
   char filepath[192];
-  std::snprintf(filepath, sizeof(filepath), "%s/%s", FONTS_DIR, info.filename);
+  std::snprintf(filepath, sizeof(filepath), "%s/%s", info.directory[0] ? info.directory : FONTS_DIR, info.filename);
 
   const uint8_t ttfPixelSize = info.type == FontFileType::TrueType ? getTtfPixelSize() : 0;
   const bool loaded = _activeFont.load(filepath, ttfPixelSize);
@@ -217,7 +269,9 @@ bool FontManager::loadSelectedUiFont() {
 
   _activeUiFont.unload();
   char filepath[192];
-  std::snprintf(filepath, sizeof(filepath), "%s/%s", FONTS_DIR, _fonts[_selectedUiIndex].filename);
+  std::snprintf(filepath, sizeof(filepath), "%s/%s",
+                _fonts[_selectedUiIndex].directory[0] ? _fonts[_selectedUiIndex].directory : FONTS_DIR,
+                _fonts[_selectedUiIndex].filename);
   return _activeUiFont.load(filepath);
 }
 
@@ -244,8 +298,7 @@ void FontManager::selectFont(int index) {
 }
 
 bool FontManager::reloadReaderFontForSize() {
-  if (_selectedIndex < 0 || _selectedIndex >= _fontCount ||
-      _fonts[_selectedIndex].type != FontFileType::TrueType) {
+  if (_selectedIndex < 0 || _selectedIndex >= _fontCount || _fonts[_selectedIndex].type != FontFileType::TrueType) {
     return false;
   }
 
@@ -273,8 +326,8 @@ void FontManager::invalidateReaderLayoutCaches() {
   int removed = 0;
   for (HalFile entry = root.openNextFile(); entry; entry = root.openNextFile()) {
     entry.getName(name, sizeof(name));
-    const bool bookCache = entry.isDirectory() &&
-                           (std::strncmp(name, "epub_", 5) == 0 || std::strncmp(name, "xtc_", 4) == 0);
+    const bool bookCache =
+        entry.isDirectory() && (std::strncmp(name, "epub_", 5) == 0 || std::strncmp(name, "xtc_", 4) == 0);
     entry.close();
     if (!bookCache) continue;
 
@@ -294,7 +347,10 @@ void FontManager::selectUiFont(int index) {
   }
 
   _selectedUiIndex = index;
-  if (index >= 0) loadSelectedUiFont(); else _activeUiFont.unload();
+  if (index >= 0)
+    loadSelectedUiFont();
+  else
+    _activeUiFont.unload();
   saveSettings();
 }
 
@@ -318,8 +374,14 @@ bool FontManager::previewUiFont(int index) {
 void FontManager::restoreFontSelection(int readerIndex, int uiIndex) {
   _selectedIndex = readerIndex;
   _selectedUiIndex = uiIndex;
-  if (_selectedIndex >= 0) loadSelectedFont(); else _activeFont.unload();
-  if (_selectedUiIndex >= 0) loadSelectedUiFont(); else _activeUiFont.unload();
+  if (_selectedIndex >= 0)
+    loadSelectedFont();
+  else
+    _activeFont.unload();
+  if (_selectedUiIndex >= 0)
+    loadSelectedUiFont();
+  else
+    _activeUiFont.unload();
 }
 
 ExternalFont* FontManager::getActiveFont() {
@@ -358,18 +420,15 @@ FontManager::ScopedGlyphCacheSuspension::ScopedGlyphCacheSuspension(FontManager&
   _manager.setGlyphCachesSuspended(true);
 }
 
-FontManager::ScopedGlyphCacheSuspension::~ScopedGlyphCacheSuspension() {
-  _manager.setGlyphCachesSuspended(_previous);
-}
+FontManager::ScopedGlyphCacheSuspension::~ScopedGlyphCacheSuspension() { _manager.setGlyphCachesSuspended(_previous); }
 
 void FontManager::writeFontChoice(HalFile& file, const int index) const {
   serialization::writePod(file, index);
-  serialization::writeString(file, index >= 0 && index < _fontCount ? std::string(_fonts[index].filename)
-                                                                    : std::string(""));
+  serialization::writeString(file,
+                             index >= 0 && index < _fontCount ? std::string(_fonts[index].filename) : std::string(""));
 }
 
-void FontManager::readFontChoice(HalFile& file, const char* label, int& outIndex,
-                                 bool (FontManager::*loader)()) {
+void FontManager::readFontChoice(HalFile& file, const char* label, int& outIndex, bool (FontManager::*loader)()) {
   int savedIndex = -1;
   serialization::readPod(file, savedIndex);
   std::string savedFilename;

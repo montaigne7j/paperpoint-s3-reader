@@ -11,10 +11,9 @@
 
 class ReaderValueAdjustActivity final : public Activity {
  public:
-  ReaderValueAdjustActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, StrId titleId,
-                            uint8_t initialValue, uint8_t minValue, uint8_t maxValue, uint8_t stepValue,
-                            std::string suffix, std::string helpText,
-                            std::function<void(uint8_t)> applyFn)
+  ReaderValueAdjustActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, StrId titleId, int16_t initialValue,
+                            int16_t minValue, int16_t maxValue, int16_t stepValue, std::string suffix,
+                            std::string helpText, std::function<void(int16_t)> applyFn)
       : Activity("ReaderValueAdjust", renderer, mappedInput),
         titleId(titleId),
         value(initialValue),
@@ -32,13 +31,13 @@ class ReaderValueAdjustActivity final : public Activity {
 
  private:
   StrId titleId;
-  uint8_t value;
-  uint8_t minValue;
-  uint8_t maxValue;
-  uint8_t stepValue;
+  int16_t value;
+  int16_t minValue;
+  int16_t maxValue;
+  int16_t stepValue;
   std::string suffix;
   std::string helpText;
-  std::function<void(uint8_t)> applyFn;
+  std::function<void(int16_t)> applyFn;
   ButtonNavigator buttonNavigator;
 
   void adjust(int direction);

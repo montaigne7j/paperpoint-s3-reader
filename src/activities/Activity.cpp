@@ -2,7 +2,9 @@
 
 #include "ActivityManager.h"
 #if CROSSPOINT_PAPERS3
+#include "CrossPointSettings.h"
 #include "components/UITheme.h"
+#include "reader/ReaderUtils.h"
 #endif
 
 void Activity::onEnter() {
@@ -11,9 +13,14 @@ void Activity::onEnter() {
 #if CROSSPOINT_PAPERS3
   renderer.requestFullRefresh();  // Full e-ink refresh on every activity transition to prevent ghosting
   if (!isReaderActivity()) {
-    // Non-reader activities always render in portrait so footer buttons match
-    // the physical bottom of the device where drawButtonHints draws them.
-    renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+    // Reader sub-screens (reader menu, chapter list, settings opened from the
+    // reader, comic menu, etc.) must follow the reader's 0/180 orientation.
+    // Only top-level non-reader UI is forced back to normal portrait.
+    if (activityManager.isReaderContextActive()) {
+      ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+    } else {
+      renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+    }
   }
   mappedInput.setTouchOrientation(renderer.getOrientation());
   // Enable footer nav buttons for all non-reader activities; readers use full screen for content

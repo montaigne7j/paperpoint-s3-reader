@@ -41,10 +41,11 @@ void NetworkModeSelectionActivity::loop() {
   {
     const auto& metrics = UITheme::getInstance().getMetrics();
     const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-    const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
-    const int targetIndex = DirectTouchSelection::hitListRow(
-        mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight}, MENU_ITEM_COUNT, selectedIndex,
-        metrics.listWithSubtitleRowHeight);
+    const int contentHeight =
+        renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+    const int targetIndex =
+        DirectTouchSelection::hitListRow(mappedInput, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight},
+                                         MENU_ITEM_COUNT, selectedIndex, metrics.listWithSubtitleRowHeight);
     if (targetIndex >= 0) {
       if (targetIndex == selectedIndex) {
         handleCurrentSelection();
@@ -100,7 +101,6 @@ void NetworkModeSelectionActivity::render(RenderLock&&) {
 
   renderer.displayBuffer();
 }
-
 
 void NetworkModeSelectionActivity::handleCurrentSelection() {
   NetworkMode mode = NetworkMode::JOIN_NETWORK;
