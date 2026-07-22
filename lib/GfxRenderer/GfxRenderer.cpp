@@ -1334,6 +1334,36 @@ void GfxRenderer::drawIconRotatedLeft90(const uint8_t bitmap[], const int x, con
   }
 }
 
+void GfxRenderer::drawIconRotatedRight90(const uint8_t bitmap[], const int x, const int y, const int width,
+                                         const int height) const {
+  if (bitmap == nullptr || width <= 0 || height <= 0) return;
+
+  const int imageWidthBytes = (width + 7) / 8;
+  for (int row = 0; row < height; ++row) {
+    for (int col = 0; col < width; ++col) {
+      const uint8_t srcByte = bitmap[row * imageWidthBytes + col / 8];
+      const bool sourceWhite = (srcByte & (0x80 >> (col % 8))) != 0;
+      if (sourceWhite) continue;
+      drawPixel(x + height - 1 - row, y + col, true);
+    }
+  }
+}
+
+void GfxRenderer::drawIconRotated180(const uint8_t bitmap[], const int x, const int y, const int width,
+                                     const int height) const {
+  if (bitmap == nullptr || width <= 0 || height <= 0) return;
+
+  const int imageWidthBytes = (width + 7) / 8;
+  for (int row = 0; row < height; ++row) {
+    for (int col = 0; col < width; ++col) {
+      const uint8_t srcByte = bitmap[row * imageWidthBytes + col / 8];
+      const bool sourceWhite = (srcByte & (0x80 >> (col % 8))) != 0;
+      if (sourceWhite) continue;
+      drawPixel(x + width - 1 - col, y + height - 1 - row, true);
+    }
+  }
+}
+
 // IMPORTANT: This function is in critical rendering path and is called for every pixel. Please keep it as simple and
 // efficient as possible.
 void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.9.1 — 2026-07-22 — Inversion lock and UI hotfix
+
+- Fixed the upside-down reading lock polarity in Fixed 180° mode so the lock follows the calibrated physical pose.
+- Preserved the confirmed BMI270 lock state between data-ready polls and added a 450 ms debounce to lock/unlock transitions.
+- Made toggle settings respond and redraw immediately when their row is tapped.
+- Corrected File Browser row-icon orientation and the Novel Reader, Comic Reader, and Recent Books home icon orientation.
+
+See `RELEASE_NOTES_v1.9.1.md` for the user-facing release summary.
+
 ## 1.9.0 — 2026-07-17 — Public release
 
 - Published the complete Paper S3 feature set previously consolidated during the 1.8.4 development cycle as semantic version 1.9.0.
