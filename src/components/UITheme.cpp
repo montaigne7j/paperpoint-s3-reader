@@ -103,6 +103,22 @@ UIIcon UITheme::getFileIcon(const std::string& filename) {
   return File;
 }
 
+UIIcon UITheme::getFileBrowserIcon(const std::string& filename) {
+  switch (getFileIcon(filename)) {
+    case Folder:
+      return FolderRight90;
+    case Text:
+      return TextRight90;
+    case Image:
+      return ImageRight90;
+    case Book:
+      return BookRight90;
+    case File:
+    default:
+      return FileRight90;
+  }
+}
+
 int UITheme::getStatusBarHeight() {
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
   const bool clockVisible = SETTINGS.statusBarClock && halClock.isAvailable();

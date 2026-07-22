@@ -77,14 +77,19 @@ const uint8_t* iconForName(UIIcon icon, int size) {
   if (size == 24) {
     switch (icon) {
       case UIIcon::Folder:
+      case UIIcon::FolderRight90:
         return Folder24Icon;
       case UIIcon::Text:
+      case UIIcon::TextRight90:
         return Text24Icon;
       case UIIcon::Image:
+      case UIIcon::ImageRight90:
         return Image24Icon;
       case UIIcon::Book:
+      case UIIcon::BookRight90:
         return Book24Icon;
       case UIIcon::File:
+      case UIIcon::FileRight90:
         return File24Icon;
       default:
         return nullptr;
@@ -92,6 +97,7 @@ const uint8_t* iconForName(UIIcon icon, int size) {
   } else if (size == 32) {
     switch (icon) {
       case UIIcon::Folder:
+      case UIIcon::NovelReader:
         return FolderIcon;
       case UIIcon::Book:
         return BookIcon;
@@ -102,6 +108,7 @@ const uint8_t* iconForName(UIIcon icon, int size) {
       case UIIcon::Transfer:
         return TransferIcon;
       case UIIcon::Library:
+      case UIIcon::ComicReader:
         return LibraryIcon;
       case UIIcon::Wifi:
         return WifiIcon;
@@ -215,8 +222,16 @@ void drawLyraListRow(const GfxRenderer& renderer, const Rect rect, const int ite
     const uint8_t* iconBitmap = iconForName(icon, iconSize);
     if (iconBitmap != nullptr) {
       const int iconYOff = (rowHeight - iconSize) / 2;
-      renderer.drawIcon(iconBitmap, rect.x + LyraMetrics::values.contentSidePadding + hPaddingInSelection,
-                        itemY + iconYOff, iconSize, iconSize);
+      const int iconX = rect.x + LyraMetrics::values.contentSidePadding + hPaddingInSelection;
+      const int iconY = itemY + iconYOff;
+      const bool rotateRight90 = icon == UIIcon::FolderRight90 || icon == UIIcon::TextRight90 ||
+                                 icon == UIIcon::ImageRight90 || icon == UIIcon::BookRight90 ||
+                                 icon == UIIcon::FileRight90;
+      if (rotateRight90) {
+        renderer.drawIconRotatedRight90(iconBitmap, iconX, iconY, iconSize, iconSize);
+      } else {
+        renderer.drawIcon(iconBitmap, iconX, iconY, iconSize, iconSize);
+      }
     }
   }
 
@@ -679,9 +694,11 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
       UIIcon icon = rowIcon(i);
       const uint8_t* iconBitmap = iconForName(icon, mainMenuIconSize);
       if (iconBitmap != nullptr) {
-        const bool rotateHomeIconLeft =
-            icon == UIIcon::Folder || icon == UIIcon::Recent || icon == UIIcon::Transfer || icon == UIIcon::Settings;
-        if (rotateHomeIconLeft) {
+        if (icon == UIIcon::NovelReader || icon == UIIcon::Recent) {
+          renderer.drawIconRotated180(iconBitmap, textX, textY + 3, mainMenuIconSize, mainMenuIconSize);
+        } else if (icon == UIIcon::ComicReader) {
+          renderer.drawIconRotatedRight90(iconBitmap, textX, textY + 3, mainMenuIconSize, mainMenuIconSize);
+        } else if (icon == UIIcon::Transfer || icon == UIIcon::Settings) {
           renderer.drawIconRotatedLeft90(iconBitmap, textX, textY + 3, mainMenuIconSize, mainMenuIconSize);
         } else {
           renderer.drawIcon(iconBitmap, textX, textY + 3, mainMenuIconSize, mainMenuIconSize);

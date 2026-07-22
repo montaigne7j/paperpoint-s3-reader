@@ -15,7 +15,7 @@
 
 ## 目前版本與本版重點
 
-- 目前 GitHub 發布版本：**1.9.0**（整合內部修訂至 **r34i**）。
+- 目前 GitHub 發布版本：**1.9.1**。
 - 支援 EPUB 2/3、TXT、圖片，以及以 `.zip` / `.cbz` 封裝的漫畫圖片閱讀。
 - **電量顯示穩定化**：改用 Paper S3 USB 偵測腳位判斷外部供電，電池 ADC 採多次取樣與平滑追蹤；USB 插拔後會先等待電壓穩定，避免百分比瞬間大幅跳動。
 - **BMI270 閱讀方向感應**：提供固定正向、固定 180° 與自動 0°/180°；使用前須完成四姿勢校正。閱讀內容、背景、狀態列、閱讀選單與觸控座標會同步旋轉。
@@ -28,7 +28,7 @@
 - 穩定性優先：停用 Paper S3 閒置降至 80 MHz，並加強 ZIP 解壓、圖片解碼、觸控排隊、背景快取與 watchdog cooperative yield。
 - 提供 GitHub Actions 自動編譯、Release 合規附件與瀏覽器線上燒錄頁。
 
-完整更新內容請參閱 [CHANGELOG.md](CHANGELOG.md) 與 [V1.9.0 Release Notes](RELEASE_NOTES_v1.9.0.md)。
+完整更新內容請參閱 [CHANGELOG.md](CHANGELOG.md) 與 [V1.9.1 Release Notes](RELEASE_NOTES_v1.9.1.md)。
 
 ## 線上燒錄
 

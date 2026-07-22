@@ -420,7 +420,7 @@ void FileBrowserActivity::render(RenderLock&&) {
     GUI.redrawListSelection(
         renderer, listRect, static_cast<int>(files.size()), static_cast<int>(renderedSelectorIndex),
         static_cast<int>(targetSelectorIndex), [this](int index) { return getFileName(files[index]); }, nullptr,
-        [this](int index) { return UITheme::getFileIcon(files[index]); },
+        [this](int index) { return UITheme::getFileBrowserIcon(files[index]); },
         [this](int index) { return getFileExtension(files[index]); }, false);
 
     LOG_DBG("FileBrowser", "Partial row update: %u -> %u (page %u)", static_cast<unsigned>(renderedSelectorIndex),
@@ -446,7 +446,7 @@ void FileBrowserActivity::render(RenderLock&&) {
       GUI.drawList(
           renderer, listRect, files.size(), targetSelectorIndex,
           [this](int index) { return getFileName(files[index]); }, nullptr,
-          [this](int index) { return UITheme::getFileIcon(files[index]); },
+          [this](int index) { return UITheme::getFileBrowserIcon(files[index]); },
           [this](int index) { return getFileExtension(files[index]); }, false);
     }
 

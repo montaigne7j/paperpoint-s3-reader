@@ -26,6 +26,8 @@ bool calibrationSession = false;
 uint8_t currentOrientation = CrossPointSettings::PORTRAIT;
 uint32_t lastPollMs = 0;
 uint32_t candidateSinceMs = 0;
+uint32_t lockCandidateSinceMs = 0;
+bool lockCandidateValue = false;
 
 AccelSample poses[4];
 constexpr uint32_t POLL_INTERVAL_MS = 100;
@@ -173,6 +175,8 @@ void clearCalibration() {
   clearStoredCalibration();
   calibrated = false;
   locked = false;
+  candidateSinceMs = 0;
+  lockCandidateSinceMs = 0;
 #endif
 }
 
@@ -188,8 +192,13 @@ void clearStoredCalibration() {
 
 void update() {
 #if CROSSPOINT_PAPERS3
-  locked = false;
-  if (calibrationSession || !available || !calibrated) return;
+  // Preserve the last confirmed lock state between BMI270 data-ready polls.
+  if (calibrationSession || !available || !calibrated) {
+    locked = false;
+    candidateSinceMs = 0;
+    lockCandidateSinceMs = 0;
+    return;
+  }
   const uint32_t now = millis();
   if (now - lastPollMs < POLL_INTERVAL_MS) return;
   lastPollMs = now;
@@ -197,13 +206,16 @@ void update() {
   AccelSample raw;
   if (!readSample(raw) || mag3(raw) < AXIS_MIN_G) return;
   const AccelSample s = normalized(raw);
-  const float uprightDot = dot3(s, poses[0]);
-  const float invertedDot = dot3(s, poses[1]);
+  const float uprightDot = dot3(s, poses[static_cast<uint8_t>(CalibrationPose::Upright)]);
+  const float invertedDot = dot3(s, poses[static_cast<uint8_t>(CalibrationPose::Inverted)]);
   const bool invertedCandidate = invertedDot > DOT_ENTER && uprightDot < -DOT_EXIT;
   const bool uprightCandidate = uprightDot > DOT_ENTER && invertedDot < -DOT_EXIT;
 
   const uint8_t mode = SETTINGS.readerOrientationMode;
   if (mode == CrossPointSettings::READER_ORIENTATION_AUTO) {
+    // Automatic orientation and input locking are mutually exclusive.
+    locked = false;
+    lockCandidateSinceMs = 0;
     const uint8_t wanted = invertedCandidate  ? CrossPointSettings::INVERTED
                            : uprightCandidate ? CrossPointSettings::PORTRAIT
                                               : currentOrientation;
@@ -215,15 +227,50 @@ void update() {
         candidateSinceMs = 0;
         LOG_INF("IMU", "Auto reader orientation=%u", currentOrientation);
       }
-    } else
+    } else {
       candidateSinceMs = 0;
-  } else {
-    currentOrientation = mode == CrossPointSettings::READER_ORIENTATION_FIXED_180 ? CrossPointSettings::INVERTED
-                                                                                  : CrossPointSettings::PORTRAIT;
-    candidateSinceMs = 0;
-    if (SETTINGS.readerInversionLock) {
-      locked = (currentOrientation == CrossPointSettings::PORTRAIT) ? invertedCandidate : uprightCandidate;
     }
+    return;
+  }
+
+  currentOrientation = mode == CrossPointSettings::READER_ORIENTATION_FIXED_180 ? CrossPointSettings::INVERTED
+                                                                                : CrossPointSettings::PORTRAIT;
+  candidateSinceMs = 0;
+
+  if (!SETTINGS.readerInversionLock) {
+    locked = false;
+    lockCandidateSinceMs = 0;
+    return;
+  }
+
+  // The lock follows the calibrated physical upside-down pose, independent
+  // of whether the rendered page is fixed at 0 or 180 degrees.
+  bool hasCandidate = false;
+  bool wantedLock = locked;
+  if (invertedCandidate) {
+    wantedLock = true;
+    hasCandidate = true;
+  } else if (uprightCandidate) {
+    wantedLock = false;
+    hasCandidate = true;
+  }
+
+  if (!hasCandidate || wantedLock == locked) {
+    lockCandidateSinceMs = 0;
+    return;
+  }
+
+  if (lockCandidateSinceMs == 0 || lockCandidateValue != wantedLock) {
+    lockCandidateValue = wantedLock;
+    lockCandidateSinceMs = now;
+    return;
+  }
+
+  if (now - lockCandidateSinceMs >= HOLD_MS) {
+    locked = wantedLock;
+    lockCandidateSinceMs = 0;
+    LOG_INF("IMU", "Reader inversion lock=%d mode=%u uprightDot=%.2f invertedDot=%.2f", locked ? 1 : 0,
+            static_cast<unsigned>(mode), uprightDot, invertedDot);
   }
 #endif
 }
@@ -233,6 +280,7 @@ void beginCalibrationSession() {
   calibrationSession = true;
   locked = false;
   candidateSinceMs = 0;
+  lockCandidateSinceMs = 0;
 #endif
 }
 
@@ -241,6 +289,7 @@ void endCalibrationSession(bool completedSuccessfully) {
   calibrationSession = false;
   locked = false;
   candidateSinceMs = 0;
+  lockCandidateSinceMs = 0;
   if (!completedSuccessfully) {
     // Restore the last valid saved calibration after a cancelled/failed retry.
     loadCalibration();

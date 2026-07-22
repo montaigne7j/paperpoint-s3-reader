@@ -2,8 +2,8 @@
   "spdxVersion": "SPDX-2.3",
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
-  "name": "PaperPoint-S3-Reader-1.9.0-SBOM",
-  "documentNamespace": "https://github.com/montaigne7j/paperpoint-s3-reader/spdx/1.9.0/NOASSERTION/a3804077-d897-4451-b793-9cf309922557",
+  "name": "PaperPoint-S3-Reader-1.9.1-SBOM",
+  "documentNamespace": "https://github.com/montaigne7j/paperpoint-s3-reader/spdx/1.9.1/NOASSERTION/a3804077-d897-4451-b793-9cf309922557",
   "creationInfo": {
     "created": "2026-07-16T15:22:51Z",
     "creators": [
@@ -17,7 +17,7 @@
     {
       "SPDXID": "SPDXRef-Package-PaperPoint-S3-Reader",
       "name": "PaperPoint-S3-Reader",
-      "versionInfo": "1.9.0",
+      "versionInfo": "1.9.1",
       "downloadLocation": "https://github.com/montaigne7j/paperpoint-s3-reader",
       "filesAnalyzed": false,
       "licenseConcluded": "MIT",

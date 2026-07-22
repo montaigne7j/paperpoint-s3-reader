@@ -158,10 +158,19 @@ void SettingsActivity::loop() {
       const bool wasAlreadySelected = targetSelection == selectedSettingIndex;
       selectedSettingIndex = targetSelection;
 
+      const auto& tappedSetting = (*currentSettings)[targetSetting];
+
+      // Boolean rows are direct touch switches. Redraw immediately so the
+      // displayed value follows the stored value on the same tap.
+      if (tappedSetting.type == SettingType::TOGGLE) {
+        toggleCurrentSetting();
+        requestUpdate();
+        return;
+      }
+
       // Calibration is a guided action rather than an in-place value. Open it
       // immediately on the first tap so it cannot appear selected yet fail to
       // enter because a second tap was missed by the e-paper touch cycle.
-      const auto& tappedSetting = (*currentSettings)[targetSetting];
       if (tappedSetting.type == SettingType::ACTION && tappedSetting.action == SettingAction::ImuCalibration) {
         toggleCurrentSetting();
         return;
@@ -169,6 +178,14 @@ void SettingsActivity::loop() {
 
       if (wasAlreadySelected) {
         toggleCurrentSetting();
+        const bool opensValuePicker = tappedSetting.type == SettingType::VALUE &&
+                                      (tappedSetting.valuePtr == &CrossPointSettings::fontSize ||
+                                       tappedSetting.valuePtr == &CrossPointSettings::lineSpacing ||
+                                       tappedSetting.valuePtr == &CrossPointSettings::characterSpacing);
+        if (tappedSetting.type == SettingType::ENUM ||
+            (tappedSetting.type == SettingType::VALUE && !opensValuePicker)) {
+          requestUpdate();
+        }
       } else {
         requestUpdate();
       }

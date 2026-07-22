@@ -331,7 +331,7 @@ void HomeActivity::render(RenderLock&&) {
   // Build menu items dynamically
   std::vector<const char*> menuItems = {tr(STR_NOVEL_READER),  tr(STR_COMIC_READER),   tr(STR_MENU_RECENT_BOOKS),
                                         tr(STR_FILE_TRANSFER), tr(STR_SETTINGS_TITLE), tr(STR_POWER_OFF)};
-  std::vector<UIIcon> menuIcons = {Folder, Library, Recent, Transfer, Settings, Power};
+  std::vector<UIIcon> menuIcons = {NovelReader, ComicReader, Recent, Transfer, Settings, Power};
 
   if (hasOpdsUrl) {
     // Insert OPDS Browser after Recent Books
